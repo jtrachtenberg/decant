@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Decant (dev)",
+  "version": "0.0.1",
+  "description": "Convert files to Markdown before they upload to LLM chat UIs. Milestone 0: hardcoded swap on claude.ai.",
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["src/content/intercept.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}
