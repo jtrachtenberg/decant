@@ -1,36 +1,27 @@
-// Decant — Milestone 0: hardcoded Markdown swap.
+// Decant — content script: intercept → convert → substitute.
 //
-// Listens for file-attach events on claude.ai and substitutes a fixed
-// `hello.md` for whatever the user actually selected. The point is not
-// conversion — it's to prove that interception + substitution lands at all.
+// Listens for file-attach events on claude.ai, runs each file through the
+// converter (PDF → Markdown, everything else passthrough), and substitutes
+// the result into the upload before Claude sees it.
 //
 // Three attach paths:
 //   1. <input type="file"> change   (file-picker / paperclip button)
 //   2. drop                          (drag-and-drop onto the composer)
 //   3. paste                         (file pasted from clipboard) — TODO
 //
-// All listeners are installed in the capture phase at document_start so they
-// run before Claude's own handlers. stopImmediatePropagation then keeps the
-// original event from reaching them; we re-dispatch synthetic events carrying
-// the swapped file (and, on drop, a separate cleanup event to release the
-// dropzone overlay — see drop handler).
+// Listeners run in the capture phase at document_start, ahead of Claude's own
+// handlers. We block the original event synchronously, then convert
+// asynchronously and re-inject through the hidden file input. Conversion is
+// async, so the file appears a beat after the drop/pick — acceptable for now.
+
+import { convertFile } from "../convert/index.js";
 
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
 
-const HELLO_MD =
-  "# Hello from Decant\n" +
-  "\n" +
-  "If you can read this in the chat, the file-swap path works.\n" +
-  "The file you originally picked never left your machine.\n";
-
-function makeMarkdownFile(name) {
-  return new File([HELLO_MD], name || "hello.md", { type: "text/markdown" });
-}
-
-function dataTransferWith(file) {
+function dataTransferWith(files) {
   const dt = new DataTransfer();
-  dt.items.add(file);
+  for (const f of files) dt.items.add(f);
   return dt;
 }
 
@@ -44,6 +35,35 @@ function findUsableFileInput() {
   return best;
 }
 
+// Run every file through the converter, logging what happened to each.
+// Returns the list of files to actually hand to the upload target.
+async function processFiles(fileArray) {
+  const out = [];
+  for (const f of fileArray) {
+    const r = await convertFile(f);
+    if (r.action === "converted") {
+      console.log(
+        TAG,
+        `converted ${f.name} → ${r.file.name}`,
+        `(${r.meta.pageCount}p, ~${Math.round(r.meta.avgChars)} chars/pg)`
+      );
+    } else {
+      console.log(TAG, `passthrough ${f.name} (${r.reason})`);
+    }
+    out.push(r.file);
+  }
+  return out;
+}
+
+// Inject the (possibly converted) files into the upload by swapping the hidden
+// input's .files and dispatching a trusted-looking change event.
+function injectViaInput(input, files) {
+  input.files = dataTransferWith(files).files;
+  const change = new Event("change", { bubbles: true, cancelable: true });
+  change[SENTINEL] = true;
+  input.dispatchEvent(change);
+}
+
 // ---------------------------------------------------------------- change ---
 document.addEventListener(
   "change",
@@ -53,27 +73,28 @@ document.addEventListener(
     if (ev[SENTINEL]) return;
     if (!target.files || target.files.length === 0) return;
 
-    console.log(TAG, "change intercepted:", Array.from(target.files, (f) => f.name));
+    // Capture File references now — the FileList may be cleared after the event.
+    const originals = Array.from(target.files);
+    console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
 
-    target.files = dataTransferWith(makeMarkdownFile()).files;
-    const synth = new Event("change", { bubbles: true, cancelable: true });
-    synth[SENTINEL] = true;
-    target.dispatchEvent(synth);
+    processFiles(originals).then((files) => injectViaInput(target, files));
   },
   true
 );
 
 // ------------------------------------------------------------------ drop ---
 // Two synthesized events are needed on Claude:
-//   (a) populate the hidden <input type="file"> and dispatch a change event.
-//       This is what reliably adds the file to the composer; a synthetic
-//       DragEvent on the dropzone alone isn't trusted as a file source.
-//   (b) dispatch a synthetic drop on the original target so Claude's drop
-//       handler runs and clears its "drag active" state (the overlay).
-//       Empty dataTransfer makes the handler bail before resetting state,
-//       so the cleanup drop has to carry a file (which Claude then ignores
-//       because isTrusted === false). Net result: overlay clears, no dup.
+//   (a) populate the hidden <input type="file"> and dispatch change — the
+//       reliable way to add a file; a synthetic DragEvent isn't trusted as a
+//       file source. This carries the converted file and happens after the
+//       async conversion resolves.
+//   (b) immediately dispatch a synthetic drop on the original target so
+//       Claude's drop handler runs and clears its "drag active" overlay. An
+//       empty dataTransfer makes the handler bail before resetting state, so
+//       the cleanup drop carries a 1-byte placeholder (ignored by Claude
+//       because isTrusted === false). This fires synchronously so the overlay
+//       releases instantly rather than waiting on conversion.
 document.addEventListener(
   "drop",
   (ev) => {
@@ -81,37 +102,41 @@ document.addEventListener(
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
 
-    console.log(TAG, "drop intercepted:", Array.from(files, (f) => f.name));
+    // Capture File references now — the DataTransfer is cleared after drop.
+    const originals = Array.from(files);
+    console.log(TAG, "drop intercepted:", originals.map((f) => f.name));
     ev.preventDefault();
     ev.stopImmediatePropagation();
 
-    const input = findUsableFileInput();
-    if (input) {
-      input.files = dataTransferWith(makeMarkdownFile()).files;
-      const change = new Event("change", { bubbles: true, cancelable: true });
-      change[SENTINEL] = true;
-      input.dispatchEvent(change);
-    } else {
-      console.warn(TAG, "drop: no usable <input type=file> to swap into");
-    }
-
+    // (b) Clear the dropzone overlay right away.
+    const placeholder = new File(["x"], "decant-placeholder.txt", {
+      type: "text/plain",
+    });
     const cleanupDrop = new DragEvent("drop", {
       bubbles: true,
       cancelable: true,
-      dataTransfer: dataTransferWith(makeMarkdownFile()),
+      dataTransfer: dataTransferWith([placeholder]),
       clientX: ev.clientX,
       clientY: ev.clientY,
     });
     cleanupDrop[SENTINEL] = true;
     ev.target.dispatchEvent(cleanupDrop);
+
+    // (a) Convert, then inject through the hidden input.
+    const input = findUsableFileInput();
+    if (!input) {
+      console.warn(TAG, "drop: no usable <input type=file> to swap into");
+      return;
+    }
+    processFiles(originals).then((converted) => injectViaInput(input, converted));
   },
   true
 );
 
 // ----------------------------------------------------------------- paste ---
 // ClipboardEvent.clipboardData is read-only in Chrome — can't be set via the
-// constructor — so a clean synthetic-paste redispatch isn't possible. For
-// Milestone 0 we just block file-paste; proper handling is M1+ work.
+// constructor — so a clean synthetic-paste redispatch isn't possible. For now
+// we just block file-paste; proper handling is later work.
 document.addEventListener(
   "paste",
   (ev) => {

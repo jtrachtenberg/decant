@@ -18,6 +18,11 @@ not on re-reading pictures of pages.
 > and not everything described below is implemented. The spec is the source of
 > truth for what's planned; this README describes the project's intent and how to
 > run what exists.
+>
+> **Progress:** Milestone 0 (interception + file swap on `claude.ai`) is
+> complete. Milestone 1 (in-browser PDF→Markdown via pdf.js, with scanned-PDF
+> passthrough) is in progress and working for text PDFs. See the
+> [Roadmap](#roadmap) for what's next.
 
 ---
 
@@ -125,10 +130,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
 
 ## Roadmap
 
-- **M0 — Hello, swap.** Prove interception works: intercept an upload on
-  `claude.ai` and substitute a file. *(The whole premise rides on this.)*
-- **M1 — In-browser conversion.** Real PDF→Markdown via pdf.js, with text-layer
-  detection so scanned PDFs pass through instead of degrading.
+- **M0 — Hello, swap. ✅ Complete.** Interception proven: file picker and
+  drag-and-drop uploads on `claude.ai` are intercepted and the file is
+  substituted before the site sees it.
+- **M1 — In-browser conversion. 🚧 In progress.** Real PDF→Markdown via pdf.js,
+  with text-layer detection so scanned PDFs pass through instead of degrading.
+  Working for text PDFs today; clipboard paste and table/heading structure are
+  still to come.
 - **M2 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 - **M3 — Polish.** Office formats, full config UI, multi-site support,
   token-savings estimates.

@@ -1,0 +1,18 @@
+{
+  "name": "decant",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Convert files to Markdown before they upload to LLM chat UIs.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.1.200"
+  }
+}
