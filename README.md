@@ -96,7 +96,7 @@ text dropped into the upload.
 Decant isn't packaged for the Web Store yet. To run the work-in-progress locally:
 
 ```bash
-git clone https://github.com/<your-org>/decant.git
+git clone https://github.com/jtrachtenberg/decant.git
 cd decant
 npm install
 npm run build      # emits the unpacked extension to dist/
