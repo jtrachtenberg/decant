@@ -139,5 +139,20 @@ dist
 
 # Vite files
 vite.config.js.timestamp-*
+
+# Chrome extension
+*.pem
+*.zip
+dist/
+build/
+
+#MacOS
+.DS_Store
+
+#Companion Libraries
+__pycache__/
+*.pyc
+venv/
+.venv/
 vite.config.ts.timestamp-*
 .vite/
