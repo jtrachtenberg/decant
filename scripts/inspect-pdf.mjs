@@ -11,7 +11,8 @@
 import { readFile } from "node:fs/promises";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
-  itemsToText,
+  reconstructLines,
+  linesToText,
   countChars,
   classifyDocument,
   IMAGE_OP_NAMES,
@@ -44,8 +45,8 @@ console.log("-".repeat(40));
 const perPage = [];
 for (let n = 1; n <= pdf.numPages; n++) {
   const page = await pdf.getPage(n);
-  const text = itemsToText((await page.getTextContent()).items);
-  const chars = countChars(text);
+  const lines = reconstructLines((await page.getTextContent()).items);
+  const chars = countChars(linesToText(lines));
 
   let images = 0;
   try {
