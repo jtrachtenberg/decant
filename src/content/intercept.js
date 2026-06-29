@@ -7,7 +7,7 @@
 // Three attach paths:
 //   1. <input type="file"> change   (file-picker / paperclip button)
 //   2. drop                          (drag-and-drop onto the composer)
-//   3. paste                         (file pasted from clipboard) — TODO
+//   3. paste                         (file pasted from clipboard)
 //
 // Listeners run in the capture phase at document_start, ahead of Claude's own
 // handlers. We block the original event synchronously, then convert
@@ -134,20 +134,39 @@ document.addEventListener(
 );
 
 // ----------------------------------------------------------------- paste ---
-// ClipboardEvent.clipboardData is read-only in Chrome — can't be set via the
-// constructor — so a clean synthetic-paste redispatch isn't possible. For now
-// we just block file-paste; proper handling is later work.
+// ClipboardEvent.clipboardData is read-only and can't be reconstructed via the
+// constructor, so we can't re-dispatch a synthetic paste. We don't need to:
+// block the original paste and route the converted file through the hidden
+// file input, exactly like the drop path. No overlay to release here, so paste
+// is the simplest of the three. Text-only pastes are left untouched.
 document.addEventListener(
   "paste",
   (ev) => {
     if (ev[SENTINEL]) return;
-    const items = ev.clipboardData && ev.clipboardData.items;
-    if (!items) return;
-    if (!Array.from(items).some((it) => it.kind === "file")) return;
+    const cd = ev.clipboardData;
+    if (!cd) return;
 
-    console.log(TAG, "paste with files intercepted (blocked, not yet re-injected)");
+    // Capture File references synchronously — clipboardData is only valid for
+    // the duration of the event. Prefer .files; fall back to item.getAsFile().
+    let originals = Array.from(cd.files || []);
+    if (originals.length === 0 && cd.items) {
+      originals = Array.from(cd.items)
+        .filter((it) => it.kind === "file")
+        .map((it) => it.getAsFile())
+        .filter(Boolean);
+    }
+    if (originals.length === 0) return; // text-only paste — leave it alone
+
+    console.log(TAG, "paste intercepted:", originals.map((f) => f.name));
     ev.preventDefault();
     ev.stopImmediatePropagation();
+
+    const input = findUsableFileInput();
+    if (!input) {
+      console.warn(TAG, "paste: no usable <input type=file> to swap into");
+      return;
+    }
+    processFiles(originals).then((converted) => injectViaInput(input, converted));
   },
   true
 );
