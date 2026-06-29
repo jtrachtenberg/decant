@@ -134,12 +134,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
 - **M0 — Hello, swap. ✅ Complete.** Interception proven: file picker,
   drag-and-drop, and paste uploads on `claude.ai` are intercepted and the file
   is substituted before the site sees it.
-- **M1 — In-browser conversion. 🚧 In progress.** Real PDF→Markdown via pdf.js,
-  with text-layer detection so scanned PDFs pass through instead of degrading.
-  Working today for text PDFs across all three intake paths (picker,
-  drag-and-drop, paste). Still to come: a per-file Convert / Send-original
-  toggle, and table/heading structure in the extracted Markdown (currently flat
-  text).
+- **M1 — In-browser conversion. 🚧 In progress.** Real PDF→Markdown via pdf.js
+  across all three intake paths (picker, drag-and-drop, paste). A content
+  classifier decides per document — **convert** (text), **passthrough** (scans /
+  no usable text), or **ambiguous** (text plus image-charts, kept original so
+  charts aren't silently dropped) — and the extracted Markdown carries heading
+  and table structure, not just flat text. Still to come: the manual overrides
+  (per-file Convert / Send-original toggle and a configurable passthrough
+  hotkey), and improved multi-column reading order.
 - **M2 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 - **M3 — Polish.** Office formats, full config UI, multi-site support,
   token-savings estimates.
