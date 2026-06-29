@@ -141,17 +141,30 @@ on it fall back gracefully (in-browser conversion or passthrough).
 - **M3 — Polish.** Office formats, full config UI, multi-site support,
   token-savings estimates.
 
-See [`SPEC.md`](./SPEC.md) for the full design, including the interception
-mechanics and architecture decisions.
+---
+
+## Project docs
+
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — the surface-agnostic core
+  design: the `intercept → route → transform → substitute` pipeline, the
+  swappable converter interface, the parsing-vs-recognition boundary, and the
+  engine landscape.
+- [`docs/SURFACES.md`](./docs/SURFACES.md) — the surfaces Decant can ship on
+  (browser, Claude Desktop MCP, native desktop, mobile) and the expansion
+  strategy.
+- [`SPEC.md`](./SPEC.md) — the **browser-extension surface**: Manifest V3
+  interception mechanics, the config model, and the M0–M3 milestones.
+- [`docs/adr/`](./docs/adr/) — the decision log (architecture decision records).
 
 ---
 
 ## Contributing
 
 Early-stage and moving fast — issues and discussion are welcome. If you're
-opening a PR, please read [`SPEC.md`](./SPEC.md) first so changes line up with the
+opening a PR, please read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the
 intended architecture (especially the parsing-vs-recognition boundary and the
-default-deny config model).
+default-deny config model), and [`SPEC.md`](./SPEC.md) for the browser-surface
+specifics your change touches.
 
 ---
 
@@ -159,7 +172,9 @@ default-deny config model).
 
 Decant is released under the **PolyForm Noncommercial License 1.0.0** — see
 [`LICENSE`](./LICENSE). You're free to use, modify, and share it for any
-**non-commercial** purpose; commercial use by others isn't granted.
+**non-commercial** purpose; commercial use by others isn't granted. The rationale
+is recorded in
+[`docs/adr/0001-license-polyform-noncommercial.md`](./docs/adr/0001-license-polyform-noncommercial.md).
 
 A note on terms: this makes Decant **source-available**, not "open source" in the
 OSI sense (the OSI and FSF definitions don't permit non-commercial restrictions).
