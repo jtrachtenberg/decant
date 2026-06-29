@@ -109,8 +109,23 @@ Two strategies, exposed as a user setting:
   unchanged** and let the original images reach the model. Never silently drop
   visual content.
 
-A per-file toggle ("Convert" vs "Send original") is the honest fallback for
-anything ambiguous.
+**Manual override is required of every surface.** Because the convert /
+passthrough / ambiguous decision is a heuristic, it must always be
+user-overridable — never a silent verdict. Two capabilities are mandatory on
+*every* surface, however that surface can realize them:
+
+- **Override an ambiguous result** — when a document is classified *ambiguous*
+  (substantial text *and* meaningful images/charts, where text-only conversion
+  would drop the charts), present a "Convert" vs. "Send original" choice instead
+  of guessing.
+- **Force passthrough** — let the user pre-declare that a given upload must be
+  sent untouched, for when they already know its image layer matters.
+
+The *capability* is core; the *mechanism* is per-surface. The browser extension
+realizes these as an in-composer toggle and a configurable passthrough hotkey
+(see [`SPEC.md`](../SPEC.md) §3.7); an MCP server would expose them as a tool
+parameter; a mobile share target as a toggle in the share sheet. Each surface
+doc specifies its own realization.
 
 ---
 
