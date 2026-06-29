@@ -1,37 +1,42 @@
-// Shape A converter: in-browser PDF → Markdown via pdf.js.
+// Shape A converter: in-browser PDF analysis + text extraction via pdf.js.
 //
-// Deliberately naive for Milestone 1 — extract the text layer, reconstruct
-// lines from glyph positions, and detect paragraph breaks from vertical gaps.
-// No heading or table structure yet; that comes once we see real output.
+// analyzePdf() does one pass over the document gathering the per-page signals
+// the classifier needs — extractable text and raster-image count — then asks
+// classify.js what to do. Text is reconstructed regardless (it's the basis of
+// the char count); the Markdown is only assembled when the decision is convert.
 //
-// The text-layer check is the important guardrail: a scanned / image-only PDF
-// has little or no extractable text, and converting it would silently throw
-// away everything the model needs. Such files are reported as low-text so the
-// caller passes the original through untouched.
+// The image count requires getOperatorList(), which is heavier than
+// getTextContent() but does not rasterize. For very large documents this is
+// the cost worth sampling later (see TODO); for typical uploads it is well
+// under a second.
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
+import {
+  itemsToText,
+  countChars,
+  classifyDocument,
+  IMAGE_OP_NAMES,
+} from "./classify.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.mjs");
 
-// Below this average extractable characters per page, assume the PDF is
-// scanned / image-only and should pass through rather than be converted.
-const MIN_CHARS_PER_PAGE = 50;
+const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
-export async function pdfToMarkdown(file) {
+export async function analyzePdf(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
   const pageCount = pdf.numPages;
 
-  const pages = [];
-  let totalChars = 0;
+  const perPage = [];
+  const pageTexts = [];
   try {
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
       const text = itemsToText(content.items);
-      totalChars += text.length;
-      pages.push(text);
+      pageTexts.push(text);
+      perPage.push({ chars: countChars(text), images: await countImages(page) });
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the
@@ -39,59 +44,24 @@ export async function pdfToMarkdown(file) {
     await loadingTask.destroy();
   }
 
-  const avgChars = totalChars / Math.max(pageCount, 1);
-  if (avgChars < MIN_CHARS_PER_PAGE) {
-    return { ok: false, reason: "low-text", pageCount, avgChars };
-  }
+  const { decision, reason, summary } = classifyDocument(perPage);
+  const markdown =
+    decision === "convert"
+      ? pageTexts.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"
+      : null;
 
-  const markdown = pages.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
-  return { ok: true, markdown, pageCount, avgChars };
+  return { decision, reason, summary, markdown };
 }
 
-// Reconstruct readable text from positioned glyph runs. pdf.js gives each run
-// a transform matrix: [4] is x, [5] is y (origin bottom-left, so larger y is
-// higher on the page). We sort top-to-bottom then left-to-right, group runs
-// into lines by y proximity, insert spaces on horizontal gaps, and break
-// paragraphs on large vertical gaps.
-function itemsToText(items) {
-  const glyphs = items.filter(
-    (it) => typeof it.str === "string" && it.str.length
-  );
-  if (!glyphs.length) return "";
-
-  glyphs.sort((a, b) => {
-    const dy = b.transform[5] - a.transform[5];
-    if (Math.abs(dy) > 2) return dy;
-    return a.transform[4] - b.transform[4];
-  });
-
-  const lines = [];
-  for (const g of glyphs) {
-    const x = g.transform[4];
-    const y = g.transform[5];
-    const w = g.width || 0;
-    const h = g.height || 10;
-    const last = lines[lines.length - 1];
-
-    if (last && Math.abs(y - last.y) <= h * 0.5) {
-      const gap = x - last.endX;
-      const needsSpace =
-        gap > h * 0.25 && !/\s$/.test(last.text) && !/^\s/.test(g.str);
-      last.text += (needsSpace ? " " : "") + g.str;
-      last.endX = x + w;
-      last.y = (last.y + y) / 2;
-    } else {
-      const para = last ? last.y - y > h * 1.6 : false;
-      lines.push({ y, endX: x + w, text: g.str, para });
-    }
+// Count raster-image paint operations on a page without rasterizing.
+// TODO: for very large documents, sample pages instead of scanning every one.
+async function countImages(page) {
+  try {
+    const ops = await page.getOperatorList();
+    let images = 0;
+    for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
+    return images;
+  } catch {
+    return 0; // operator list unavailable — treat as no images
   }
-
-  let out = "";
-  lines.forEach((line, i) => {
-    const text = line.text.replace(/[ \t]+/g, " ").trim();
-    if (!text) return;
-    if (i > 0) out += line.para ? "\n\n" : "\n";
-    out += text;
-  });
-  return out;
 }

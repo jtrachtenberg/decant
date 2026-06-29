@@ -45,10 +45,13 @@ async function processFiles(fileArray) {
       console.log(
         TAG,
         `converted ${f.name} → ${r.file.name}`,
-        `(${r.meta.pageCount}p, ~${Math.round(r.meta.avgChars)} chars/pg)`
+        `(${r.meta.pageCount}p, ${r.meta.totalChars} chars)`
       );
     } else {
-      console.log(TAG, `passthrough ${f.name} (${r.reason})`);
+      const m = r.meta
+        ? ` [${r.meta.contentPages}/${r.meta.pageCount} text pages, ${r.meta.chartPages} chart pages]`
+        : "";
+      console.log(TAG, `passthrough ${f.name} (${r.reason})${m}`);
     }
     out.push(r.file);
   }

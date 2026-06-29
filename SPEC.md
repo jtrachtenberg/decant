@@ -177,6 +177,25 @@ the response), `output` (ext, mime, filename template), `enabled`, `onError`.
 }
 ```
 
+### 3.7 Manual overrides (planned)
+Routing decisions are heuristic and will sometimes be wrong, so the user needs
+direct control that bypasses the automatic decision:
+
+- **Per-file Convert / Send-original toggle.** When an upload is classified as
+  *ambiguous* — substantial text *plus* meaningful images/charts, where
+  converting to text-only would drop the charts — Decant surfaces a choice
+  instead of guessing. This is also the manual escape hatch when detection
+  misjudges a clear case. (See the in-browser core's image-layer handling in
+  [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).)
+- **Passthrough hotkey.** A **configurable keyboard shortcut** that arms a
+  one-shot "send the next upload untouched" state. Pressed before attaching a
+  file, it guarantees the original is uploaded with no conversion, regardless of
+  how the file would otherwise be classified — useful when the user already
+  knows a document needs its image layer. The binding is user-configurable and
+  stored with the rest of the config; the armed state is transient: consumed by
+  the next intercepted upload, or cleared on a timeout / Escape. A visible
+  indicator should show when it is armed so the bypass is never silent.
+
 ---
 
 ## 4. MVP scope (prove the risky part first)
