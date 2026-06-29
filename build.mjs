@@ -24,6 +24,10 @@ await cp(
   "node_modules/pdfjs-dist/build/pdf.worker.mjs",
   `${outdir}/pdf.worker.mjs`
 );
+// Ship the project license and third-party attributions with the extension so
+// the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
+await cp("LICENSE", `${outdir}/LICENSE`);
+await cp("THIRD-PARTY-NOTICES", `${outdir}/THIRD-PARTY-NOTICES`);
 
 const config = {
   entryPoints: { "content/intercept": "src/content/intercept.js" },
