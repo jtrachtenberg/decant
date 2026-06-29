@@ -1,6 +1,6 @@
-# Decant — Project Spec
+# Decant — Browser Extension Spec
 
-**Decant — convert files to Markdown before they upload.**
+**Browser-extension surface — implementation spec.**
 
 A Chrome extension that intercepts file uploads to LLM chat UIs and swaps the
 original file (PDF/DOCX/etc.) for a clean Markdown version *before* it reaches
@@ -9,8 +9,12 @@ The name is the metaphor: pour the document into a lighter, cleaner vessel and
 leave the heavy sediment (the image layer) behind. PDF/doc → Markdown is the
 default; under the hood it's a general intercept → transform → substitute pipeline.
 
-> Drop this file into the repo root as `SPEC.md`. It's written to brief Claude
-> Code (or any collaborator) on the *why* and the *shape* before any code exists.
+> **Scope:** This spec covers the **browser-extension surface**. The
+> surface-agnostic core (pipeline, converter interface, parsing-vs-recognition,
+> engines) lives in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md). Other
+> surfaces and the expansion strategy live in
+> [`docs/SURFACES.md`](./docs/SURFACES.md). Design decisions are recorded in
+> [`docs/adr/`](./docs/adr/).
 >
 > **Before publishing:** confirm `npm view decant` returns not-found and the
 > GitHub org/repo handle is free (fragrance brands use the name, but no software
@@ -18,28 +22,7 @@ default; under the hood it's a general intercept → transform → substitute pi
 
 ---
 
-## 1. The problem this solves
-
-When you upload a PDF to an LLM, you don't just pay for the text. The system
-renders **every page as an image** and sends that alongside the extracted text,
-so you're billed twice per page. Per Anthropic's own PDF-support docs, text alone
-runs ~1,500–3,000 tokens/page, *plus* image tokens because each page is converted
-to an image. A 100-page PDF whose actual text is ~30k tokens can land at
-70k–100k tokens once image tokens are counted.
-
-The fix is not "stop the model from converting" — it's **strip the expensive
-image-rendering layer up front** by handing the model Markdown/text. Reported
-savings range from "more than half" to 90%+, concentrated on PDFs (DOCX/PPTX/XLSX
-have overhead too, but far less dramatic).
-
-**The non-obvious tradeoff:** the image layer isn't pure waste. It's what lets the
-model read charts, scanned pages, complex tables, handwriting. Blind conversion
-silently degrades visually-heavy documents. So conversion must be *smart or
-optional*, never unconditional. This single constraint drives most of the design.
-
----
-
-## 2. Goals & non-goals
+## 1. Goals & non-goals
 
 **Goals**
 - Intercept a file the user is about to upload to an LLM web UI.
@@ -56,72 +39,7 @@ optional*, never unconditional. This single constraint drives most of the design
 
 ---
 
-## 3. The architecture fork (decide this first)
-
-The good image-aware converters are **Python** and several need ML models/GPU.
-A Chrome extension is **JS in a sandbox** — it cannot run Docling/MarkItDown
-in-process. So pick a shape:
-
-| Shape | Quality | Privacy | User setup | Verdict |
-|---|---|---|---|---|
-| **A. Pure in-browser** (pdf.js + JS converter) | Text-only, weak tables/figures | Full | None | **MVP** |
-| **B. Local companion** (extension → `localhost` Python service) | High (Docling/MarkItDown) | Full | Run a helper | **Quality tier** |
-| **C. Hosted API** (LlamaParse / Mistral OCR) | Highest | Docs leave machine | API key | Optional, undercuts the "save money" motive |
-
-**Recommendation:** Ship **A** to prove interception works end-to-end, but design
-the conversion call as a swappable interface so **B** drops in as a "high-fidelity"
-toggle without touching the interception layer. Treat C as a later opt-in.
-
-```
-[content script: intercept] → [converter interface] → [swap file back in]
-                                      │
-                        ┌─────────────┼──────────────┐
-                     A: in-browser  B: localhost   C: hosted API
-```
-
----
-
-## 4. Handling the image layer
-
-Two strategies, exposed as a user setting:
-
-1. **Extract-and-reference** — pull real figures out as image files, embed them
-   in the Markdown (`![](fig1.png)`). Model sees pixels only for figures that
-   matter, not full-page renders. Moderate token cost.
-2. **Describe-in-text (figure annotation)** — a vision model writes a textual
-   caption per figure, inlined as plain text. Zero downstream image tokens.
-   Lossy (you trust the converter's VLM), maximally cheap.
-
-**Smart default:** detect whether a PDF has a real text layer.
-- Clean digital PDF → convert freely (extract-and-reference for figures).
-- Image-only / scanned / chart-heavy → either run OCR, or **pass through
-  unchanged** and let the original images reach the model. Never silently drop
-  visual content.
-
-A per-file toggle in the UI ("Convert" vs "Send original") is the honest fallback
-for anything ambiguous.
-
----
-
-## 5. Converter library landscape (public, mostly open-source)
-
-| Library | Lang | Images | Tables | OCR | License | Notes |
-|---|---|---|---|---|---|---|
-| **PyMuPDF4LLM** | Py | Extract | Good | Auto | (PyMuPDF) | Fast, light, great MVP for shape B |
-| **MarkItDown** (MS) | Py | Describe (LLM Vision) | Good | Optional | MIT | 15+ formats, MCP server, no GPU |
-| **Docling** (IBM) | Py | Classify + LLM-annotate | Excellent | Yes | MIT-ish | Best structure; "describe-in-text" out of the box |
-| **Marker** | Py | Extract (+`--use_llm`) | Excellent | Yes | GPL/commercial caveat | Swiss-army; check license for any commercial use |
-| **MinerU** | Py | Partial | Very good | Yes | Open | CJK/academic specialist |
-| **LlamaParse / Mistral OCR** | Hosted | Strong | Strong | Yes | Commercial | Shape C only |
-| **pdf.js** (Mozilla) | **JS** | Manual | Weak | No | Apache | The realistic in-browser engine for shape A |
-
-**For B's first cut:** MarkItDown (MIT, no GPU, dead-simple `pip install`) or
-PyMuPDF4LLM. **For best fidelity:** Docling. **Mind Marker's license** if this
-ever goes commercial.
-
----
-
-## 6. Interception mechanics (Manifest V3)
+## 2. Interception mechanics (Manifest V3)
 
 The hard part isn't conversion — it's grabbing the file mid-upload on a real LLM
 UI. These UIs mostly **don't** use a plain `<input type="file">`; they use
@@ -154,14 +72,14 @@ not your path on desktop Chrome.
 
 ---
 
-## 7. Configuration model
+## 3. Configuration model
 
 Generalized, the extension is an **intercept → route-by-type → substitute**
 pipeline. Two independent, **default-off** config layers drive it: **activation**
 (where it runs) and **routing** (what happens to each file type). PDF/doc →
 Markdown is just the default instantiation of a generic file-transform router.
 
-### 7.1 Activation — default-deny host/URL whitelist
+### 3.1 Activation — default-deny host/URL whitelist
 - **Nothing fires on any page unless its host or URL is explicitly configured.**
   No blanket injection; silence is the default.
 - Two rule granularities:
@@ -176,7 +94,7 @@ Markdown is just the default instantiation of a generic file-transform router.
   `chrome.scripting.registerContentScripts`. Keeps the install prompt minimal and
   honors default-deny.
 
-### 7.2 Routing — per-MIME-type transform rules
+### 3.2 Routing — per-MIME-type transform rules
 On an activated page, an intercepted file is matched against routing rules keyed
 by **MIME type and/or extension**. Each rule chooses an action:
 - `inbrowser` — built-in JS engine (pdf.js / mammoth.js / SheetJS).
@@ -189,14 +107,14 @@ The returned content is rebuilt as a new `File` and substituted into the
 input / drag-drop / paste target, with a configurable output name, extension, and
 MIME type.
 
-### 7.3 Default routing (all editable)
+### 3.3 Default routing (all editable)
 - `application/pdf` → **companion** (local host), output `.md`.
 - Word docs (`.doc`, `.docx`) → **companion**, output `.md`.
 - Everything else → **passthrough**.
 - In-browser engines stay selectable per type and act as the **fallback when the
   companion is unreachable** (`onError: inbrowser` or `passthrough`).
 
-### 7.4 The general case (any type → any endpoint)
+### 3.4 The general case (any type → any endpoint)
 Any MIME type can be routed to any endpoint and have the result returned to the
 upload. Example: route `image/png` / `image/jpeg` to a local OCR or captioning
 service and substitute the returned text into the drop zone. Per-rule fields worth
@@ -204,7 +122,7 @@ supporting: `match` (mime[], ext[]), `action`, `endpoint`, `method`/`headers`,
 `request.encoding` (multipart | base64-json), `responseField` (where text lives in
 the response), `output` (ext, mime, filename template), `enabled`, `onError`.
 
-### 7.5 Storage, UX, guardrails
+### 3.5 Storage, UX, guardrails
 - Persist config in `chrome.storage.sync` (syncs across the user's Chrome; mind its
   size quotas); keep any endpoint secrets in `chrome.storage.local`.
 - Options page: manage the whitelist and the routing table; JSON import/export for
@@ -213,7 +131,7 @@ the response), `output` (ext, mime, filename template), `enabled`, `onError`.
   endpoint — documents leaving the machine is the "shape C" tradeoff and should be
   a conscious choice.
 
-### 7.6 Example config (illustrative)
+### 3.6 Example config (illustrative)
 ```jsonc
 {
   "activation": {
@@ -261,7 +179,7 @@ the response), `output` (ext, mime, filename template), `enabled`, `onError`.
 
 ---
 
-## 8. MVP scope (prove the risky part first)
+## 4. MVP scope (prove the risky part first)
 
 The risk is interception, not conversion. So the first milestone deliberately uses
 a dumb converter and a single site:
@@ -290,11 +208,15 @@ a dumb converter and a single site:
 
 ---
 
-## 9. Suggested repo structure
+## 5. Suggested repo structure
 
 ```
 decant/
-├── SPEC.md                  ← this file
+├── SPEC.md                  ← this file (browser surface)
+├── docs/
+│   ├── ARCHITECTURE.md      ← surface-agnostic core
+│   ├── SURFACES.md          ← surfaces & expansion strategy
+│   └── adr/                 ← architecture decision records
 ├── manifest.json            ← MV3
 ├── src/
 │   ├── content/
@@ -319,49 +241,7 @@ decant/
 
 ---
 
-## 10. Licensing & dependency boundaries
-
-> Not legal advice — a map of the decision, to be sanity-checked before release.
-
-**Chosen license: PolyForm Noncommercial 1.0.0** (`LICENSE` file in repo root).
-Anyone may use, modify, and redistribute for any **non-commercial** purpose;
-commercial use by others is not granted. Lawyer-drafted specifically for software,
-plain-language, and the current go-to for "free for non-commercial."
-
-**Know what this means:** the project is **source-available, not "open source."**
-Both the OSI definition and the FSF forbid non-commercial restrictions, so this
-can't be called open source, won't be OSI-approved, and some registries / corporate
-users / "free for OSS" service tiers won't apply. That's a fine, deliberate
-tradeoff — just don't mislabel it.
-
-**Donations are unaffected.** GitHub Sponsors / Ko-fi / Buy Me a Coffee are
-independent of the code license; accepting them is not "selling the software."
-
-**Sole-author rights:** if you own all the copyright, the public license restricts
-*others*, not you. You can publish under PolyForm Noncommercial and still privately
-sell a commercial license to any business that asks.
-
-**Alternatives considered:**
-- *CC BY-NC 4.0* — recognizable "NC," but Creative Commons advises against CC for
-  software (no source/binary, linking, or patent handling). Skip for code.
-- *Prosperity Public License* — use only if the goal shifts to "free for
-  non-commercial, **paid** for commercial" (30-day commercial trial, then license).
-
-**Dependency license boundary (important):**
-- Permissive deps bundle fine — pdf.js (Apache-2.0), mammoth.js (BSD),
-  SheetJS community (Apache-2.0). Preserve their notices.
-- **Marker is GPL-ish.** You **cannot** add a "no commercial use" restriction on
-  top of GPL code you bundle or link — GPL forbids extra restrictions and requires
-  the combined work to permit commercial use. Keep Marker **behind the local-server
-  process boundary** and call it over HTTP only; arm's-length IPC with a separate
-  GPL process is generally aggregation, not a derivative work, so it doesn't reach
-  back into the extension.
-- **MarkItDown and Docling are MIT** — no such issue. Prefer them as the default
-  companion engine; treat Marker as an optional, isolated extra.
-
----
-
-## 11. Open questions / risks
+## 6. Open questions / risks
 
 - **Per-site fragility.** Chat UIs change their DOM often; site-adapters will need
   maintenance. Convert-and-inject fallback hedges this.
@@ -381,7 +261,7 @@ sell a commercial license to any business that asks.
 
 ---
 
-## 12. Sources to revisit
+## 7. Sources to revisit
 
 - Anthropic PDF support docs (token model: text + per-page image).
 - MarkItDown (Microsoft, MIT), Docling (IBM), PyMuPDF4LLM, Marker, MinerU repos.
