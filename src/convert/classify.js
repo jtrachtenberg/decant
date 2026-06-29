@@ -82,22 +82,36 @@ export function reconstructLines(items) {
     return a.transform[4] - b.transform[4];
   });
 
+  // Whitespace-only runs are not appended and don't advance the cell's right
+  // edge — some PDFs fill column gaps with space glyphs, and consuming their
+  // width would mask the positional gap that signals a column break. Instead a
+  // whitespace run just flags that a space belongs before the next glyph, so
+  // real word spacing survives while wide column gaps still register.
   const lines = [];
+  let pendingSpace = false;
   for (const g of glyphs) {
     const x = g.transform[4];
     const y = g.transform[5];
     const w = g.width || 0;
     const h = g.height || 10;
     const last = lines[lines.length - 1];
+    const sameLine = last && Math.abs(y - last.y) <= last.h * 0.5;
 
-    if (last && Math.abs(y - last.y) <= last.h * 0.5) {
+    if (!g.str.trim().length) {
+      if (sameLine) pendingSpace = true;
+      continue;
+    }
+
+    if (sameLine) {
       const cell = last.cells[last.cells.length - 1];
       const gap = x - cell.endX;
       if (gap > COLUMN_GAP * last.h) {
         last.cells.push({ text: g.str, x, endX: x + w });
       } else {
         const needsSpace =
-          gap > WORD_GAP * last.h && !/\s$/.test(cell.text) && !/^\s/.test(g.str);
+          (pendingSpace || gap > WORD_GAP * last.h) &&
+          !/\s$/.test(cell.text) &&
+          !/^\s/.test(g.str);
         cell.text += (needsSpace ? " " : "") + g.str;
         cell.endX = x + w;
       }
@@ -107,6 +121,7 @@ export function reconstructLines(items) {
       const para = last ? last.y - y > last.h * PARA_GAP : false;
       lines.push({ y, h, para, cells: [{ text: g.str, x, endX: x + w }] });
     }
+    pendingSpace = false;
   }
 
   for (const line of lines) {
