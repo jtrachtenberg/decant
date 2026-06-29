@@ -2,9 +2,13 @@
 
 **Convert files to Markdown before they upload.**
 
-Decant is a Chrome extension that intercepts a file on its way *out* — when you
-attach a PDF or Word doc to an LLM chat — and quietly swaps it for a clean
-Markdown version before it ever reaches the server.
+Decant converts documents to clean Markdown on their way into an LLM, so the
+model spends tokens on your content instead of on pictures of pages. At its core
+is a surface-agnostic pipeline — `intercept → route → transform → substitute` —
+and the first surface built on it is a Chrome extension that catches a PDF or Word
+doc as you attach it to an LLM chat and swaps in the Markdown version in place,
+with zero extra clicks. Further surfaces (a Claude Desktop MCP server, native
+desktop, mobile) are mapped in [`docs/SURFACES.md`](./docs/SURFACES.md).
 
 The name is the metaphor: pour the document into a lighter, cleaner vessel and
 leave the heavy sediment behind. For LLMs, that sediment is the **image layer** —
@@ -13,16 +17,13 @@ alongside the text. Handing the model Markdown instead drops that cost, often
 dramatically, on text-based documents. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
-> **Status: early development.** This repo is being built in the open from a
-> written spec ([`SPEC.md`](./SPEC.md)). It is not yet on the Chrome Web Store,
-> and not everything described below is implemented. The spec is the source of
-> truth for what's planned; this README describes the project's intent and how to
-> run what exists.
->
-> **Progress:** Milestone 0 (interception + file swap on `claude.ai`) is
-> complete. Milestone 1 (in-browser PDF→Markdown via pdf.js, with scanned-PDF
-> passthrough) is in progress and working for text PDFs. See the
-> [Roadmap](#roadmap) for what's next.
+> **Status: working, early.** Today the browser extension converts PDFs to
+> Markdown on `claude.ai` — through the file picker, drag-and-drop, and paste —
+> and lets scanned or image-only PDFs pass through untouched so it never silently
+> degrades them. It's not yet on the Chrome Web Store, and the higher-fidelity
+> conversion and additional surfaces below are still planned. The
+> [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
+> status.
 
 ---
 
