@@ -69,6 +69,45 @@ test("paragraph break on large vertical gap", () => {
   assert.match(md, /first paragraph\n\nsecond paragraph/);
 });
 
+test("two-column page reads left column fully, then right", () => {
+  const items = [item("Section One Heading", 0, 300, { w: 280, h: 14 })];
+  for (let k = 1; k <= 8; k++) {
+    const y = 270 - (k - 1) * 15;
+    items.push(item(`leftcol line ${k}`, 0, y, { w: 70, h: 10 }));
+    items.push(item(`rightcol line ${k}`, 150, y, { w: 70, h: 10 }));
+  }
+  const lines = linesToMarkdown(reconstructLines(items))
+    .split("\n")
+    .filter((l) => l.trim());
+
+  for (const l of lines)
+    assert.ok(
+      !(l.includes("leftcol") && l.includes("rightcol")),
+      `columns interleaved on one line: "${l}"`
+    );
+  const lastLeft = lines.findIndex((l) => l.includes("leftcol line 8"));
+  const firstRight = lines.findIndex((l) => l.includes("rightcol line 1"));
+  assert.ok(lastLeft >= 0 && firstRight >= 0, "both columns present");
+  assert.ok(lastLeft < firstRight, "left column should precede right column");
+});
+
+test("single-column page is unaffected by column detection", () => {
+  const items = [];
+  for (let k = 1; k <= 10; k++) {
+    items.push(
+      item(`single column body line number ${k} spanning the width`, 0, 200 - k * 14, {
+        w: 300,
+        h: 10,
+      })
+    );
+  }
+  const md = linesToMarkdown(reconstructLines(items));
+  assert.ok(
+    md.indexOf("number 1 ") < md.indexOf("number 10"),
+    "lines should stay in original order"
+  );
+});
+
 test("empty input yields empty output", () => {
   assert.equal(linesToMarkdown(reconstructLines([])), "");
   assert.equal(linesToText(reconstructLines([])), "");

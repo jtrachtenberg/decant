@@ -60,22 +60,52 @@ const HEADING_LEVELS = [
 ];
 const HEADING_MAX_LEN = 90; // headings are short; longer lines stay paragraphs
 
+// Column-detection thresholds:
+//   V_GUTTER        a column gutter must be at least this many median heights
+//                   wide (measured among narrow rows only, so a full-width
+//                   heading bridging the gutter doesn't hide it)
+//   MIN_COL_HEIGHT  the column rows must span at least this many median heights,
+//                   so a short table is not mistaken for tall body columns
+//   MIN_COL_ROWS    need at least this many two-column rows to attempt a split
+const V_GUTTER = 1.0;
+const MIN_COL_HEIGHT = 8;
+const MIN_COL_ROWS = 4;
+
 // Reconstruct lines from positioned glyph runs. pdf.js gives each run a
 // transform matrix ([4]=x, [5]=y, origin bottom-left so larger y is higher).
-// Sort top-to-bottom then left-to-right, group runs into lines by y proximity,
-// and split each line into cells on large horizontal (column) gaps.
+//
+// Glyphs are first partitioned into reading-order regions by column detection
+// (rows straddling the gutter are full-width separators; other rows are split
+// at the gutter), so multi-column layouts read column-by-column instead of
+// interleaving. Each region is then grouped into lines and split into cells.
+// Single-column pages have no gutter, so they fall through as one region and
+// read exactly as before.
+//
+// Limitation: a page dominated by a large chart/figure can pollute the gutter
+// vote and leave its text columns interleaved. Such pages are image-heavy, so
+// the classifier routes them to passthrough anyway; clean text columns (the
+// pages that actually convert) reflow correctly.
 //
 // Returns line objects: { y, h, para, cells: [{ text, x, endX }] }.
-//
-// Known limitation: glyphs are ordered by y then x, so a multi-column page
-// layout interleaves columns (left and right text share a row). Column
-// detection / reflow is future work; single-column docs read correctly.
 export function reconstructLines(items) {
   const glyphs = items.filter(
     (it) => typeof it.str === "string" && it.str.length
   );
   if (!glyphs.length) return [];
 
+  const regions = columnRegions(glyphs.map(toBox));
+  const lines = [];
+  regions.forEach((region, i) => {
+    const regionLines = linesFromGlyphs(region.map((b) => b.g));
+    // A region boundary (column or block break) is itself a paragraph break.
+    if (i > 0 && regionLines.length) regionLines[0].para = true;
+    lines.push(...regionLines);
+  });
+  return lines;
+}
+
+// Group one region's glyphs into lines + cells (the core reconstruction).
+function linesFromGlyphs(glyphs) {
   glyphs.sort((a, b) => {
     const dy = b.transform[5] - a.transform[5];
     if (Math.abs(dy) > 2) return dy;
@@ -130,6 +160,141 @@ export function reconstructLines(items) {
       .filter((c) => c.text.length);
   }
   return lines.filter((line) => line.cells.length);
+}
+
+// --- Column detection: partition glyphs into ordered reading regions -------
+
+function toBox(g) {
+  const x0 = g.transform[4];
+  const y0 = g.transform[5];
+  return { x0, x1: x0 + (g.width || 0), y0, y1: y0 + (g.height || 10), g };
+}
+
+// Partition boxes into reading-order regions for a (possibly) two-column page.
+// Full-width rows (titles/headings) act as separators between column blocks;
+// within a block, narrow rows are split left/right at the gutter. The gutter is
+// found among narrow rows only, so a full-width heading bridging it doesn't
+// hide it. Returns an ordered list of box-arrays; falls back to [boxes] (single
+// region, unchanged behavior) whenever no confident column layout is found.
+function columnRegions(boxes) {
+  const rows = groupRows(boxes);
+  if (rows.length < MIN_COL_ROWS) return [boxes];
+  const med = medianHeight(boxes);
+
+  const gx = findGutter(rows, med);
+  if (gx == null) return [boxes];
+
+  // Column rows are those that don't straddle the gutter. Require enough of
+  // them, spanning enough height (so a short table isn't split into columns).
+  const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
+  if (colRows.length < MIN_COL_ROWS) return [boxes];
+  const top = Math.max(...colRows.map((r) => r.y1));
+  const bottom = Math.min(...colRows.map((r) => r.y0));
+  if (top - bottom < MIN_COL_HEIGHT * med) return [boxes];
+
+  // Walk rows top-to-bottom: a row straddling the gutter (full-width heading or
+  // figure) flushes the current column block and is emitted on its own; other
+  // rows are divided left/right at the gutter.
+  const regions = [];
+  let left = [];
+  let right = [];
+  const flush = () => {
+    if (left.length) regions.push(left);
+    if (right.length) regions.push(right);
+    left = [];
+    right = [];
+  };
+  for (const r of rows) {
+    if (rowSpansGutter(r, gx)) {
+      flush();
+      regions.push(r.boxes);
+    } else {
+      for (const b of r.boxes) ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
+    }
+  }
+  flush();
+  return regions.length > 1 ? regions : [boxes];
+}
+
+// A row straddles the gutter (a full-width element) if any glyph crosses gx.
+function rowSpansGutter(row, gx) {
+  return row.boxes.some((b) => b.x0 < gx && b.x1 > gx);
+}
+
+// The column gutter x, found from the densest cluster of per-row gap *right
+// edges* (where the right column begins). That edge is consistent across
+// two-column rows even when the left line ends early, whereas the gap midpoint
+// shifts; lone gaps from prose or charts scatter and don't cluster. Returns the
+// gutter x (just left of the right column) or null.
+function findGutter(rows, med) {
+  const edges = [];
+  for (const r of rows) {
+    const g = largestInteriorGap(r.boxes);
+    // Judge the gap against the row's own height, so a chart's tiny text can't
+    // skew the threshold the way a page-wide median would.
+    if (g && g.size >= V_GUTTER * r.h) edges.push(g.end);
+  }
+  if (edges.length < MIN_COL_ROWS) return null;
+
+  let center = null;
+  let bestNear = 0;
+  for (const p of edges) {
+    const near = edges.filter((q) => Math.abs(q - p) <= med).length;
+    if (near > bestNear) {
+      bestNear = near;
+      center = p;
+    }
+  }
+  if (bestNear < MIN_COL_ROWS) return null;
+  const cluster = edges.filter((q) => Math.abs(q - center) <= med);
+  const rightStart = cluster.reduce((s, q) => s + q, 0) / cluster.length;
+  return rightStart - 1;
+}
+
+// Largest interior gap between consecutive glyphs in one row.
+// Returns { size, end } where end is the x at which content resumes (the right
+// column's left edge for a two-column row).
+function largestInteriorGap(boxes) {
+  const sorted = boxes.slice().sort((a, b) => a.x0 - b.x0);
+  let best = null;
+  let cover = sorted[0].x1;
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i].x0 - cover;
+    if (gap > 0 && (!best || gap > best.size)) {
+      best = { size: gap, end: sorted[i].x0 };
+    }
+    if (sorted[i].x1 > cover) cover = sorted[i].x1;
+  }
+  return best;
+}
+
+// Group boxes into rows by vertical proximity, top-to-bottom.
+function groupRows(boxes) {
+  const sorted = boxes
+    .slice()
+    .sort((a, b) =>
+      Math.abs(b.y0 - a.y0) > 2 ? b.y0 - a.y0 : a.x0 - b.x0
+    );
+  const rows = [];
+  for (const b of sorted) {
+    const h = b.y1 - b.y0;
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(b.y0 - last.y0) <= last.h * 0.5) {
+      last.boxes.push(b);
+      last.x0 = Math.min(last.x0, b.x0);
+      last.x1 = Math.max(last.x1, b.x1);
+      last.y1 = Math.max(last.y1, b.y1);
+      if (h > last.h) last.h = h;
+    } else {
+      rows.push({ y0: b.y0, y1: b.y1, x0: b.x0, x1: b.x1, h, boxes: [b] });
+    }
+  }
+  return rows;
+}
+
+function medianHeight(boxes) {
+  const hs = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
+  return hs[Math.floor(hs.length / 2)] || 10;
 }
 
 // Plain text of reconstructed lines — cells space-joined, lines newline-joined.
