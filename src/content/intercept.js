@@ -17,9 +17,14 @@
 // Ambiguous documents (substantial text plus charts) aren't injected silently:
 // the user is prompted to convert to Markdown or send the original, and the
 // chosen file is injected once they pick (see resolveAndInject / ui.js).
+//
+// A passthrough hotkey (see passthrough.js) can arm a one-shot bypass: when
+// armed, the handlers get out of the way and let the native upload proceed, so
+// the original file is sent with no conversion.
 
 import { convertFile } from "../convert/index.js";
 import { promptConvertChoice } from "./ui.js";
+import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
@@ -106,6 +111,12 @@ document.addEventListener(
     if (ev[SENTINEL]) return;
     if (!target.files || target.files.length === 0) return;
 
+    // Passthrough hotkey armed → let the native upload proceed untouched.
+    if (consumePassthrough()) {
+      console.log(TAG, "passthrough hotkey → sending original (picker)");
+      return;
+    }
+
     // Capture File references now — the FileList may be cleared after the event.
     const originals = Array.from(target.files);
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
@@ -134,6 +145,13 @@ document.addEventListener(
     if (ev[SENTINEL]) return;
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
+
+    // Passthrough hotkey armed → don't intercept; let the native drop proceed
+    // so Claude receives the original file unchanged.
+    if (consumePassthrough()) {
+      console.log(TAG, "passthrough hotkey → sending original (drop)");
+      return;
+    }
 
     // Capture File references now — the DataTransfer is cleared after drop.
     const originals = Array.from(files);
@@ -190,6 +208,12 @@ document.addEventListener(
     }
     if (originals.length === 0) return; // text-only paste — leave it alone
 
+    // Passthrough hotkey armed → let the native paste proceed untouched.
+    if (consumePassthrough()) {
+      console.log(TAG, "passthrough hotkey → sending original (paste)");
+      return;
+    }
+
     console.log(TAG, "paste intercepted:", originals.map((f) => f.name));
     ev.preventDefault();
     ev.stopImmediatePropagation();
@@ -204,4 +228,5 @@ document.addEventListener(
   true
 );
 
+installPassthroughHotkey();
 console.log(TAG, "intercept installed at", location.href);

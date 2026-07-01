@@ -177,23 +177,26 @@ the response), `output` (ext, mime, filename template), `enabled`, `onError`.
 }
 ```
 
-### 3.7 Manual overrides — browser realization (planned)
+### 3.7 Manual overrides — browser realization
 Manual override of the conversion decision is a **cross-surface requirement**;
 the principle and the two mandatory capabilities (override an ambiguous result,
 force passthrough) live in
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) (Handling the image layer). This
 section covers only how the **browser surface** realizes them:
 
-- **Per-file Convert / Send-original toggle.** When an upload is classified as
-  *ambiguous*, Decant surfaces the choice in the composer instead of guessing —
-  also the manual escape hatch when detection misjudges a clear case.
-- **Passthrough hotkey.** A **configurable keyboard shortcut** that arms a
-  one-shot "send the next upload untouched" state. Pressed before attaching a
-  file, it guarantees the original is uploaded with no conversion, regardless of
-  how the file would otherwise be classified. The binding is user-configurable
-  and stored with the rest of the config; the armed state is transient: consumed
-  by the next intercepted upload, or cleared on a timeout / Escape. A visible
-  indicator should show when it is armed so the bypass is never silent.
+- **Per-file Convert / Send-original toggle.** *(Implemented.)* When an upload is
+  classified as *ambiguous*, Decant surfaces the choice in the composer instead
+  of guessing — also the manual escape hatch when detection misjudges a clear
+  case.
+- **Passthrough hotkey.** *(Implemented; default `Alt+Shift+O`.)* A keyboard
+  shortcut that arms a one-shot "send the next upload untouched" state. Pressed
+  before attaching a file, it guarantees the original is uploaded with no
+  conversion, regardless of how the file would otherwise be classified. The
+  armed state is transient: consumed by the next intercepted upload, or cleared
+  on Escape or a second press, with a visible badge while armed so the bypass is
+  never silent. (An auto-disarm timeout is implemented but currently disabled.)
+  Making the binding **user-configurable** (stored with the rest of the config)
+  arrives with the options page (M3).
 
 ---
 
