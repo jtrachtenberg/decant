@@ -138,10 +138,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
   across all three intake paths (picker, drag-and-drop, paste). A content
   classifier decides per document — **convert** (text), **passthrough** (scans /
   no usable text), or **ambiguous** (text plus image-charts, kept original so
-  charts aren't silently dropped) — and the extracted Markdown carries heading
-  and table structure, not just flat text. Still to come: the manual overrides
-  (per-file Convert / Send-original toggle and a configurable passthrough
-  hotkey), and improved multi-column reading order.
+  charts aren't silently dropped). The extracted Markdown carries heading and
+  table structure, and multi-column pages are reflowed into reading order
+  (column-by-column) rather than left interleaved. Still to come: the manual
+  overrides — a per-file Convert / Send-original toggle and a configurable
+  passthrough hotkey.
 - **M2 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 - **M3 — Polish.** Office formats, full config UI, multi-site support,
   token-savings estimates.
