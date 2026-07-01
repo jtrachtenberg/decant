@@ -67,9 +67,13 @@ const HEADING_MAX_LEN = 90; // headings are short; longer lines stay paragraphs
 //   MIN_COL_HEIGHT  the column rows must span at least this many median heights,
 //                   so a short table is not mistaken for tall body columns
 //   MIN_COL_ROWS    need at least this many two-column rows to attempt a split
+//   GAP_FLUSH       a vertical gap this many median heights tall ends a column
+//                   block, so a short heading below the columns isn't pulled
+//                   into one of them
 const V_GUTTER = 1.0;
 const MIN_COL_HEIGHT = 8;
 const MIN_COL_ROWS = 4;
+const GAP_FLUSH = 1.8;
 
 // Reconstruct lines from positioned glyph runs. pdf.js gives each run a
 // transform matrix ([4]=x, [5]=y, origin bottom-left so larger y is higher).
@@ -167,7 +171,17 @@ function linesFromGlyphs(glyphs) {
 function toBox(g) {
   const x0 = g.transform[4];
   const y0 = g.transform[5];
-  return { x0, x1: x0 + (g.width || 0), y0, y1: y0 + (g.height || 10), g };
+  // ws: whitespace-only run. Some PDFs fill the column gutter with space
+  // glyphs; those are ignored when measuring gaps so the gutter stays visible,
+  // but they're still carried into line reconstruction for word spacing.
+  return {
+    x0,
+    x1: x0 + (g.width || 0),
+    y0,
+    y1: y0 + (g.height || 10),
+    ws: !g.str.trim().length,
+    g,
+  };
 }
 
 // Partition boxes into reading-order regions for a (possibly) two-column page.
@@ -204,21 +218,27 @@ function columnRegions(boxes) {
     left = [];
     right = [];
   };
+  let prevBottom = null;
   for (const r of rows) {
+    // A large vertical gap ends the current column block (e.g. a heading sitting
+    // below the columns), so it isn't merged into a column.
+    if (prevBottom != null && prevBottom - r.y1 > GAP_FLUSH * med) flush();
     if (rowSpansGutter(r, gx)) {
       flush();
       regions.push(r.boxes);
     } else {
       for (const b of r.boxes) ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
     }
+    prevBottom = r.y0;
   }
   flush();
   return regions.length > 1 ? regions : [boxes];
 }
 
-// A row straddles the gutter (a full-width element) if any glyph crosses gx.
+// A row straddles the gutter (a full-width element) if a non-whitespace glyph
+// crosses gx (a space glyph filling the gutter doesn't count).
 function rowSpansGutter(row, gx) {
-  return row.boxes.some((b) => b.x0 < gx && b.x1 > gx);
+  return row.boxes.some((b) => !b.ws && b.x0 < gx && b.x1 > gx);
 }
 
 // The column gutter x, found from the densest cluster of per-row gap *right
@@ -251,11 +271,14 @@ function findGutter(rows, med) {
   return rightStart - 1;
 }
 
-// Largest interior gap between consecutive glyphs in one row.
+// Largest interior gap between consecutive non-whitespace glyphs in one row.
 // Returns { size, end } where end is the x at which content resumes (the right
 // column's left edge for a two-column row).
 function largestInteriorGap(boxes) {
-  const sorted = boxes.slice().sort((a, b) => a.x0 - b.x0);
+  const sorted = boxes
+    .filter((b) => !b.ws)
+    .sort((a, b) => a.x0 - b.x0);
+  if (sorted.length < 2) return null;
   let best = null;
   let cover = sorted[0].x1;
   for (let i = 1; i < sorted.length; i++) {
