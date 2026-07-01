@@ -8,13 +8,16 @@
 // Binding is a constant for now; it moves to the options page / config in M2.
 
 import { showPassthroughBadge } from "./ui.js";
+import { loadConfig, onConfigChanged } from "../config/config.js";
+import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const TAG = "[decant]";
 
-// Default binding: Alt+Shift+O ("O" for Original). Alt+Shift avoids Chrome
+// Current binding, kept in sync with the config (editable from the options
+// page). Default is Alt+Shift+O ("O" for Original): Alt+Shift avoids Chrome
 // access keys (Alt+key) and common browser combos, and won't fire while typing.
 // `code` is physical-key based, so it's keyboard-layout independent.
-const HOTKEY = { code: "KeyO", alt: true, shift: true, ctrl: false, meta: false };
+let hotkey = DEFAULT_CONFIG.hotkey;
 
 // Auto-disarm timeout — disabled for now, so the armed state persists until it
 // is used or cancelled. To restore, uncomment ARMED_TIMEOUT_MS and the `timer`
@@ -55,15 +58,19 @@ export function consumePassthrough() {
 
 function matches(e) {
   return (
-    e.code === HOTKEY.code &&
-    e.altKey === HOTKEY.alt &&
-    e.shiftKey === HOTKEY.shift &&
-    e.ctrlKey === HOTKEY.ctrl &&
-    e.metaKey === HOTKEY.meta
+    e.code === hotkey.code &&
+    e.altKey === hotkey.alt &&
+    e.shiftKey === hotkey.shift &&
+    e.ctrlKey === hotkey.ctrl &&
+    e.metaKey === hotkey.meta
   );
 }
 
 export function installPassthroughHotkey() {
+  // Load the binding from config, and follow later edits from the options page.
+  loadConfig().then((c) => (hotkey = c.hotkey)).catch(() => {});
+  onConfigChanged((c) => (hotkey = c.hotkey));
+
   document.addEventListener(
     "keydown",
     (e) => {
