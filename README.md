@@ -2,19 +2,19 @@
 
 **Convert files to Markdown before they upload.**
 
-Decant converts documents to clean Markdown on their way into an LLM, so the
-model spends tokens on your content instead of on pictures of pages. At its core
-is a surface-agnostic pipeline — `intercept → route → transform → substitute` —
-and the first surface built on it is a Chrome extension that catches a PDF or Word
-doc as you attach it to an LLM chat and swaps in the Markdown version in place,
-with zero extra clicks. Further surfaces (a Claude Desktop MCP server, native
+Decant converts documents to Markdown directly within the LLM UI but on your local machine, without interrupting your workflow or risking privacy concerns by using online conversion.  
+
+The model spends tokens on your content, not on pictures of pages.
+At its core is a surface-agnostic pipeline — `intercept → route → transform → substitute`.
+The first surface implemented is a Chrome extension that catches a PDF or Word
+doc as you attach it to an LLM chat and swaps in the Markdown version in place. 
+Further surfaces (a Claude Desktop MCP server, native
 desktop, mobile) are mapped in [`docs/SURFACES.md`](./docs/SURFACES.md).
 
-The name is the metaphor: pour the document into a lighter, cleaner vessel and
+The name is a metaphor: pour the document into a lighter, cleaner vessel and
 leave the heavy sediment behind. For LLMs, that sediment is the **image layer** —
 many chat backends render every page of a PDF as an image and bill you for it
-alongside the text. Handing the model Markdown instead drops that cost, often
-dramatically, on text-based documents. The model spends tokens on your content,
+alongside the text. Handing the model Markdown instead drops that cost. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
 > **Status: working, early.** Today the browser extension converts PDFs to
