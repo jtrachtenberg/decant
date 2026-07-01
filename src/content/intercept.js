@@ -13,8 +13,13 @@
 // handlers. We block the original event synchronously, then convert
 // asynchronously and re-inject through the hidden file input. Conversion is
 // async, so the file appears a beat after the drop/pick — acceptable for now.
+//
+// Ambiguous documents (substantial text plus charts) aren't injected silently:
+// the user is prompted to convert to Markdown or send the original, and the
+// chosen file is injected once they pick (see resolveAndInject / ui.js).
 
 import { convertFile } from "../convert/index.js";
+import { promptConvertChoice } from "./ui.js";
 
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
@@ -35,27 +40,52 @@ function findUsableFileInput() {
   return best;
 }
 
-// Run every file through the converter, logging what happened to each.
-// Returns the list of files to actually hand to the upload target.
-async function processFiles(fileArray) {
-  const out = [];
+// Convert each file, then inject the results into the upload. Clear results
+// (converted / passthrough) are injected immediately. Ambiguous ones (text plus
+// charts) prompt the user to choose convert vs. original, then inject the
+// chosen version — deciding before injecting avoids having to un-attach a chip.
+async function resolveAndInject(input, fileArray) {
+  const immediate = [];
+  const ambiguous = [];
   for (const f of fileArray) {
     const r = await convertFile(f);
-    if (r.action === "converted") {
-      console.log(
-        TAG,
-        `converted ${f.name} → ${r.file.name}`,
-        `(${r.meta.pageCount}p, ${r.meta.totalChars} chars)`
-      );
-    } else {
-      const m = r.meta
-        ? ` [${r.meta.contentPages}/${r.meta.pageCount} text pages, ${r.meta.chartPages} chart pages]`
-        : "";
-      console.log(TAG, `passthrough ${f.name} (${r.reason})${m}`);
-    }
-    out.push(r.file);
+    logResult(f, r);
+    if (r.action === "ambiguous") ambiguous.push(r);
+    else immediate.push(r.file);
   }
-  return out;
+
+  if (immediate.length) injectViaInput(input, immediate);
+
+  if (ambiguous.length) {
+    let choice = "original";
+    try {
+      choice = await promptConvertChoice(ambiguous);
+    } catch (err) {
+      console.warn(TAG, "prompt failed, sending originals:", err);
+    }
+    console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
+    injectViaInput(
+      input,
+      ambiguous.map((r) => (choice === "convert" ? r.converted : r.file))
+    );
+  }
+}
+
+function logResult(f, r) {
+  const pages = r.meta
+    ? ` [${r.meta.contentPages}/${r.meta.pageCount} text pages, ${r.meta.chartPages} chart pages]`
+    : "";
+  if (r.action === "converted") {
+    console.log(
+      TAG,
+      `converted ${f.name} → ${r.file.name}`,
+      `(${r.meta.pageCount}p, ${r.meta.totalChars} chars)`
+    );
+  } else if (r.action === "ambiguous") {
+    console.log(TAG, `ambiguous ${f.name}${pages} — prompting`);
+  } else {
+    console.log(TAG, `passthrough ${f.name} (${r.reason})${pages}`);
+  }
 }
 
 // Inject the (possibly converted) files into the upload by swapping the hidden
@@ -81,7 +111,7 @@ document.addEventListener(
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
 
-    processFiles(originals).then((files) => injectViaInput(target, files));
+    resolveAndInject(target, originals);
   },
   true
 );
@@ -131,7 +161,7 @@ document.addEventListener(
       console.warn(TAG, "drop: no usable <input type=file> to swap into");
       return;
     }
-    processFiles(originals).then((converted) => injectViaInput(input, converted));
+    resolveAndInject(input, originals);
   },
   true
 );
@@ -169,7 +199,7 @@ document.addEventListener(
       console.warn(TAG, "paste: no usable <input type=file> to swap into");
       return;
     }
-    processFiles(originals).then((converted) => injectViaInput(input, converted));
+    resolveAndInject(input, originals);
   },
   true
 );
