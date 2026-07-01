@@ -85,10 +85,14 @@ const GAP_FLUSH = 1.8;
 // Single-column pages have no gutter, so they fall through as one region and
 // read exactly as before.
 //
-// Limitation: a page dominated by a large chart/figure can pollute the gutter
-// vote and leave its text columns interleaved. Such pages are image-heavy, so
-// the classifier routes them to passthrough anyway; clean text columns (the
-// pages that actually convert) reflow correctly.
+// Limitations (both leave text interleaved, as before):
+//   - A page dominated by a large chart/figure can pollute the gutter vote.
+//     Such pages are image-heavy, so the classifier routes them to passthrough
+//     anyway; pages that actually convert reflow correctly.
+//   - A very short two-column fragment (e.g. a page-break remainder with only a
+//     couple of rows) falls below the detection guards and isn't split. This is
+//     the conservative side of avoiding false splits on short single-column
+//     content.
 //
 // Returns line objects: { y, h, para, cells: [{ text, x, endX }] }.
 export function reconstructLines(items) {
