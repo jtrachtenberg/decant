@@ -44,7 +44,7 @@ function arm() {
   //   disarm();
   // }, ARMED_TIMEOUT_MS);
   badge?.remove();
-  badge = showPassthroughBadge();
+  badge = showPassthroughBadge(disarm);
   console.log(TAG, "passthrough armed — next upload will be sent as-is");
 }
 

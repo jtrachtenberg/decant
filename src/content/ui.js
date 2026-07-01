@@ -96,9 +96,10 @@ export function promptConvertChoice(results) {
   });
 }
 
-// Small persistent badge shown while the passthrough hotkey is armed. Returns a
-// handle with remove(); styles live in a shadow root, isolated from the site.
-export function showPassthroughBadge() {
+// Small persistent badge shown while the passthrough hotkey is armed. The
+// "Esc to cancel" text is a clickable link that also cancels (calls onCancel).
+// Returns a handle with remove(); styles live in a shadow root.
+export function showPassthroughBadge(onCancel) {
   document.getElementById(BADGE_ID)?.remove();
 
   const host = document.createElement("div");
@@ -118,14 +119,22 @@ export function showPassthroughBadge() {
         display: flex; align-items: center; gap: 8px;
       }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b5cff; }
-      .hint { color: #9aa0aa; font-weight: 500; }
+      .sep { color: #9aa0aa; }
+      .cancel {
+        background: none; border: none; padding: 0; font: inherit; font-weight: 500;
+        color: #9aa0aa; cursor: pointer;
+        text-decoration: underline; text-underline-offset: 2px;
+      }
+      .cancel:hover { color: #fff; }
     </style>
     <div class="badge" role="status">
       <span class="dot"></span>
-      Decant: next upload sent as-is
-      <span class="hint">· Esc to cancel</span>
+      <span>Decant: next upload sent as-is</span>
+      <span class="sep">·</span>
+      <button class="cancel" type="button">Esc to cancel</button>
     </div>
   `;
+  root.querySelector(".cancel").addEventListener("click", () => onCancel?.());
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }

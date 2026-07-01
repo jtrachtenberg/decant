@@ -96,10 +96,16 @@ async function addHost() {
     status(`${host} is already listed.`);
     return;
   }
-  config.activation.rules.push({ type: "host", match: host, enabled: false });
+  // Default to enabled: request permission right away (from this click gesture).
+  const granted = await chrome.permissions.request({ origins: [pattern(host)] });
+  config.activation.rules.push({ type: "host", match: host, enabled: granted });
   input.value = "";
   await commit();
-  status(`Added ${host} — enable it to grant permission.`);
+  status(
+    granted
+      ? `Added and enabled ${host}.`
+      : `Added ${host} (permission declined — toggle it on to grant).`
+  );
 }
 
 function normalizeHost(value) {
