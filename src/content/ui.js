@@ -8,6 +8,7 @@
 // that never drops chart content.
 
 const HOST_ID = "decant-prompt-host";
+const BADGE_ID = "decant-passthrough-badge";
 
 export function promptConvertChoice(results) {
   return new Promise((resolve) => {
@@ -93,4 +94,38 @@ export function promptConvertChoice(results) {
 
     document.body.appendChild(host);
   });
+}
+
+// Small persistent badge shown while the passthrough hotkey is armed. Returns a
+// handle with remove(); styles live in a shadow root, isolated from the site.
+export function showPassthroughBadge() {
+  document.getElementById(BADGE_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = BADGE_ID;
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .badge {
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+        z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-size: 12.5px; font-weight: 600;
+        background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff;
+        border-radius: 999px; padding: 7px 14px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.4);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b5cff; }
+      .hint { color: #9aa0aa; font-weight: 500; }
+    </style>
+    <div class="badge" role="status">
+      <span class="dot"></span>
+      Decant: next upload sent as-is
+      <span class="hint">· Esc to cancel</span>
+    </div>
+  `;
+  document.body.appendChild(host);
+  return { remove: () => host.remove() };
 }
