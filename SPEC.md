@@ -193,9 +193,10 @@ section covers only how the **browser surface** realizes them:
   before attaching a file, it guarantees the original is uploaded with no
   conversion, regardless of how the file would otherwise be classified. The
   armed state is transient: consumed by the next intercepted upload, or cleared
-  on a timeout / Escape, with a visible badge while armed so the bypass is never
-  silent. Making the binding **user-configurable** (stored with the rest of the
-  config) arrives with the options page (M3).
+  on Escape or a second press, with a visible badge while armed so the bypass is
+  never silent. (An auto-disarm timeout is implemented but currently disabled.)
+  Making the binding **user-configurable** (stored with the rest of the config)
+  arrives with the options page (M3).
 
 ---
 
