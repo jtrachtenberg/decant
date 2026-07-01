@@ -4,7 +4,6 @@
 
 Decant converts documents to Markdown directly within the LLM UI but on your local machine, without interrupting your workflow or risking privacy concerns by using online conversion.  
 
-The model spends tokens on your content, not on pictures of pages.
 At its core is a surface-agnostic pipeline — `intercept → route → transform → substitute`.
 The first surface implemented is a Chrome extension that catches a PDF or Word
 doc as you attach it to an LLM chat and swaps in the Markdown version in place. 
