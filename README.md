@@ -170,6 +170,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
 - [`docs/adr/`](./docs/adr/) — the decision log (architecture decision records).
 - [`docs/QA-fidelity-check.md`](./docs/QA-fidelity-check.md) — how to check a
   conversion for information loss and file a triageable bug report.
+- [`docs/privacy.md`](./docs/privacy.md) — privacy policy: what Decant accesses,
+  how files are processed, and what never leaves your device.
 
 ---
 
