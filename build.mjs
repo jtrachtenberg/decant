@@ -30,7 +30,10 @@ await cp("LICENSE", `${outdir}/LICENSE`);
 await cp("THIRD-PARTY-NOTICES", `${outdir}/THIRD-PARTY-NOTICES`);
 
 const config = {
-  entryPoints: { "content/intercept": "src/content/intercept.js" },
+  entryPoints: {
+    "content/intercept": "src/content/intercept.js",
+    background: "src/background.js",
+  },
   outdir,
   bundle: true,
   format: "iife",
