@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Decant Settings</title>
+<style>
+  :root {
+    --bg: #faf9f7; --card: #fff; --ink: #1c1c22; --muted: #6b6b76;
+    --line: #e6e4df; --accent: #6b5cff; --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 620px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 28px; }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-top: 1px solid var(--line);
+  }
+  li:first-child { border-top: none; }
+  label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  label input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .host { font-weight: 500; }
+  .remove {
+    border: none; background: none; color: var(--muted); cursor: pointer;
+    font-size: 14px; padding: 4px 8px; border-radius: 6px;
+  }
+  .remove:hover { color: var(--danger); background: #faeceb; }
+  .add { display: flex; gap: 8px; margin-top: 14px; }
+  input[type=text] {
+    flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; background: var(--bg);
+  }
+  button.primary, .add button {
+    border: none; background: var(--accent); color: #fff; font: inherit;
+    font-weight: 600; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  }
+  .hotkey { display: flex; align-items: center; gap: 12px; }
+  code {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; font-size: 13px; font-family: ui-monospace, monospace;
+  }
+  .ghost {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    font: inherit; font-weight: 600; padding: 7px 12px; border-radius: 8px; cursor: pointer;
+  }
+  .ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .danger {
+    border: 1px solid var(--line); background: var(--card); color: var(--danger);
+    font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  }
+  .danger:hover { background: #faeceb; }
+  .status { color: var(--muted); font-size: 12px; min-height: 16px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Decant</h1>
+  <p class="sub">Convert files to Markdown before they upload.</p>
+
+  <section>
+    <h2>Where Decant runs</h2>
+    <p class="hint">
+      Decant does nothing on a site until you enable it here. Turning a host on
+      asks Chrome for permission to run on that host.
+    </p>
+    <ul id="hosts"></ul>
+    <div class="add">
+      <input id="new-host" type="text" placeholder="add a host, e.g. example.com" spellcheck="false" />
+      <button id="add-host">Add</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Passthrough hotkey</h2>
+    <p class="hint">
+      Press this before attaching a file to send the next upload untouched
+      (skips conversion).
+    </p>
+    <div class="hotkey">
+      <code id="hotkey-display">—</code>
+      <button id="record-hotkey" class="ghost">Change…</button>
+    </div>
+  </section>
+
+  <section>
+    <button id="reset" class="danger">Reset to defaults</button>
+    <p class="status" id="status"></p>
+  </section>
+</main>
+<script src="options.js"></script>
+</body>
+</html>

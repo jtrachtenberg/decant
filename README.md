@@ -75,9 +75,11 @@ path is the right tool, and nothing extra needs to run.
 Two independent layers, both **default-off**:
 
 ### Activation — where Decant runs
-Decant does nothing on any page unless its host or URL is explicitly whitelisted.
-It ships with `claude.ai` enabled; add other hosts (or specific URLs) yourself.
-No blanket injection into every site you visit.
+Decant does nothing on any page unless its host is explicitly whitelisted. It
+ships with `claude.ai` enabled (with a few common LLM hosts pre-listed but off);
+manage the list from the **options page**. Enabling a host asks Chrome for
+permission to run there and registers the content script dynamically, so the
+install prompt stays minimal and nothing injects into sites you haven't opted in.
 
 ### Routing — what happens to each file type
 Rules keyed by MIME type / extension decide each file's fate:
@@ -144,9 +146,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
   **Convert to Markdown / Send original** choice, and a **passthrough hotkey**
   (`Alt+Shift+O`) arms the next upload to be sent untouched. (Making the hotkey
   binding user-configurable comes with the options page in M2.)
-- **M2 — Polish & config.** Options page for the activation whitelist + routing
-  table (which also makes the hotkey binding user-configurable), Office formats
-  (DOCX/PPTX/XLSX), multi-site support, token-savings estimates.
+- **M2 — Polish & config. 🚧 In progress.** An options page now manages the
+  activation whitelist (default-deny, with dynamic content-script registration
+  and per-host permission prompts) and the passthrough hotkey binding. Still
+  ahead: the routing table, Office formats (DOCX/PPTX/XLSX via mammoth.js /
+  SheetJS), per-site adapters so enabling other hosts actually converts there,
+  and a token-savings estimate.
 - **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 
 ---

@@ -28,9 +28,16 @@ await cp(
 // the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
 await cp("LICENSE", `${outdir}/LICENSE`);
 await cp("THIRD-PARTY-NOTICES", `${outdir}/THIRD-PARTY-NOTICES`);
+// Options page markup (its script is bundled below).
+await mkdir(`${outdir}/options`, { recursive: true });
+await cp("src/options/options.html", `${outdir}/options/options.html`);
 
 const config = {
-  entryPoints: { "content/intercept": "src/content/intercept.js" },
+  entryPoints: {
+    "content/intercept": "src/content/intercept.js",
+    background: "src/background.js",
+    "options/options": "src/options/options.js",
+  },
   outdir,
   bundle: true,
   format: "iife",

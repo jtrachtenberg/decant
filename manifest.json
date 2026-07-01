@@ -2,19 +2,21 @@
   "manifest_version": 3,
   "name": "Decant (dev)",
   "version": "0.0.1",
-  "description": "Convert files to Markdown before they upload to LLM chat UIs. Milestone 1: in-browser PDF to Markdown on claude.ai.",
-  "content_scripts": [
-    {
-      "matches": ["https://claude.ai/*"],
-      "js": ["content/intercept.js"],
-      "run_at": "document_start",
-      "all_frames": false
-    }
-  ],
+  "description": "Convert files to Markdown before they upload to LLM chat UIs. Default-deny activation; converts PDFs in-browser.",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": ["*://claude.ai/*"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
   "web_accessible_resources": [
     {
       "resources": ["pdf.worker.mjs"],
-      "matches": ["https://claude.ai/*"]
+      "matches": ["*://*/*"]
     }
   ]
 }
