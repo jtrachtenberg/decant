@@ -3,7 +3,9 @@
 // analyzePdf() does one pass over the document gathering the per-page signals
 // the classifier needs — extractable text and raster-image count — then asks
 // classify.js what to do. Text is reconstructed regardless (it's the basis of
-// the char count); the Markdown is only assembled when the decision is convert.
+// the char count); the Markdown is assembled when the document is convertible
+// (decision "convert" or "ambiguous"), so an ambiguous doc's converted version
+// is ready if the user chooses it.
 //
 // The image count requires getOperatorList(), which is heavier than
 // getTextContent() but does not rasterize. For very large documents this is
@@ -53,7 +55,7 @@ export async function analyzePdf(file) {
 
   const { decision, reason, summary } = classifyDocument(perPage);
   const markdown =
-    decision === "convert"
+    decision === "convert" || decision === "ambiguous"
       ? pageMarkdown.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"
       : null;
 

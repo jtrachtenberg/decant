@@ -4,11 +4,18 @@
 //
 // convertFile(file) resolves to one of:
 //   { action: "converted",   file, original, reason, meta }  swap in `file`
-//   { action: "passthrough",  file, reason, meta }            leave `file` as-is
-// In both cases `file` is what should be handed to the upload target, so the
-// caller can treat the result uniformly.
+//   { action: "passthrough", file, reason, meta }            leave `file` as-is
+//   { action: "ambiguous",   file, converted, reason, meta } user chooses:
+//       `file` is the original (safe default), `converted` is the Markdown.
+// `file` is always the safe/default thing to hand the upload; callers that
+// support a choice look at `converted`.
 
 import { analyzePdf } from "./inbrowser.js";
+
+function markdownFile(original, markdown) {
+  const name = original.name.replace(/\.pdf$/i, "") + ".md";
+  return new File([markdown], name, { type: "text/markdown" });
+}
 
 export async function convertFile(file) {
   const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
@@ -20,21 +27,28 @@ export async function convertFile(file) {
     const res = await analyzePdf(file);
 
     if (res.decision === "convert") {
-      const name = file.name.replace(/\.pdf$/i, "") + ".md";
-      const mdFile = new File([res.markdown], name, { type: "text/markdown" });
       return {
         action: "converted",
-        file: mdFile,
+        file: markdownFile(file, res.markdown),
         original: file,
         reason: res.reason,
         meta: res.summary,
       };
     }
 
-    // "passthrough" (no usable text) and "ambiguous" (text + charts) both keep
-    // the original for now. Ambiguous is where the per-file Convert / Send-
-    // original toggle will later let the user opt into conversion; until then
-    // we err toward never silently degrading a chart-bearing document.
+    if (res.decision === "ambiguous") {
+      // Text plus meaningful charts: converting to text-only would drop the
+      // charts, so let the user choose. Default (`file`) is the original.
+      return {
+        action: "ambiguous",
+        file,
+        converted: markdownFile(file, res.markdown),
+        reason: res.reason,
+        meta: res.summary,
+      };
+    }
+
+    // "passthrough" (no usable text): keep the original untouched.
     return { action: "passthrough", file, reason: res.reason, meta: res.summary };
   } catch (err) {
     console.error("[decant] analysis failed, passing original through:", err);
