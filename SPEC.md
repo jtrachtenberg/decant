@@ -196,7 +196,7 @@ section covers only how the **browser surface** realizes them:
   on Escape or a second press, with a visible badge while armed so the bypass is
   never silent. (An auto-disarm timeout is implemented but currently disabled.)
   Making the binding **user-configurable** (stored with the rest of the config)
-  arrives with the options page (M3).
+  arrives with the options page (M2).
 
 ---
 
@@ -217,15 +217,15 @@ a dumb converter and a single site:
 - Text-layer detection → pass-through for image-only PDFs.
 - Per-file Convert / Send-original toggle.
 
-**Milestone 2 — Quality tier (shape B)**
-- `localhost` Python service (MarkItDown or Docling) behind the same interface.
-- Setting to choose engine; graceful fallback to A if the service is down.
-
-**Milestone 3 — Polish**
-- DOCX/PPTX/XLSX support (mammoth.js / SheetJS), figure handling settings,
-  multi-site support, token-savings estimate display.
+**Milestone 2 — Polish & config**
 - Full config UX: options page for the activation whitelist + routing table,
   dynamic host-permission requests, JSON import/export, non-localhost warnings.
+- DOCX/PPTX/XLSX support (mammoth.js / SheetJS), figure handling settings,
+  multi-site support, token-savings estimate display.
+
+**Milestone 3 — Quality tier (shape B)**
+- `localhost` Python service (MarkItDown or Docling) behind the same interface.
+- Setting to choose engine; graceful fallback to A if the service is down.
 
 ---
 

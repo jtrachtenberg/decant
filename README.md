@@ -143,10 +143,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
   Two manual overrides put you in control: ambiguous documents prompt a per-file
   **Convert to Markdown / Send original** choice, and a **passthrough hotkey**
   (`Alt+Shift+O`) arms the next upload to be sent untouched. (Making the hotkey
-  binding user-configurable comes with the options page in M3.)
-- **M2 — Companion tier.** Local Python service for OCR / high-fidelity tables.
-- **M3 — Polish.** Office formats, full config UI, multi-site support,
-  token-savings estimates.
+  binding user-configurable comes with the options page in M2.)
+- **M2 — Polish & config.** Options page for the activation whitelist + routing
+  table (which also makes the hotkey binding user-configurable), Office formats
+  (DOCX/PPTX/XLSX), multi-site support, token-savings estimates.
+- **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 
 ---
 

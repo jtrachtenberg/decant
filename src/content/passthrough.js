@@ -5,7 +5,7 @@
 // as-is, regardless of how it would be classified. A badge shows while armed;
 // the state is consumed by the next upload, Escape, or a second press.
 //
-// Binding is a constant for now; it moves to the options page / config in M3.
+// Binding is a constant for now; it moves to the options page / config in M2.
 
 import { showPassthroughBadge } from "./ui.js";
 
