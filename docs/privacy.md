@@ -14,7 +14,7 @@ Decant does not operate any servers, does not collect analytics, and does not se
 
 **Page content on supported sites only.** Decant uses a default-deny activation model: it only runs on a specific whitelist of host names (currently including claude.ai), not on every website you visit. On those sites, Decant needs to read and interact with the page in order to detect file uploads and substitute the converted version.
 
-**Local settings.** Decant stores your configuration (which sites are enabled, routing preferences, etc.) using Chrome's local storage. This data stays on your device and is not transmitted anywhere.
+**Settings.** Decant stores your configuration — which sites are enabled, your hotkey binding, and similar preferences — using Chrome's sync storage. Chrome syncs this across the browsers where you're signed in to your Google account, the same way it syncs bookmarks and other extension settings. It is never sent to Decant or any server Decant operates. If you prefer to keep settings on a single device, turn off Chrome sync (or disable syncing for extensions).
 
 ## How your data is processed
 
@@ -39,7 +39,7 @@ Decant requests the minimum browser permissions needed for its core function —
 
 ## Data retention
 
-Because Decant does not transmit your file content anywhere Decant controls, there is nothing for Decant's developer to retain. Your local settings persist in Chrome's storage until you remove the extension or clear its data.
+Because Decant does not transmit your file content anywhere Decant controls, there is nothing for Decant's developer to retain. Your settings persist in Chrome's sync storage until you remove the extension or clear its data; if Chrome sync is on, they sync to your Google account like your other Chrome settings.
 
 ## Changes to this policy
 
