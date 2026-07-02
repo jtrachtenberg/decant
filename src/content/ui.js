@@ -10,6 +10,7 @@
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
 const FAILURE_ID = "decant-attach-failure";
+const CONVERTING_ID = "decant-converting-badge";
 
 export function promptConvertChoice(results) {
   return new Promise((resolve) => {
@@ -136,6 +137,47 @@ export function showPassthroughBadge(onCancel) {
     </div>
   `;
   root.querySelector(".cancel").addEventListener("click", () => onCancel?.());
+  document.body.appendChild(host);
+  return { remove: () => host.remove() };
+}
+
+// Progress badge shown while a file is being converted, so a slow (large-PDF)
+// conversion doesn't look like a swallowed drop — the attached chip only
+// appears once conversion resolves. Same shadow-root pattern as the
+// passthrough badge; returns a handle with remove().
+export function showConvertingBadge(fileName) {
+  document.getElementById(CONVERTING_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = CONVERTING_ID;
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .badge {
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+        z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-size: 12.5px; font-weight: 600;
+        background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff;
+        border-radius: 999px; padding: 7px 14px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.4);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .spinner {
+        width: 10px; height: 10px; flex: none;
+        border: 2px solid #3a3a42; border-top-color: #6b5cff;
+        border-radius: 50%; animation: spin .8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+    <div class="badge" role="status">
+      <span class="spinner"></span>
+      <span class="msg"></span>
+    </div>
+  `;
+  root.querySelector(".msg").textContent = `Decant: converting “${fileName}”…`;
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }

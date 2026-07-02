@@ -28,7 +28,11 @@
 // the original file is sent with no conversion.
 
 import { convertFile } from "../convert/index.js";
-import { promptConvertChoice, showAttachFailureNotice } from "./ui.js";
+import {
+  promptConvertChoice,
+  showAttachFailureNotice,
+  showConvertingBadge,
+} from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 
 const TAG = "[decant]";
@@ -61,11 +65,20 @@ function findUsableFileInput() {
 async function resolveAndInject(preferredInput, fileArray) {
   const immediate = [];
   const ambiguous = [];
-  for (const f of fileArray) {
-    const r = await convertFile(f);
-    logResult(f, r);
-    if (r.action === "ambiguous") ambiguous.push(r);
-    else immediate.push(r.file);
+  // Progress badge per file: conversion can take a while on large PDFs, and
+  // without it a slow conversion looks like a swallowed drop.
+  let badge = null;
+  try {
+    for (const f of fileArray) {
+      badge?.remove();
+      badge = showConvertingBadge(f.name);
+      const r = await convertFile(f);
+      logResult(f, r);
+      if (r.action === "ambiguous") ambiguous.push(r);
+      else immediate.push(r.file);
+    }
+  } finally {
+    badge?.remove();
   }
 
   let chosen = [];
