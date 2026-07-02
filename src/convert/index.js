@@ -18,7 +18,9 @@
 // The analysis-result → contract mapping lives in result.js (pure, testable).
 
 import { analyzePdf } from "./inbrowser.js";
+import { analyzeDocx } from "./docx.js";
 import { resultFromAnalysis } from "./result.js";
+import { DOCX_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import {
@@ -78,17 +80,23 @@ async function convertViaBackground(file, rule) {
   return wireToFile(resp.file);
 }
 
-// Shape A: the in-browser engine. PDF-only so far — anything else routed here
-// passes through untouched (mammoth.js / SheetJS arrive later in M2).
+// Shape A: the in-browser engines, picked by type — PDF (pdf.js + the
+// classifier) and DOCX (mammoth). Anything else routed here passes through
+// untouched (SheetJS/PPTX arrive later in M2).
 async function inbrowser(file) {
-  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-  if (!isPdf) {
+  let engine = null;
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+    engine = analyzePdf;
+  } else if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
+    engine = analyzeDocx;
+  }
+  if (!engine) {
     return { action: "passthrough", file, reason: "no-engine" };
   }
 
   let res = null;
   try {
-    res = await analyzePdf(file);
+    res = await engine(file);
   } catch (err) {
     console.error(TAG, "analysis failed, passing original through:", err);
   }

@@ -157,8 +157,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
   output naming), and any endpoint failure takes the rule's fallback —
   in-browser conversion or passthrough — so a dead endpoint can never lose an
   upload. A zero-dependency mock endpoint (`npm run mock-endpoint`) doubles as
-  the executable contract for the M3 companion service.
-  Still ahead: Office formats (DOCX/PPTX/XLSX via mammoth.js /
+  the executable contract for the M3 companion service. **DOCX → Markdown**
+  now converts in-browser via mammoth.js: headings and emphasis survive,
+  inline images are never dropped silently (documents that contain them get
+  the same Convert / Send-original prompt PDFs do), and stored configs migrate
+  to include the new default rule.
+  Still ahead: remaining Office formats (PPTX/XLSX via
   SheetJS), per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a

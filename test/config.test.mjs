@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_CONFIG,
+  DOCX_MIME,
   enabledHosts,
   normalizeConfig,
 } from "../src/config/defaults.js";
@@ -61,15 +62,61 @@ test("normalizeConfig falls back wholesale on a malformed hotkey code", () => {
   }
 });
 
-test("default routing converts PDFs in-browser, everything else passthrough", () => {
+test("default routing converts PDFs and DOCX in-browser, else passthrough", () => {
   const { routing } = normalizeConfig(undefined);
   assert.equal(routing.default, "passthrough");
-  assert.equal(routing.rules.length, 1);
-  assert.equal(routing.rules[0].action, "inbrowser");
+  assert.equal(routing.rules.length, 2);
+  assert.ok(routing.rules.every((r) => r.action === "inbrowser"));
   assert.deepEqual(routing.rules[0].match, {
     mime: ["application/pdf"],
     ext: ["pdf"],
   });
+  assert.deepEqual(routing.rules[1].match, {
+    mime: [DOCX_MIME],
+    ext: ["docx"],
+  });
+});
+
+test("v1 configs get the default DOCX rule appended once", () => {
+  const v1 = {
+    version: 1,
+    routing: {
+      rules: [{ match: { mime: ["application/pdf"] }, action: "inbrowser" }],
+    },
+  };
+  const { routing } = normalizeConfig(v1);
+  assert.equal(routing.rules.length, 2);
+  assert.deepEqual(routing.rules[1].match.ext, ["docx"]);
+  // Same for unversioned stored configs.
+  const { routing: unversioned } = normalizeConfig({ routing: v1.routing });
+  assert.equal(unversioned.rules.length, 2);
+});
+
+test("migration respects an existing DOCX rule and v2 removals", () => {
+  // A v1 config that already routes docx its own way: nothing appended.
+  const own = normalizeConfig({
+    version: 1,
+    routing: {
+      rules: [
+        {
+          match: { ext: ["docx"] },
+          action: "http",
+          endpoint: "http://127.0.0.1:8765/convert",
+        },
+      ],
+    },
+  });
+  assert.equal(own.routing.rules.length, 1);
+  assert.equal(own.routing.rules[0].action, "http");
+
+  // A v2 config without a DOCX rule chose to remove it: stays removed.
+  const removed = normalizeConfig({
+    version: 2,
+    routing: {
+      rules: [{ match: { mime: ["application/pdf"] }, action: "inbrowser" }],
+    },
+  });
+  assert.equal(removed.routing.rules.length, 1);
 });
 
 test("normalizeConfig falls back to default routing when the section is malformed", () => {
@@ -81,6 +128,7 @@ test("normalizeConfig falls back to default routing when the section is malforme
 
 test("normalizeConfig drops unsalvageable routing rules, keeps valid ones", () => {
   const { routing } = normalizeConfig({
+    version: 2, // current version — keep the v1→v2 migration out of this test
     routing: {
       rules: [
         { match: { mime: ["application/pdf"] }, action: "inbrowser" },

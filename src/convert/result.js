@@ -5,12 +5,13 @@
 // chrome.runtime at module load.
 
 function markdownFile(original, markdown) {
-  const name = original.name.replace(/\.pdf$/i, "") + ".md";
+  const name = original.name.replace(/\.[a-z0-9]+$/i, "") + ".md";
   return new File([markdown], name, { type: "text/markdown" });
 }
 
-// `res` is the analyzePdf() result, or null when analysis threw — the caller
-// logs the error and the file passes through untouched with reason "error".
+// `res` is an engine analysis result (analyzePdf / analyzeDocx), or null when
+// analysis threw — the caller logs the error and the file passes through
+// untouched with reason "error".
 export function resultFromAnalysis(file, res) {
   if (!res) {
     return { action: "passthrough", file, reason: "error" };
