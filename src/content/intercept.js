@@ -1,8 +1,9 @@
 // Decant — content script: intercept → convert → substitute.
 //
 // Listens for file-attach events on claude.ai, runs each file through the
-// converter (PDF → Markdown, everything else passthrough), and substitutes
-// the result into the upload before Claude sees it.
+// converter — the routing table decides its fate (default: PDF → Markdown,
+// everything else passthrough) — and substitutes the result into the upload
+// before Claude sees it.
 //
 // Three attach paths:
 //   1. <input type="file"> change   (file-picker / paperclip button)
@@ -34,9 +35,20 @@ import {
   showConvertingBadge,
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
+import { loadConfig, onConfigChanged } from "../config/config.js";
+import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
+
+// Live routing table — starts at the defaults (which convert PDFs, matching
+// pre-routing behavior), then follows the stored config and any later
+// options-page edits.
+let routing = DEFAULT_CONFIG.routing;
+loadConfig()
+  .then((c) => (routing = c.routing))
+  .catch(() => {});
+onConfigChanged((c) => (routing = c.routing));
 
 function dataTransferWith(files) {
   const dt = new DataTransfer();
@@ -99,7 +111,7 @@ async function resolveAndInject(preferredInput, fileArray) {
     for (const f of fileArray) {
       badge?.remove();
       badge = showConvertingBadge(f.name);
-      const r = await convertFile(f);
+      const r = await convertFile(f, routing);
       logResult(f, r);
       if (r.action === "ambiguous") ambiguous.push(r);
       else immediate.push(r.file);
