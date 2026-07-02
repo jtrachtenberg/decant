@@ -49,12 +49,17 @@ function stripBookmarkAnchors(markdown) {
 }
 
 // mammoth escapes markdown-significant punctuation conservatively ("text\.",
-// "hello\!"); for our consumers that's token noise. Unescape the characters
-// that are never structural in Markdown — except a period after leading
-// digits, where "1\." unescaped would turn a plain line into a list item.
+// "11a\-12:30p", "\(2025\)"); for our consumers that's token noise. Unescape
+// the characters that aren't structural where they appear — two escapes are
+// load-bearing and stay: a period after line-leading digits ("1\." would
+// become a list item) and a line-leading hyphen ("\- x" would become a
+// bullet). Parens can't accidentally form links because brackets remain
+// escaped. Emphasis/bracket/hash escapes are left alone entirely.
 function unescapePunctuation(markdown) {
-  return markdown.replace(/\\([.!,?;:'"])/g, (whole, ch, offset, s) => {
-    if (ch === "." && /(^|\n)\s*\d+$/.test(s.slice(0, offset))) return whole;
+  return markdown.replace(/\\([.!,?;:'"()-])/g, (whole, ch, offset, s) => {
+    const lineStart = (re) => re.test(s.slice(0, offset));
+    if (ch === "." && lineStart(/(^|\n)\s*\d+$/)) return whole;
+    if (ch === "-" && lineStart(/(^|\n)[ \t]*$/)) return whole;
     return ch;
   });
 }

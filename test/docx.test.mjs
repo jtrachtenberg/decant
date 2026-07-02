@@ -74,14 +74,29 @@ test("a period escaped after leading digits stays escaped (list guard)", () => {
   assert.equal(res.markdown, "1\\. not a list\n\nSee item 2. it follows\n");
 });
 
+test("hyphens and parens unescape mid-line; line-leading hyphen stays (bullet guard)", () => {
+  const res = docxAnalysis(
+    "917\\-620\\-3998 \\(mobile\\)\n\n\\- dash paragraph, not a bullet"
+  );
+  assert.equal(
+    res.markdown,
+    "917-620-3998 (mobile)\n\n\\- dash paragraph, not a bullet\n"
+  );
+});
+
 test("tiny.docx: Title→h1, heading, bold, no anchors or escapes (real mammoth)", async () => {
   const res = await analyzeDocx(await fixture("tiny.docx"));
   assert.equal(res.decision, "convert");
   assert.match(res.markdown, /^# Fixture title\./); // Title style + unescaped "."
   assert.match(res.markdown, /# Decant fixture/); // Heading1 via default map
   assert.match(res.markdown, /__bold__ text!/);
+  // URLs survive intact as real Markdown links, punctuation unescaped.
+  assert.match(
+    res.markdown,
+    /Mon 11a-12:30p \(online\): \[class folder\]\(http:\/\/example\.com\/class\?x=1\)/
+  );
   assert.doesNotMatch(res.markdown, /<a id=/);
-  assert.doesNotMatch(res.markdown, /\\[.!]/);
+  assert.doesNotMatch(res.markdown, /\\[.!()-]/);
 });
 
 test("empty.docx passes through with no-text (real mammoth)", async () => {

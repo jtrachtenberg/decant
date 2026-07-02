@@ -31,6 +31,7 @@ const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="http://example.com/class?x=1" TargetMode="External"/>
 </Relationships>`;
 
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -40,14 +41,15 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </w:styles>`;
 
 const document = (body) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <w:body>${body}</w:body>
 </w:document>`;
 
 const TINY_BODY = `
     <w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:bookmarkStart w:id="0" w:name="_fixture.anchor"/><w:bookmarkEnd w:id="0"/><w:r><w:t>Fixture title.</w:t></w:r></w:p>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Decant fixture</w:t></w:r></w:p>
-    <w:p><w:r><w:t xml:space="preserve">Plain paragraph with </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t xml:space="preserve"> text!</w:t></w:r></w:p>`;
+    <w:p><w:r><w:t xml:space="preserve">Plain paragraph with </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t xml:space="preserve"> text!</w:t></w:r></w:p>
+    <w:p><w:r><w:t xml:space="preserve">Mon 11a-12:30p (online): </w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>class folder</w:t></w:r></w:hyperlink></w:p>`;
 
 async function makeDocx(path, body) {
   const zip = new JSZip();
