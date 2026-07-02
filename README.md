@@ -75,7 +75,8 @@ Two independent layers, both **default-off**:
 
 ### Activation — where Decant runs
 Decant does nothing on any page unless its host is explicitly whitelisted. It
-ships with `claude.ai` enabled (with a few common LLM hosts pre-listed but off);
+ships with `claude.ai` and `gemini.google.com` enabled (with other common LLM
+hosts pre-listed but off);
 manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.

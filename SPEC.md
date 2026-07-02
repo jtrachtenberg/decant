@@ -85,8 +85,9 @@ Markdown is just the default instantiation of a generic file-transform router.
 - Two rule granularities:
   - **host** — e.g. `claude.ai`, matches all pages on that host.
   - **url** — a pattern/glob for a specific page or path.
-- **Ships with `claude.ai` enabled.** Users add others (chatgpt.com,
-  gemini.google.com, …) over time.
+- **Ships with `claude.ai` and `gemini.google.com` enabled** (both required
+  host permissions, granted at install). Users add others (chatgpt.com, …)
+  over time.
 - **MV3 mechanics (implementation note):** because the host set is user-editable,
   don't hardcode `content_scripts` match patterns in the manifest. Use
   `optional_host_permissions` and request each host as the user adds it, then

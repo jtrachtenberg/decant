@@ -35,13 +35,15 @@ export const DEFAULT_CONFIG = {
   version: CONFIG_VERSION,
   activation: {
     default: "off",
-    // Common LLM chat hosts are pre-listed for convenience. Only claude.ai is
-    // enabled by default (default-deny); enabling another prompts Chrome for
-    // that host's permission (see the options page / background worker).
+    // Common LLM chat hosts are pre-listed for convenience. claude.ai and
+    // gemini.google.com are enabled by default (both are required host
+    // permissions in the manifest, granted at install); enabling another
+    // prompts Chrome for that host's permission (see the options page /
+    // background worker).
     rules: [
       { type: "host", match: "claude.ai", enabled: true },
+      { type: "host", match: "gemini.google.com", enabled: true },
       { type: "host", match: "chatgpt.com", enabled: false },
-      { type: "host", match: "gemini.google.com", enabled: false },
       { type: "host", match: "perplexity.ai", enabled: false },
       { type: "host", match: "chat.mistral.ai", enabled: false },
     ],

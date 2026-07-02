@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "description": "Convert files to Markdown before they upload to LLM chat UIs. Default-deny activation; converts PDFs in-browser.",
   "permissions": ["scripting", "storage"],
-  "host_permissions": ["*://claude.ai/*"],
+  "host_permissions": ["*://claude.ai/*", "*://gemini.google.com/*"],
   "optional_host_permissions": ["*://*/*"],
   "background": {
     "service_worker": "background.js"
