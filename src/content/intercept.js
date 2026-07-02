@@ -137,9 +137,13 @@ async function resolveAndInject(preferredInput, fileArray) {
 }
 
 function logResult(f, r) {
-  const pages = r.meta
-    ? ` [${r.meta.contentPages}/${r.meta.pageCount} text pages, ${r.meta.chartPages} chart pages]`
-    : "";
+  // PDF summaries carry page stats; DOCX summaries carry an image count.
+  const pages =
+    r.meta?.pageCount != null
+      ? ` [${r.meta.contentPages}/${r.meta.pageCount} text pages, ${r.meta.chartPages} chart pages]`
+      : r.meta?.images != null
+        ? ` [${r.meta.images} images]`
+        : "";
   if (r.action === "converted") {
     // meta is the PDF classifier's summary; http/companion results don't
     // carry one.

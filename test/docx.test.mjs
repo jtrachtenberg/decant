@@ -1,0 +1,72 @@
+// Unit tests for the DOCX engine (src/convert/docx.js): pure decision logic
+// plus the real mammoth conversion against the committed fixtures
+// (regenerate with scripts/make-docx-fixtures.mjs).
+//
+//   node --test   (npm test)
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import {
+  analyzeDocx,
+  docxAnalysis,
+  stripDataUriImages,
+} from "../src/convert/docx.js";
+
+const fixture = async (name) => {
+  const buf = await readFile(new URL(`./fixtures/${name}`, import.meta.url));
+  return new File([buf], name, {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+};
+
+const PNG_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+
+test("stripDataUriImages removes and counts inline images", () => {
+  const { markdown, images } = stripDataUriImages(
+    `Before\n\n![](${PNG_URI})\n\n![chart](${PNG_URI})\n\nAfter`
+  );
+  assert.equal(images, 2);
+  assert.equal(markdown, "Before\n\nAfter");
+});
+
+test("stripDataUriImages leaves ordinary links and images alone", () => {
+  const md = "See ![alt](https://example.com/x.png) and [a link](https://example.com).";
+  const { markdown, images } = stripDataUriImages(md);
+  assert.equal(images, 0);
+  assert.equal(markdown, md);
+});
+
+test("text-only markdown → convert", () => {
+  const res = docxAnalysis("# Title\n\nBody.");
+  assert.equal(res.decision, "convert");
+  assert.equal(res.reason, "text");
+  assert.equal(res.markdown, "# Title\n\nBody.\n");
+});
+
+test("text with images → ambiguous, markdown carries the stripped text", () => {
+  const res = docxAnalysis(`# Title\n\n![](${PNG_URI})\n\nBody.`);
+  assert.equal(res.decision, "ambiguous");
+  assert.equal(res.reason, "text-with-images");
+  assert.equal(res.summary.images, 1);
+  assert.equal(res.markdown, "# Title\n\nBody.\n");
+});
+
+test("images with no text → passthrough (never attach an empty file)", () => {
+  const res = docxAnalysis(`![](${PNG_URI})`);
+  assert.equal(res.decision, "passthrough");
+  assert.equal(res.reason, "no-text");
+});
+
+test("tiny.docx converts with heading and bold intact (real mammoth)", async () => {
+  const res = await analyzeDocx(await fixture("tiny.docx"));
+  assert.equal(res.decision, "convert");
+  assert.match(res.markdown, /^# Decant fixture/);
+  assert.match(res.markdown, /__bold__/);
+});
+
+test("empty.docx passes through with no-text (real mammoth)", async () => {
+  const res = await analyzeDocx(await fixture("empty.docx"));
+  assert.equal(res.decision, "passthrough");
+  assert.equal(res.reason, "no-text");
+});

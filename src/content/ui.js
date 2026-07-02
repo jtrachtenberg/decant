@@ -22,16 +22,20 @@ export function promptConvertChoice(results) {
     const root = host.attachShadow({ mode: "open" });
 
     const names = results.map((r) => r.file.name);
-    const charts = results.reduce((n, r) => n + (r.meta?.chartPages || 0), 0);
+    // PDFs report chart pages, DOCX reports embedded images — one count.
+    const visuals = results.reduce(
+      (n, r) => n + (r.meta?.chartPages ?? r.meta?.images ?? 0),
+      0
+    );
     const title =
       names.length === 1
-        ? `“${names[0]}” looks like text with charts`
-        : `${names.length} documents look like text with charts`;
-    const detail = charts
-      ? `Converting to Markdown saves tokens but drops ${charts} chart page${
-          charts === 1 ? "" : "s"
-        }. Send the original to keep the charts.`
-      : `Converting to Markdown saves tokens but drops the charts. Send the original to keep them.`;
+        ? `“${names[0]}” looks like text with charts or images`
+        : `${names.length} documents look like text with charts or images`;
+    const detail = visuals
+      ? `Converting to Markdown saves tokens but drops ${visuals} visual element${
+          visuals === 1 ? "" : "s"
+        }. Send the original to keep them.`
+      : `Converting to Markdown saves tokens but drops the visuals. Send the original to keep them.`;
 
     root.innerHTML = `
       <style>
