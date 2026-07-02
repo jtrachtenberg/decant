@@ -56,6 +56,23 @@ function dataTransferWith(files) {
   return dt;
 }
 
+// Per-site intercept adapters — the first cut of the M2 adapter tier, moving
+// to per-site config with profiles (M4).
+//
+// Gemini: drops/pastes can't be substituted. Its uploader accepts only
+// trusted drops (QA probes fired synthetic drops at every element with a
+// drop listener, including the xap-uploader-dropzone — all ignored), and its
+// picker <input type=file> is transient: Angular unbinds the change listener
+// when the element is destroyed, so even a cached reference is a dead
+// letterbox (QA: injection dispatched, nothing happened). Intercepting would
+// turn a working native upload into a lost one, so the native event goes
+// through untouched — the original file uploads unconverted — and conversion
+// remains available via the picker path, which works end-to-end.
+const SITE_ADAPTERS = {
+  "gemini.google.com": { interceptDrop: false, interceptPaste: false },
+};
+const adapter = SITE_ADAPTERS[location.hostname] ?? {};
+
 // Pick the file input to inject into. claude.ai currently mounts one, but if
 // a second ever appears (avatar upload, project-knowledge modal), plain "last
 // in DOM order" could hit the wrong one. Cheap preference ordering:
@@ -229,6 +246,15 @@ document.addEventListener(
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
 
+    // Site adapter says drops can't be substituted here → let the native
+    // drop proceed with the original file (see SITE_ADAPTERS). An armed
+    // passthrough state is consumed: native upload is the passthrough.
+    if (adapter.interceptDrop === false) {
+      consumePassthrough();
+      console.log(TAG, "drop: site adapter → native drop, original sent unconverted");
+      return;
+    }
+
     // Passthrough hotkey armed → don't intercept; let the native drop proceed
     // so Claude receives the original file unchanged.
     if (consumePassthrough()) {
@@ -286,6 +312,13 @@ document.addEventListener(
         .filter(Boolean);
     }
     if (originals.length === 0) return; // text-only paste — leave it alone
+
+    // Site adapter: same reasoning as the drop path.
+    if (adapter.interceptPaste === false) {
+      consumePassthrough();
+      console.log(TAG, "paste: site adapter → native paste, original sent unconverted");
+      return;
+    }
 
     // Passthrough hotkey armed → let the native paste proceed untouched.
     if (consumePassthrough()) {

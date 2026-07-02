@@ -229,7 +229,7 @@ export function showAttachFailureNotice(fileNames) {
       <button class="x" type="button" aria-label="Dismiss">✕</button>
     </div>
   `;
-  root.querySelector(".msg").textContent = `${label} — please re-attach.`;
+  root.querySelector(".msg").textContent = `${label} — please re-attach using the site's file picker (+/attach button).`;
   const timer = setTimeout(() => host.remove(), FAILURE_TIMEOUT_MS);
   root.querySelector(".x").addEventListener("click", () => {
     clearTimeout(timer);

@@ -76,9 +76,10 @@ Two independent layers, both **default-off**:
 ### Activation — where Decant runs
 Decant does nothing on any page unless its host is explicitly whitelisted. It
 ships with `claude.ai` and `gemini.google.com` enabled (with other common LLM
-hosts pre-listed but off — on Gemini the file-picker path converts; drag-and-drop
-needs a per-site adapter, planned in M2, and currently shows the re-attach
-notice);
+hosts pre-listed but off — on Gemini the file-picker path converts, while
+drag-and-drop/paste intentionally send the original file unconverted: Gemini's
+uploader only accepts trusted drops, so its site adapter passes the native
+event through rather than lose the upload);
 manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
