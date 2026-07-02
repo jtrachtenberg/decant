@@ -5,8 +5,11 @@
 // service, API key, or network. It is also the executable definition of the
 // contract the M3 Python companion must satisfy.
 //
-//   npm run test-endpoint          (default port 8765)
-//   PORT=9000 npm run test-endpoint
+//   npm run mock-endpoint          (default port 8765)
+//   PORT=9000 npm run mock-endpoint
+//
+// (Named mock-, not test-: `node --test` auto-discovers test-* files and
+// would try to run the server as a test.)
 //
 // Behavior by path (POST/PUT):
 //   /convert      → 200 JSON { "text": ... }     happy path; responseField "text"
