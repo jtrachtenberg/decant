@@ -56,34 +56,22 @@ function dataTransferWith(files) {
   return dt;
 }
 
-// Cache of the most recent <input type=file> the page has ever mounted.
+// Per-site intercept adapters — the first cut of the M2 adapter tier, moving
+// to per-site config with profiles (M4).
 //
-// Some sites (Gemini) create the picker input transiently — mounted on the
-// "+ → Upload files" click, removed right after — so nothing is findable in
-// the DOM at injection time and synthetic drops are ignored (Gemini's
-// uploader checks isTrusted; verified by QA probes). But the site's change
-// listener is attached directly to that element, so a cached reference stays
-// deliverable even after detachment: assign .files, dispatch change, and the
-// handler still runs. The cache only fills after the user has used the
-// site's picker once per page load; until then drop/paste fall through to
-// the visible failure notice.
-let cachedFileInput = null;
-
-function installFileInputCache() {
-  new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      for (const node of m.addedNodes) {
-        if (!(node instanceof Element)) continue;
-        if (node instanceof HTMLInputElement && node.type === "file") {
-          cachedFileInput = node;
-        } else {
-          const inp = node.querySelector?.('input[type="file"]');
-          if (inp) cachedFileInput = inp;
-        }
-      }
-    }
-  }).observe(document.documentElement, { childList: true, subtree: true });
-}
+// Gemini: drops/pastes can't be substituted. Its uploader accepts only
+// trusted drops (QA probes fired synthetic drops at every element with a
+// drop listener, including the xap-uploader-dropzone — all ignored), and its
+// picker <input type=file> is transient: Angular unbinds the change listener
+// when the element is destroyed, so even a cached reference is a dead
+// letterbox (QA: injection dispatched, nothing happened). Intercepting would
+// turn a working native upload into a lost one, so the native event goes
+// through untouched — the original file uploads unconverted — and conversion
+// remains available via the picker path, which works end-to-end.
+const SITE_ADAPTERS = {
+  "gemini.google.com": { interceptDrop: false, interceptPaste: false },
+};
+const adapter = SITE_ADAPTERS[location.hostname] ?? {};
 
 // Pick the file input to inject into. claude.ai currently mounts one, but if
 // a second ever appears (avatar upload, project-knowledge modal), plain "last
@@ -197,18 +185,8 @@ function logResult(f, r) {
 // If no usable input exists at all, surface a visible notice — a swallowed
 // attach with no feedback is the worst failure mode this extension can have.
 function injectViaInput(preferred, files) {
-  let input =
+  const input =
     preferred && preferred.isConnected ? preferred : findUsableFileInput();
-  if (!input && cachedFileInput) {
-    // Last resort: a previously-mounted (possibly now detached) input. Its
-    // change listener lives on the element itself, so it can still deliver
-    // (see the cache comment above).
-    input = cachedFileInput;
-    console.log(
-      TAG,
-      `injecting via cached${input.isConnected ? "" : " detached"} file input`
-    );
-  }
   if (!input) {
     console.warn(
       TAG,
@@ -243,9 +221,6 @@ document.addEventListener(
     const originals = Array.from(target.files);
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
-    // A change event proves this input has a live site handler — remember it
-    // for drop/paste injection on sites with no persistent input.
-    cachedFileInput = target;
 
     resolveAndInject(target, originals);
   },
@@ -270,6 +245,15 @@ document.addEventListener(
     if (ev[SENTINEL]) return;
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
+
+    // Site adapter says drops can't be substituted here → let the native
+    // drop proceed with the original file (see SITE_ADAPTERS). An armed
+    // passthrough state is consumed: native upload is the passthrough.
+    if (adapter.interceptDrop === false) {
+      consumePassthrough();
+      console.log(TAG, "drop: site adapter → native drop, original sent unconverted");
+      return;
+    }
 
     // Passthrough hotkey armed → don't intercept; let the native drop proceed
     // so Claude receives the original file unchanged.
@@ -329,6 +313,13 @@ document.addEventListener(
     }
     if (originals.length === 0) return; // text-only paste — leave it alone
 
+    // Site adapter: same reasoning as the drop path.
+    if (adapter.interceptPaste === false) {
+      consumePassthrough();
+      console.log(TAG, "paste: site adapter → native paste, original sent unconverted");
+      return;
+    }
+
     // Passthrough hotkey armed → let the native paste proceed untouched.
     if (consumePassthrough()) {
       console.log(TAG, "passthrough hotkey → sending original (paste)");
@@ -345,6 +336,5 @@ document.addEventListener(
   true
 );
 
-installFileInputCache();
 installPassthroughHotkey();
 console.log(TAG, "intercept installed at", location.href);
