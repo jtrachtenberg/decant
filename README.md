@@ -147,13 +147,18 @@ on it fall back gracefully (in-browser conversion or passthrough).
   binding user-configurable comes with the options page in M2.)
 - **M2 — Polish & config. 🚧 In progress.** An options page now manages the
   activation whitelist (default-deny, with dynamic content-script registration
-  and per-host permission prompts) and the passthrough hotkey binding. Still
-  ahead: the routing table, Office formats (DOCX/PPTX/XLSX via mammoth.js /
+  and per-host permission prompts), the passthrough hotkey binding, and the
+  **routing table** — ordered per-type rules
+  (`inbrowser` / `companion` / `http` / `passthrough`) deciding each
+  intercepted file's fate, with whole-config JSON import/export and a warning
+  whenever a rule points at a non-localhost endpoint. (Companion/http rules
+  take effect when those engines land in M3; until then matching files use the
+  rule's fallback.) Still ahead: Office formats (DOCX/PPTX/XLSX via mammoth.js /
   SheetJS), per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
-  pass — manifest icons, production name, and a manual smoke checklist
-  (picker/drop/paste × convert/ambiguous/passthrough/hotkey) in `docs/` —
-  and a token-savings estimate.
+  pass — manifest icons, production name, commercial-licensing notice, and a
+  manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)
+  in `docs/` — and a token-savings estimate.
 - **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
