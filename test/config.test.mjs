@@ -11,8 +11,11 @@ import {
   normalizeConfig,
 } from "../src/config/defaults.js";
 
-test("default config enables only claude.ai", () => {
-  assert.deepEqual(enabledHosts(DEFAULT_CONFIG), ["claude.ai"]);
+test("default config enables only claude.ai and gemini", () => {
+  assert.deepEqual(enabledHosts(DEFAULT_CONFIG), [
+    "claude.ai",
+    "gemini.google.com",
+  ]);
 });
 
 test("normalizeConfig fills defaults for empty / bad input", () => {

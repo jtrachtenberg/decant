@@ -15,7 +15,7 @@
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import {
-  reconstructLines,
+  reconstructPage,
   linesToText,
   linesToMarkdown,
   countChars,
@@ -37,11 +37,15 @@ export async function analyzePdf(file) {
 
   const perPage = [];
   const pageMarkdown = [];
+  // Column gutter carried page-to-page, so a page-break remainder (too short
+  // for detection on its own) still reflows column-first.
+  let gutter = null;
   try {
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
-      const lines = reconstructLines(content.items);
+      const { lines, gutter: pageGutter } = reconstructPage(content.items, gutter);
+      gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
       perPage.push({
