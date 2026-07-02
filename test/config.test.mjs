@@ -53,3 +53,23 @@ test("normalizeConfig merges hotkey over defaults", () => {
   assert.equal(cfg.hotkey.code, "KeyP");
   assert.equal(cfg.hotkey.alt, true); // default preserved
 });
+
+test("normalizeConfig falls back wholesale on a malformed hotkey code", () => {
+  for (const bad of [{ code: 42 }, { code: "" }, { code: null }, "KeyP", 7]) {
+    const cfg = normalizeConfig({ hotkey: bad });
+    assert.deepEqual(cfg.hotkey, DEFAULT_CONFIG.hotkey);
+  }
+});
+
+test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
+  const cfg = normalizeConfig({
+    hotkey: { code: "KeyP", alt: "yes", ctrl: 1, shift: true, meta: null },
+  });
+  assert.deepEqual(cfg.hotkey, {
+    code: "KeyP",
+    alt: false,
+    shift: true,
+    ctrl: false,
+    meta: false,
+  });
+});
