@@ -17,6 +17,11 @@
 // Ambiguous documents (substantial text plus charts) aren't injected silently:
 // the user is prompted to convert to Markdown or send the original, and the
 // chosen file is injected once they pick (see resolveAndInject / ui.js).
+// Injection is all-or-nothing: a batch is injected in ONE .files assignment,
+// after any prompt resolves. Injecting clear files early and ambiguous ones
+// later would overwrite the first FileList, which only works if the site
+// copies files synchronously in its change handler — not an assumption worth
+// depending on.
 //
 // A passthrough hotkey (see passthrough.js) can arm a one-shot bypass: when
 // armed, the handlers get out of the way and let the native upload proceed, so
@@ -45,10 +50,14 @@ function findUsableFileInput() {
   return best;
 }
 
-// Convert each file, then inject the results into the upload. Clear results
-// (converted / passthrough) are injected immediately. Ambiguous ones (text plus
-// charts) prompt the user to choose convert vs. original, then inject the
-// chosen version — deciding before injecting avoids having to un-attach a chip.
+// Convert each file, then inject the results into the upload in a single
+// .files assignment. Ambiguous results (text plus charts) prompt the user to
+// choose convert vs. original first — deciding before injecting avoids having
+// to un-attach a chip. When a batch mixes clear and ambiguous files, the clear
+// ones wait for the prompt too: a second injection would *replace* the input's
+// FileList, which only works if the site copies files synchronously inside its
+// change handler — an assumption we don't want to be load-bearing. The cost is
+// a beat of extra latency on the clear files in the mixed-batch case only.
 async function resolveAndInject(preferredInput, fileArray) {
   const immediate = [];
   const ambiguous = [];
@@ -59,8 +68,7 @@ async function resolveAndInject(preferredInput, fileArray) {
     else immediate.push(r.file);
   }
 
-  if (immediate.length) injectViaInput(preferredInput, immediate);
-
+  let chosen = [];
   if (ambiguous.length) {
     let choice = "original";
     try {
@@ -69,11 +77,11 @@ async function resolveAndInject(preferredInput, fileArray) {
       console.warn(TAG, "prompt failed, sending originals:", err);
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
-    injectViaInput(
-      preferredInput,
-      ambiguous.map((r) => (choice === "convert" ? r.converted : r.file))
-    );
+    chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
   }
+
+  const files = [...immediate, ...chosen];
+  if (files.length) injectViaInput(preferredInput, files);
 }
 
 function logResult(f, r) {
