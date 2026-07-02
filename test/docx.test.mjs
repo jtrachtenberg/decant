@@ -58,11 +58,30 @@ test("images with no text → passthrough (never attach an empty file)", () => {
   assert.equal(res.reason, "no-text");
 });
 
-test("tiny.docx converts with heading and bold intact (real mammoth)", async () => {
+test("bookmark anchors are stripped", () => {
+  const res = docxAnalysis('<a id="_3rsulcktou25"></a>The title\n\nBody.');
+  assert.equal(res.markdown, "The title\n\nBody.\n");
+});
+
+test("mammoth's punctuation escapes are removed where safe", () => {
+  const res = docxAnalysis("Normal text\\. Bold\\! Sure\\, why not\\?");
+  assert.equal(res.markdown, "Normal text. Bold! Sure, why not?\n");
+});
+
+test("a period escaped after leading digits stays escaped (list guard)", () => {
+  const res = docxAnalysis("1\\. not a list\n\nSee item 2\\. it follows");
+  // Line-leading "1\." keeps its escape; the mid-line "2\." is unescaped.
+  assert.equal(res.markdown, "1\\. not a list\n\nSee item 2. it follows\n");
+});
+
+test("tiny.docx: Title→h1, heading, bold, no anchors or escapes (real mammoth)", async () => {
   const res = await analyzeDocx(await fixture("tiny.docx"));
   assert.equal(res.decision, "convert");
-  assert.match(res.markdown, /^# Decant fixture/);
-  assert.match(res.markdown, /__bold__/);
+  assert.match(res.markdown, /^# Fixture title\./); // Title style + unescaped "."
+  assert.match(res.markdown, /# Decant fixture/); // Heading1 via default map
+  assert.match(res.markdown, /__bold__ text!/);
+  assert.doesNotMatch(res.markdown, /<a id=/);
+  assert.doesNotMatch(res.markdown, /\\[.!]/);
 });
 
 test("empty.docx passes through with no-text (real mammoth)", async () => {

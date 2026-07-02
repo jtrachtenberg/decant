@@ -22,6 +22,14 @@ import * as mammothNs from "mammoth/mammoth.browser.js";
 
 const mammoth = mammothNs.default ?? mammothNs;
 
+// Word's (and Google Docs') "Title"/"Subtitle" styles aren't in mammoth's
+// default style map, so a document's title would fall through as a plain
+// paragraph. Mapped on top of the defaults.
+const STYLE_MAP = [
+  "p[style-name='Title'] => h1:fresh",
+  "p[style-name='Subtitle'] => h2:fresh",
+];
+
 // Remove data-URI images from mammoth's Markdown and count them. Exported
 // for direct unit testing. Alt text (rarely present) goes with the image —
 // a caption without its figure reads as noise, not content.
@@ -34,9 +42,29 @@ export function stripDataUriImages(markdown) {
   return { markdown: stripped.replace(/\n{3,}/g, "\n\n").trim(), images };
 }
 
+// Bookmarks (Word cross-reference targets, every Google Docs heading) come
+// out as empty inline anchors — pure noise for an LLM reader.
+function stripBookmarkAnchors(markdown) {
+  return markdown.replace(/<a id="[^"]*"><\/a>/g, "");
+}
+
+// mammoth escapes markdown-significant punctuation conservatively ("text\.",
+// "hello\!"); for our consumers that's token noise. Unescape the characters
+// that are never structural in Markdown — except a period after leading
+// digits, where "1\." unescaped would turn a plain line into a list item.
+function unescapePunctuation(markdown) {
+  return markdown.replace(/\\([.!,?;:'"])/g, (whole, ch, offset, s) => {
+    if (ch === "." && /(^|\n)\s*\d+$/.test(s.slice(0, offset))) return whole;
+    return ch;
+  });
+}
+
 // Decision over mammoth's raw Markdown — pure, exported for tests.
 export function docxAnalysis(rawMarkdown) {
-  const { markdown, images } = stripDataUriImages(rawMarkdown);
+  const { markdown: stripped, images } = stripDataUriImages(
+    stripBookmarkAnchors(rawMarkdown)
+  );
+  const markdown = unescapePunctuation(stripped);
   const summary = { images, chars: markdown.length };
   if (!markdown) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
@@ -50,8 +78,9 @@ export function docxAnalysis(rawMarkdown) {
 }
 
 export async function analyzeDocx(file) {
-  const { value } = await mammoth.convertToMarkdown({
-    arrayBuffer: await file.arrayBuffer(),
-  });
+  const { value } = await mammoth.convertToMarkdown(
+    { arrayBuffer: await file.arrayBuffer() },
+    { styleMap: STYLE_MAP }
+  );
   return docxAnalysis(value);
 }
