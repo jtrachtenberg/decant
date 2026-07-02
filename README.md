@@ -155,6 +155,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
   (picker/drop/paste × convert/ambiguous/passthrough/hotkey) in `docs/` —
   and a token-savings estimate.
 - **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
+- **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
+  Markdown everywhere, but always pass through on one site, or forward a file
+  type to a specific endpoint on another. Same rule shape as global routing,
+  merged per file type and resolved most-specific-wins (one-shot hotkey → site
+  profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
 
 ---
 

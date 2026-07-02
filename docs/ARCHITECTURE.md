@@ -44,6 +44,38 @@ across every surface**. A browser extension, a desktop MCP server, and a mobile
 share target differ only in how they grab the file and return the result; the
 routing table and the converter engines behind them are identical.
 
+### 2.1 Configuration layering — profiles
+
+The routing table is global policy, but one destination can need to diverge
+from it: convert PDFs to Markdown everywhere *except* site X, or forward a file
+type to a specific endpoint only for one host. **Profiles** are that overlay —
+the same rule shape as global routing, scoped to a destination (a host for the
+browser extension; a server or share target for other surfaces) and merged over
+the global table. Routing config resolves most-specific-wins for each
+intercepted file:
+
+1. **One-shot manual override** (e.g. the browser passthrough hotkey — §5).
+2. **Profile rule** for the file's destination, if one names its type.
+3. **Global routing rule** for its type.
+4. **Default: passthrough.**
+
+Principles every surface's realization must keep:
+
+- **Per-key merge, not wholesale replacement.** A profile overrides only the
+  file-type keys it names; "site X: PDFs passthrough" must not silently drop
+  the global DOCX rule on that site.
+- **Validate on load, fail toward global.** Config is user-editable; a
+  malformed profile is discarded wholesale (falling back to global routing)
+  rather than allowed to brick conversion for one destination.
+- **The privacy guardrail follows the rule, not the layer.** A non-localhost
+  endpoint configured inside a profile warns exactly like a global one — more
+  important, even, since a per-site rule is easier to set and forget.
+
+Profiles are also the designated home for per-destination adapter settings as
+they accumulate (selector heuristics, accepted-type quirks). The capability is
+core; the matcher shape and storage are per-surface — browser realization in
+[`SPEC.md`](../SPEC.md) §3.8 (planned, M4).
+
 ---
 
 ## 3. The converter interface & boundary

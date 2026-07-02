@@ -172,6 +172,16 @@ the response), `output` (ext, mime, filename template), `enabled`, `onError`.
         "enabled": false,
         "onError": "passthrough"
       }
+    ],
+    // Per-host overrides (profiles, M4 — see §3.8). Merged over the global
+    // rules per file-type key; most specific wins.
+    "profiles": [
+      // {
+      //   "host": "chatgpt.com",
+      //   "rules": [
+      //     { "match": { "mime": ["application/pdf"] }, "action": "passthrough" }
+      //   ]
+      // }
     ]
   }
 }
@@ -197,6 +207,33 @@ section covers only how the **browser surface** realizes them:
   never silent. (An auto-disarm timeout is implemented but currently disabled.)
   Making the binding **user-configurable** (stored with the rest of the config)
   arrives with the options page (M2).
+
+### 3.8 Profiles — per-host routing overrides (M4) — browser realization
+
+Config layering is a **core concept**: the resolution order and the principles
+(per-key merge, fail-toward-global validation, per-rule privacy warnings) live
+in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) §2.1. This section covers
+only how the browser surface realizes them:
+
+- **Scope by host**, using the same `match` shape as activation rules (§3.1) —
+  one matcher concept in the codebase and in the UI. URL-pattern scoping can
+  layer in later without changing the model.
+- **Profile rules are routing rules** (§3.2/§3.4), merged over the global
+  table per file-type key. E.g. global `application/pdf → inbrowser (md)`, but
+  chatgpt.com always passes PDFs through, and an internal host forwards them
+  to a configured endpoint (see the `profiles` block in §3.6).
+- **Resolution per intercepted file:** passthrough hotkey (§3.7) → active
+  host's profile rule → global routing rule → passthrough. The per-file
+  Convert / Send-original prompt is orthogonal — it fires inside whichever
+  engine ends up running (ambiguous classification), not at the routing layer.
+- **Storage & validation:** profiles live with the rest of the config in
+  `chrome.storage.sync`; `normalizeConfig` validates their shape and discards
+  a malformed profile wholesale (same lesson as the hotkey-shape validation).
+- **Options page** gets a per-host profile editor; the non-localhost warning
+  (§3.5) applies to each profile rule individually.
+- Profiles are also where **per-site adapter settings** land as they accumulate
+  (e.g. the file-input selection heuristic in `intercept.js` is
+  claude.ai-calibrated today and slated to move here).
 
 ---
 
@@ -226,6 +263,13 @@ a dumb converter and a single site:
 **Milestone 3 — Quality tier (shape B)**
 - `localhost` Python service (MarkItDown or Docling) behind the same interface.
 - Setting to choose engine; graceful fallback to A if the service is down.
+
+**Milestone 4 — Profiles (per-host overrides)**
+- Per-host overlay on the routing table (§3.8): global policy stays, individual
+  hosts diverge — always passthrough on one site, forward a type to a specific
+  endpoint on another.
+- Options-page profile editor; `normalizeConfig` validation with wholesale
+  fallback to global routing on malformed profiles.
 
 ---
 
