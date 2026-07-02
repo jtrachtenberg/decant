@@ -11,6 +11,12 @@
 
 import { loadConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts } from "./config/defaults.js";
+import { httpConvert } from "./convert/http.js";
+import {
+  HTTP_CONVERT_MSG,
+  fileToWire,
+  wireToFile,
+} from "./convert/relay.js";
 
 const SCRIPT_ID = "decant-intercept";
 const TAG = "[decant bg]";
@@ -72,3 +78,21 @@ chrome.runtime.onStartup.addListener(syncRegistration);
 chrome.permissions.onAdded.addListener(syncRegistration);
 chrome.permissions.onRemoved.addListener(syncRegistration);
 onConfigChanged(syncRegistration);
+
+// ------------------------------------------------- http-convert relay ---
+// The content script can't fetch a rule's endpoint itself (page CORS), so it
+// relays the file here; this worker runs the engine with the extension's
+// host permissions and ships the converted file back. Errors return as
+// { ok: false } — the content side turns them into the rule's onError
+// fallback, so a dead endpoint can never lose an upload.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== HTTP_CONVERT_MSG) return;
+  (async () => {
+    const out = await httpConvert(wireToFile(msg.file), msg.rule);
+    sendResponse({ ok: true, file: await fileToWire(out) });
+  })().catch((err) => {
+    console.warn(TAG, "http convert failed:", err.message);
+    sendResponse({ ok: false, error: String(err.message || err) });
+  });
+  return true; // sendResponse is async
+});

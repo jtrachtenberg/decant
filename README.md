@@ -151,9 +151,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
   **routing table** — ordered per-type rules
   (`inbrowser` / `companion` / `http` / `passthrough`) deciding each
   intercepted file's fate, with whole-config JSON import/export and a warning
-  whenever a rule points at a non-localhost endpoint. (Companion/http rules
-  take effect when those engines land in M3; until then matching files use the
-  rule's fallback.) Still ahead: Office formats (DOCX/PPTX/XLSX via mammoth.js /
+  whenever a rule points at a non-localhost endpoint. The `http` / `companion`
+  transport is live: matching files POST to the configured endpoint from the
+  background worker (multipart or base64-JSON, per-rule response parsing and
+  output naming), and any endpoint failure takes the rule's fallback —
+  in-browser conversion or passthrough — so a dead endpoint can never lose an
+  upload. A zero-dependency mock endpoint (`npm run mock-endpoint`) doubles as
+  the executable contract for the M3 companion service.
+  Still ahead: Office formats (DOCX/PPTX/XLSX via mammoth.js /
   SheetJS), per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a

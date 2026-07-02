@@ -1,8 +1,11 @@
 // Converter interface — engine-agnostic entry point the content script calls.
 // The routing table decides each intercepted file's fate (SPEC §3.2); this
-// module dispatches the routed action to an engine. M2 wires in the
-// in-browser (shape A) PDF path; companion/http engines (shapes B/C) drop in
-// behind the same contract and fall back per the rule's `onError` until then.
+// module dispatches the routed action to an engine: in-browser (shape A,
+// PDF), or http/companion (shapes B/C) via the background relay — the
+// engine's fetch must run in the service worker, where the extension's host
+// permissions apply instead of the page's CORS. Engine failures honor the
+// rule's `onError` (inbrowser or passthrough); an upload is never lost to a
+// dead endpoint.
 //
 // convertFile(file, routing) resolves to one of:
 //   { action: "converted",   file, original, reason, meta }  swap in `file`
@@ -18,6 +21,12 @@ import { analyzePdf } from "./inbrowser.js";
 import { resultFromAnalysis } from "./result.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import {
+  HTTP_CONVERT_MSG,
+  MAX_RELAY_BYTES,
+  fileToWire,
+  wireToFile,
+} from "./relay.js";
 
 const TAG = "[decant]";
 
@@ -33,18 +42,40 @@ export async function convertFile(file, routing = DEFAULT_CONFIG.routing) {
   }
 
   if (action === "companion" || action === "http") {
-    // Shapes B/C arrive in M3; honor the rule's fallback meanwhile so a
-    // forward-written config still behaves sanely today.
-    console.warn(
-      TAG,
-      `${action} engine not available yet — ${rule.onError} fallback for ${file.name}`
-    );
-    if (rule.onError !== "inbrowser") {
-      return { action: "passthrough", file, reason: "engine-unavailable" };
+    try {
+      const converted = await convertViaBackground(file, rule);
+      return { action: "converted", file: converted, original: file, reason: action };
+    } catch (err) {
+      console.warn(
+        TAG,
+        `${action} conversion failed (${err.message}) — ${rule.onError} fallback for ${file.name}`
+      );
+      if (rule.onError !== "inbrowser") {
+        return { action: "passthrough", file, reason: "engine-error" };
+      }
+      // fall through to the in-browser engine
     }
   }
 
   return inbrowser(file);
+}
+
+// Relay an http/companion conversion through the background service worker
+// (see relay.js for why). Throws on any failure; the caller maps that to the
+// rule's onError.
+async function convertViaBackground(file, rule) {
+  if (file.size > MAX_RELAY_BYTES) {
+    throw new Error(`file exceeds relay cap (${file.size} bytes)`);
+  }
+  const resp = await chrome.runtime.sendMessage({
+    type: HTTP_CONVERT_MSG,
+    rule,
+    file: await fileToWire(file),
+  });
+  if (!resp?.ok) {
+    throw new Error(resp?.error || "no response from background worker");
+  }
+  return wireToFile(resp.file);
 }
 
 // Shape A: the in-browser engine. PDF-only so far — anything else routed here
