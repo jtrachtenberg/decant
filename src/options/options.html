@@ -41,6 +41,19 @@
     flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
     font: inherit; background: var(--bg);
   }
+  select {
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; background: var(--bg); color: var(--ink);
+  }
+  .rule-what { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .rule-action { color: var(--muted); }
+  .warn { color: #a05a00; cursor: help; }
+  textarea {
+    width: 100%; min-height: 180px; padding: 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--bg); color: var(--ink);
+    font: 12px/1.45 ui-monospace, monospace; resize: vertical;
+  }
+  .row-gap { display: flex; gap: 8px; margin-top: 10px; }
   button.primary, .add button {
     border: none; background: var(--accent); color: #fff; font: inherit;
     font-weight: 600; padding: 8px 14px; border-radius: 8px; cursor: pointer;
@@ -78,6 +91,47 @@
     <div class="add">
       <input id="new-host" type="text" placeholder="add a host, e.g. example.com" spellcheck="false" />
       <button id="add-host">Add</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>What happens to each file type</h2>
+    <p class="hint">
+      Files are matched top-down by extension or MIME type; the first enabled
+      rule wins and anything unmatched is sent untouched. Companion and
+      endpoint rules take effect when those engines arrive (M3) — until then
+      matching files use the rule's fallback.
+    </p>
+    <ul id="rules"></ul>
+    <div class="add">
+      <input id="new-match" type="text"
+             placeholder="match: pdf, docx, application/pdf…" spellcheck="false" />
+      <select id="new-action">
+        <option value="inbrowser">Convert in browser</option>
+        <option value="passthrough">Pass through</option>
+        <option value="companion">Local companion</option>
+        <option value="http">Send to endpoint</option>
+      </select>
+      <button id="add-rule">Add</button>
+    </div>
+    <div class="add" id="endpoint-row" hidden>
+      <input id="new-endpoint" type="text"
+             placeholder="endpoint, e.g. http://127.0.0.1:8765/convert" spellcheck="false" />
+    </div>
+  </section>
+
+  <section>
+    <h2>Config as JSON</h2>
+    <p class="hint">
+      Power users: the whole config (hosts, rules, hotkey) as editable JSON.
+      Rule fields beyond the form above — output name/type, error fallback,
+      request encoding — are available here.
+    </p>
+    <textarea id="config-json" spellcheck="false"
+              placeholder="Click “Show current” to load the active config."></textarea>
+    <div class="row-gap">
+      <button id="export-json" class="ghost">Show current</button>
+      <button id="import-json" class="ghost">Apply JSON</button>
     </div>
   </section>
 

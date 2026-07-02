@@ -4,9 +4,10 @@
 // re-register the content script.
 
 import { loadConfig, saveConfig } from "../config/config.js";
-import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { DEFAULT_CONFIG, normalizeConfig } from "../config/defaults.js";
 
 const hostsEl = document.getElementById("hosts");
+const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
 const statusEl = document.getElementById("status");
 
@@ -27,6 +28,7 @@ async function commit() {
 
 function render() {
   renderHosts();
+  renderRules();
   hotkeyDisplay.textContent = formatHotkey(config.hotkey);
 }
 
@@ -108,6 +110,157 @@ async function addHost() {
   );
 }
 
+// ---------------------------------------------------------------- routing ---
+
+const ACTION_LABELS = {
+  inbrowser: "Convert in browser",
+  passthrough: "Pass through",
+  companion: "Local companion",
+  http: "Send to endpoint",
+};
+
+// SPEC §3.5 privacy guardrail: anything that isn't loopback means documents
+// leave the machine. Unparseable URLs count as remote — fail toward warning.
+function isRemoteEndpoint(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    return !["localhost", "127.0.0.1", "::1"].includes(host);
+  } catch {
+    return true;
+  }
+}
+
+function renderRules() {
+  rulesEl.replaceChildren();
+  config.routing.rules.forEach((rule, i) => {
+    const li = document.createElement("li");
+
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = rule.enabled;
+    cb.addEventListener("change", () => toggleRule(i, cb.checked));
+    const what = document.createElement("span");
+    what.className = "rule-what";
+    what.textContent = [...rule.match.ext, ...rule.match.mime].join(", ");
+    const action = document.createElement("span");
+    action.className = "rule-action";
+    action.textContent =
+      "→ " +
+      (ACTION_LABELS[rule.action] || rule.action) +
+      (rule.endpoint ? ` · ${rule.endpoint}` : "");
+    label.append(cb, what, action);
+    if (rule.endpoint && isRemoteEndpoint(rule.endpoint)) {
+      const warn = document.createElement("span");
+      warn.className = "warn";
+      warn.textContent = "⚠";
+      warn.title =
+        "This endpoint is not localhost — matching files leave your machine.";
+      label.append(warn);
+    }
+
+    const remove = document.createElement("button");
+    remove.className = "remove";
+    remove.textContent = "✕";
+    remove.title = "Remove rule";
+    remove.addEventListener("click", () => removeRule(i));
+
+    li.append(label, remove);
+    rulesEl.append(li);
+  });
+}
+
+async function toggleRule(index, enabled) {
+  const rule = config.routing.rules[index];
+  if (!rule) return;
+  rule.enabled = enabled;
+  await commit();
+  status(enabled ? "Rule enabled." : "Rule disabled.");
+}
+
+async function removeRule(index) {
+  config.routing.rules.splice(index, 1);
+  await commit();
+  status("Rule removed.");
+}
+
+async function addRule() {
+  const matchInput = document.getElementById("new-match");
+  const action = document.getElementById("new-action").value;
+  const endpointInput = document.getElementById("new-endpoint");
+
+  const tokens = matchInput.value.trim().toLowerCase().split(/[,\s]+/).filter(Boolean);
+  if (!tokens.length) {
+    status("Enter at least one extension or MIME type to match.");
+    return;
+  }
+  const mime = tokens.filter((t) => t.includes("/"));
+  const ext = tokens.filter((t) => !t.includes("/")).map((t) => t.replace(/^\./, ""));
+
+  const rule = { match: { mime, ext }, action, enabled: true, onError: "passthrough" };
+
+  if (action === "companion" || action === "http") {
+    const endpoint = endpointInput.value.trim();
+    if (!/^https?:\/\//i.test(endpoint)) {
+      status("This action needs an endpoint URL (http:// or https://).");
+      return;
+    }
+    if (
+      isRemoteEndpoint(endpoint) &&
+      !confirm(
+        `${endpoint} is not localhost — files matching this rule will leave your machine.\n\nAdd the rule anyway?`
+      )
+    ) {
+      return;
+    }
+    rule.endpoint = endpoint;
+  }
+
+  config.routing.rules.push(rule);
+  matchInput.value = "";
+  endpointInput.value = "";
+  await commit();
+  status("Rule added.");
+}
+
+// ------------------------------------------------------------ JSON config ---
+
+function exportJson() {
+  document.getElementById("config-json").value = JSON.stringify(config, null, 2);
+  status("Current config loaded below — edit and “Apply JSON”.");
+}
+
+async function importJson() {
+  const textarea = document.getElementById("config-json");
+  let parsed;
+  try {
+    parsed = JSON.parse(textarea.value);
+  } catch (err) {
+    status(`Invalid JSON: ${err.message}`);
+    return;
+  }
+  const next = normalizeConfig(parsed);
+
+  const remote = next.routing.rules
+    .filter((r) => r.endpoint && isRemoteEndpoint(r.endpoint))
+    .map((r) => r.endpoint);
+  if (remote.length) {
+    const ok = confirm(
+      `This config sends matching files to non-localhost endpoints:\n\n` +
+        `${[...new Set(remote)].join("\n")}\n\nDocuments matching those rules ` +
+        `will leave your machine. Apply anyway?`
+    );
+    if (!ok) return;
+  }
+
+  config = next;
+  await commit();
+  textarea.value = JSON.stringify(config, null, 2); // show the normalized form
+  status(
+    "Config applied. Newly enabled hosts still need permission — toggle them to grant."
+  );
+}
+
 function normalizeHost(value) {
   let host = (value || "").trim().toLowerCase();
   host = host.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
@@ -184,6 +337,17 @@ async function init() {
   document.getElementById("new-host").addEventListener("keydown", (e) => {
     if (e.key === "Enter") addHost();
   });
+  document.getElementById("add-rule").addEventListener("click", addRule);
+  document.getElementById("new-match").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addRule();
+  });
+  document.getElementById("new-action").addEventListener("change", (e) => {
+    document.getElementById("endpoint-row").hidden = !["companion", "http"].includes(
+      e.target.value
+    );
+  });
+  document.getElementById("export-json").addEventListener("click", exportJson);
+  document.getElementById("import-json").addEventListener("click", importJson);
   document.getElementById("record-hotkey").addEventListener("click", recordHotkey);
   document.getElementById("reset").addEventListener("click", reset);
 }
