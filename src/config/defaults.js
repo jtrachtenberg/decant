@@ -61,6 +61,27 @@ export function normalizeConfig(stored) {
           }))
         : structuredClone(DEFAULT_CONFIG.activation.rules),
     },
-    hotkey: { ...DEFAULT_CONFIG.hotkey, ...(stored.hotkey || {}) },
+    hotkey: normalizeHotkey(stored.hotkey),
+  };
+}
+
+// A stored hotkey must be a plausible binding or matching silently never
+// fires: `code` a non-empty string, modifiers real booleans. Missing fields
+// inherit the default; a bad `code` (e.g. a hand-edited sync value like
+// { code: 42 }) discards the stored binding wholesale.
+function normalizeHotkey(stored) {
+  const merged = {
+    ...DEFAULT_CONFIG.hotkey,
+    ...(stored && typeof stored === "object" ? stored : {}),
+  };
+  if (typeof merged.code !== "string" || merged.code === "") {
+    return structuredClone(DEFAULT_CONFIG.hotkey);
+  }
+  return {
+    code: merged.code,
+    alt: merged.alt === true,
+    shift: merged.shift === true,
+    ctrl: merged.ctrl === true,
+    meta: merged.meta === true,
   };
 }

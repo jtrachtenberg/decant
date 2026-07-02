@@ -15,6 +15,9 @@ import {
   linesToText,
   countChars,
   classifyDocument,
+  shouldScanImages,
+  extrapolateImages,
+  MAX_ANALYZE_PAGES,
   IMAGE_OP_NAMES,
 } from "../src/convert/classify.js";
 
@@ -42,28 +45,44 @@ console.log(`Pages: ${pdf.numPages}\n`);
 console.log(pad("pg", 5) + pad("chars", 9) + pad("images", 8) + "kind");
 console.log("-".repeat(40));
 
+// Mirror the extension: above MAX_ANALYZE_PAGES the operator-list scan is
+// sampled and extrapolated, so the verdict here matches real behavior.
+if (pdf.numPages > MAX_ANALYZE_PAGES) {
+  console.log(
+    `(> ${MAX_ANALYZE_PAGES} pages — image counts sampled; "~" rows are extrapolated)\n`
+  );
+}
+
 const perPage = [];
 for (let n = 1; n <= pdf.numPages; n++) {
   const page = await pdf.getPage(n);
   const lines = reconstructLines((await page.getTextContent()).items);
   const chars = countChars(linesToText(lines));
 
-  let images = 0;
-  try {
-    const ops = await page.getOperatorList();
-    for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
-  } catch {
-    /* ignore */
+  let images = null;
+  if (shouldScanImages(n, pdf.numPages)) {
+    images = 0;
+    try {
+      const ops = await page.getOperatorList();
+      for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
+    } catch {
+      /* ignore */
+    }
   }
 
   perPage.push({ chars, images });
-  const kind =
-    chars < 50 ? (images ? "image/empty" : "empty") : images ? "text+image" : "text";
-  console.log(pad(n, 5) + pad(chars, 9) + pad(images, 8) + kind);
 }
 
+const filled = extrapolateImages(perPage);
+filled.forEach(({ chars, images }, i) => {
+  const sampled = perPage[i].images == null ? "~" : "";
+  const kind =
+    chars < 50 ? (images ? "image/empty" : "empty") : images ? "text+image" : "text";
+  console.log(pad(i + 1, 5) + pad(chars, 9) + pad(sampled + images, 8) + kind);
+});
+
 console.log("-".repeat(40));
-const { decision, reason, summary } = classifyDocument(perPage);
+const { decision, reason, summary } = classifyDocument(filled);
 console.log(
   `\nSummary: ${summary.contentPages}/${summary.pageCount} text pages, ` +
     `${summary.chartPages} chart pages, ${summary.totalChars} chars, ` +

@@ -8,9 +8,10 @@
 // is ready if the user chooses it.
 //
 // The image count requires getOperatorList(), which is heavier than
-// getTextContent() but does not rasterize. For very large documents this is
-// the cost worth sampling later (see TODO); for typical uploads it is well
-// under a second.
+// getTextContent() but does not rasterize. For typical uploads it is well
+// under a second; documents beyond MAX_ANALYZE_PAGES get their operator lists
+// sampled (every IMAGE_SAMPLE_INTERVAL-th page, extrapolated by classify.js)
+// while text is still extracted from every page.
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import {
@@ -19,6 +20,8 @@ import {
   linesToMarkdown,
   countChars,
   classifyDocument,
+  shouldScanImages,
+  extrapolateImages,
   IMAGE_OP_NAMES,
 } from "./classify.js";
 
@@ -43,7 +46,7 @@ export async function analyzePdf(file) {
       // Markdown decoration (headings/tables) added for output.
       perPage.push({
         chars: countChars(linesToText(lines)),
-        images: await countImages(page),
+        images: shouldScanImages(n, pageCount) ? await countImages(page) : null,
       });
       pageMarkdown.push(linesToMarkdown(lines));
     }
@@ -53,7 +56,9 @@ export async function analyzePdf(file) {
     await loadingTask.destroy();
   }
 
-  const { decision, reason, summary } = classifyDocument(perPage);
+  const { decision, reason, summary } = classifyDocument(
+    extrapolateImages(perPage)
+  );
   const markdown =
     decision === "convert" || decision === "ambiguous"
       ? pageMarkdown.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"
@@ -63,7 +68,6 @@ export async function analyzePdf(file) {
 }
 
 // Count raster-image paint operations on a page without rasterizing.
-// TODO: for very large documents, sample pages instead of scanning every one.
 async function countImages(page) {
   try {
     const ops = await page.getOperatorList();

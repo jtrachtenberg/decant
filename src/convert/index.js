@@ -9,13 +9,11 @@
 //       `file` is the original (safe default), `converted` is the Markdown.
 // `file` is always the safe/default thing to hand the upload; callers that
 // support a choice look at `converted`.
+//
+// The analysis-result → contract mapping lives in result.js (pure, testable).
 
 import { analyzePdf } from "./inbrowser.js";
-
-function markdownFile(original, markdown) {
-  const name = original.name.replace(/\.pdf$/i, "") + ".md";
-  return new File([markdown], name, { type: "text/markdown" });
-}
+import { resultFromAnalysis } from "./result.js";
 
 export async function convertFile(file) {
   const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
@@ -23,35 +21,11 @@ export async function convertFile(file) {
     return { action: "passthrough", file, reason: "not-pdf" };
   }
 
+  let res = null;
   try {
-    const res = await analyzePdf(file);
-
-    if (res.decision === "convert") {
-      return {
-        action: "converted",
-        file: markdownFile(file, res.markdown),
-        original: file,
-        reason: res.reason,
-        meta: res.summary,
-      };
-    }
-
-    if (res.decision === "ambiguous") {
-      // Text plus meaningful charts: converting to text-only would drop the
-      // charts, so let the user choose. Default (`file`) is the original.
-      return {
-        action: "ambiguous",
-        file,
-        converted: markdownFile(file, res.markdown),
-        reason: res.reason,
-        meta: res.summary,
-      };
-    }
-
-    // "passthrough" (no usable text): keep the original untouched.
-    return { action: "passthrough", file, reason: res.reason, meta: res.summary };
+    res = await analyzePdf(file);
   } catch (err) {
     console.error("[decant] analysis failed, passing original through:", err);
-    return { action: "passthrough", file, reason: "error" };
   }
+  return resultFromAnalysis(file, res);
 }

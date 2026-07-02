@@ -33,6 +33,45 @@ export const IMAGE_OP_NAMES = [
   "paintImageMaskXObject",
 ];
 
+// The operator-list scan (image counting) is the heavy half of analysis; text
+// extraction is comparatively cheap. Documents beyond this page count get
+// their operator lists *sampled* instead of scanned page-by-page, so a
+// several-hundred-page PDF doesn't block the tab for minutes after the drop.
+// Shared with the Node inspector and tests.
+export const MAX_ANALYZE_PAGES = 150;
+
+// Above the ceiling, scan every Nth page's operator list (pages 1, 6, 11, …).
+export const IMAGE_SAMPLE_INTERVAL = 5;
+
+// Whether page n (1-based) of a pageCount-page document should get an
+// operator-list scan. Below the ceiling every page is scanned (unchanged
+// behavior); above it, one page per sampling interval.
+export function shouldScanImages(n, pageCount) {
+  return pageCount <= MAX_ANALYZE_PAGES || n % IMAGE_SAMPLE_INTERVAL === 1;
+}
+
+// Fill unscanned image counts (images === null) with the nearest scanned
+// page's count. Charts cluster in sections, so nearest-neighbour fill
+// extrapolates the local density: a sampled chart page marks its unscanned
+// neighbours chart-like too, keeping chartPages proportionate to what a full
+// scan would find. Fully-scanned input passes through unchanged.
+export function extrapolateImages(perPage) {
+  const scanned = [];
+  perPage.forEach((p, i) => {
+    if (p.images != null) scanned.push(i);
+  });
+  if (scanned.length === perPage.length) return perPage;
+  return perPage.map((p, i) => {
+    if (p.images != null) return p;
+    let nearest = null;
+    for (const s of scanned) {
+      if (nearest === null || Math.abs(s - i) < Math.abs(nearest - i))
+        nearest = s;
+    }
+    return { ...p, images: nearest === null ? 0 : perPage[nearest].images };
+  });
+}
+
 // Non-whitespace character count — the whitespace-agnostic text measure.
 export function countChars(text) {
   const m = text.match(/\S/g);
@@ -153,6 +192,9 @@ function linesFromGlyphs(glyphs) {
         cell.text += (needsSpace ? " " : "") + g.str;
         cell.endX = x + w;
       }
+      // Running average, so the line's y drifts toward later glyphs. Harmless
+      // at current tolerances (same-line matching uses half the line height);
+      // switch to a sumY/count mean if that ever tightens.
       last.y = (last.y + y) / 2;
       if (h > last.h) last.h = h;
     } else {

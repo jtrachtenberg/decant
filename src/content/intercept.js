@@ -17,13 +17,22 @@
 // Ambiguous documents (substantial text plus charts) aren't injected silently:
 // the user is prompted to convert to Markdown or send the original, and the
 // chosen file is injected once they pick (see resolveAndInject / ui.js).
+// Injection is all-or-nothing: a batch is injected in ONE .files assignment,
+// after any prompt resolves. Injecting clear files early and ambiguous ones
+// later would overwrite the first FileList, which only works if the site
+// copies files synchronously in its change handler — not an assumption worth
+// depending on.
 //
 // A passthrough hotkey (see passthrough.js) can arm a one-shot bypass: when
 // armed, the handlers get out of the way and let the native upload proceed, so
 // the original file is sent with no conversion.
 
 import { convertFile } from "../convert/index.js";
-import { promptConvertChoice } from "./ui.js";
+import {
+  promptConvertChoice,
+  showAttachFailureNotice,
+  showConvertingBadge,
+} from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 
 const TAG = "[decant]";
@@ -35,32 +44,71 @@ function dataTransferWith(files) {
   return dt;
 }
 
+// Pick the file input to inject into. claude.ai currently mounts one, but if
+// a second ever appears (avatar upload, project-knowledge modal), plain "last
+// in DOM order" could hit the wrong one. Cheap preference ordering:
+//   1. inputs whose accept is empty or mentions pdf / application/ types —
+//      composer inputs are typically unrestricted, avatar inputs are image/*;
+//   2. among those, an input near the composer (an ancestor within a few
+//      levels also contains a contenteditable or textarea);
+//   3. otherwise the last connected enabled input (original behavior).
+// Heuristic and claude.ai-calibrated; belongs in per-surface config once the
+// SURFACES.md tier lands.
 function findUsableFileInput() {
-  const inputs = document.querySelectorAll('input[type="file"]');
-  let best = null;
-  for (const el of inputs) {
-    if (el.disabled || !el.isConnected) continue;
-    best = el;
-  }
-  return best;
+  const usable = [
+    ...document.querySelectorAll('input[type="file"]'),
+  ].filter((el) => !el.disabled && el.isConnected);
+  if (usable.length <= 1) return usable[0] || null;
+
+  const acceptsDocuments = (el) => {
+    const accept = (el.getAttribute("accept") || "").toLowerCase();
+    return (
+      accept === "" || accept.includes("pdf") || accept.includes("application/")
+    );
+  };
+  const nearComposer = (el) => {
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      if (node.querySelector('[contenteditable="true"], textarea')) return true;
+    }
+    return false;
+  };
+
+  const pool = usable.filter(acceptsDocuments);
+  const tier = pool.length ? pool : usable;
+  const near = tier.filter(nearComposer);
+  const best = near.length ? near : tier;
+  return best[best.length - 1];
 }
 
-// Convert each file, then inject the results into the upload. Clear results
-// (converted / passthrough) are injected immediately. Ambiguous ones (text plus
-// charts) prompt the user to choose convert vs. original, then inject the
-// chosen version — deciding before injecting avoids having to un-attach a chip.
-async function resolveAndInject(input, fileArray) {
+// Convert each file, then inject the results into the upload in a single
+// .files assignment. Ambiguous results (text plus charts) prompt the user to
+// choose convert vs. original first — deciding before injecting avoids having
+// to un-attach a chip. When a batch mixes clear and ambiguous files, the clear
+// ones wait for the prompt too: a second injection would *replace* the input's
+// FileList, which only works if the site copies files synchronously inside its
+// change handler — an assumption we don't want to be load-bearing. The cost is
+// a beat of extra latency on the clear files in the mixed-batch case only.
+async function resolveAndInject(preferredInput, fileArray) {
   const immediate = [];
   const ambiguous = [];
-  for (const f of fileArray) {
-    const r = await convertFile(f);
-    logResult(f, r);
-    if (r.action === "ambiguous") ambiguous.push(r);
-    else immediate.push(r.file);
+  // Progress badge per file: conversion can take a while on large PDFs, and
+  // without it a slow conversion looks like a swallowed drop.
+  let badge = null;
+  try {
+    for (const f of fileArray) {
+      badge?.remove();
+      badge = showConvertingBadge(f.name);
+      const r = await convertFile(f);
+      logResult(f, r);
+      if (r.action === "ambiguous") ambiguous.push(r);
+      else immediate.push(r.file);
+    }
+  } finally {
+    badge?.remove();
   }
 
-  if (immediate.length) injectViaInput(input, immediate);
-
+  let chosen = [];
   if (ambiguous.length) {
     let choice = "original";
     try {
@@ -69,11 +117,11 @@ async function resolveAndInject(input, fileArray) {
       console.warn(TAG, "prompt failed, sending originals:", err);
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
-    injectViaInput(
-      input,
-      ambiguous.map((r) => (choice === "convert" ? r.converted : r.file))
-    );
+    chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
   }
+
+  const files = [...immediate, ...chosen];
+  if (files.length) injectViaInput(preferredInput, files);
 }
 
 function logResult(f, r) {
@@ -95,9 +143,29 @@ function logResult(f, r) {
 
 // Inject the (possibly converted) files into the upload by swapping the hidden
 // input's .files and dispatching a trusted-looking change event.
-function injectViaInput(input, files) {
+//
+// The input is resolved (or re-resolved) here, at injection time, not when the
+// attach was intercepted: conversion is async, and if the site re-renders in
+// between, an input captured earlier can be disconnected by now — .files
+// assignment on it still "works" but the change event never reaches the app,
+// silently losing the upload. `preferred` is the input that fired the original
+// change event (the right one when still connected); drop/paste pass null.
+// If no usable input exists at all, surface a visible notice — a swallowed
+// attach with no feedback is the worst failure mode this extension can have.
+function injectViaInput(preferred, files) {
+  const input =
+    preferred && preferred.isConnected ? preferred : findUsableFileInput();
+  if (!input) {
+    console.warn(
+      TAG,
+      "no usable <input type=file> at injection time — attach lost:",
+      files.map((f) => f.name)
+    );
+    showAttachFailureNotice(files.map((f) => f.name));
+    return;
+  }
   input.files = dataTransferWith(files).files;
-  const change = new Event("change", { bubbles: true, cancelable: true });
+  const change = new Event("change", { bubbles: true });
   change[SENTINEL] = true;
   input.dispatchEvent(change);
 }
@@ -173,13 +241,9 @@ document.addEventListener(
     cleanupDrop[SENTINEL] = true;
     ev.target.dispatchEvent(cleanupDrop);
 
-    // (a) Convert, then inject through the hidden input.
-    const input = findUsableFileInput();
-    if (!input) {
-      console.warn(TAG, "drop: no usable <input type=file> to swap into");
-      return;
-    }
-    resolveAndInject(input, originals);
+    // (a) Convert, then inject through the hidden input. The input is resolved
+    // at injection time (see injectViaInput), after the async conversion.
+    resolveAndInject(null, originals);
   },
   true
 );
@@ -218,12 +282,8 @@ document.addEventListener(
     ev.preventDefault();
     ev.stopImmediatePropagation();
 
-    const input = findUsableFileInput();
-    if (!input) {
-      console.warn(TAG, "paste: no usable <input type=file> to swap into");
-      return;
-    }
-    resolveAndInject(input, originals);
+    // Input resolved at injection time (see injectViaInput).
+    resolveAndInject(null, originals);
   },
   true
 );

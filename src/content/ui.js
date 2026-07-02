@@ -9,6 +9,8 @@
 
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
+const FAILURE_ID = "decant-attach-failure";
+const CONVERTING_ID = "decant-converting-badge";
 
 export function promptConvertChoice(results) {
   return new Promise((resolve) => {
@@ -137,4 +139,97 @@ export function showPassthroughBadge(onCancel) {
   root.querySelector(".cancel").addEventListener("click", () => onCancel?.());
   document.body.appendChild(host);
   return { remove: () => host.remove() };
+}
+
+// Progress badge shown while a file is being converted, so a slow (large-PDF)
+// conversion doesn't look like a swallowed drop — the attached chip only
+// appears once conversion resolves. Same shadow-root pattern as the
+// passthrough badge; returns a handle with remove().
+export function showConvertingBadge(fileName) {
+  document.getElementById(CONVERTING_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = CONVERTING_ID;
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .badge {
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+        z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-size: 12.5px; font-weight: 600;
+        background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff;
+        border-radius: 999px; padding: 7px 14px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.4);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .spinner {
+        width: 10px; height: 10px; flex: none;
+        border: 2px solid #3a3a42; border-top-color: #6b5cff;
+        border-radius: 50%; animation: spin .8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+    <div class="badge" role="status">
+      <span class="spinner"></span>
+      <span class="msg"></span>
+    </div>
+  `;
+  root.querySelector(".msg").textContent = `Decant: converting “${fileName}”…`;
+  document.body.appendChild(host);
+  return { remove: () => host.remove() };
+}
+
+// Visible failure notice for when injection finds no usable file input (e.g.
+// the site re-rendered during conversion and the input is gone). Shown instead
+// of silently dropping the attach; the user is asked to re-attach. Dismisses
+// on the X or after a timeout — but a long one, since it reports data loss.
+const FAILURE_TIMEOUT_MS = 15000;
+
+export function showAttachFailureNotice(fileNames) {
+  document.getElementById(FAILURE_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = FAILURE_ID;
+  const root = host.attachShadow({ mode: "open" });
+  const label =
+    fileNames.length === 1
+      ? `Decant couldn't attach “${fileNames[0]}”`
+      : `Decant couldn't attach ${fileNames.length} files`;
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .badge {
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+        z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-size: 12.5px; font-weight: 600;
+        background: #2a1f1f; color: #f3f3f3; border: 1px solid #e05d5d;
+        border-radius: 999px; padding: 7px 14px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.4);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #e05d5d; flex: none; }
+      .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .x {
+        background: none; border: none; padding: 0 0 0 4px; font: inherit;
+        color: #9aa0aa; cursor: pointer;
+      }
+      .x:hover { color: #fff; }
+    </style>
+    <div class="badge" role="alert">
+      <span class="dot"></span>
+      <span class="msg"></span>
+      <button class="x" type="button" aria-label="Dismiss">✕</button>
+    </div>
+  `;
+  root.querySelector(".msg").textContent = `${label} — please re-attach.`;
+  const timer = setTimeout(() => host.remove(), FAILURE_TIMEOUT_MS);
+  root.querySelector(".x").addEventListener("click", () => {
+    clearTimeout(timer);
+    host.remove();
+  });
+  document.body.appendChild(host);
 }

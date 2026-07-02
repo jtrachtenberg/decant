@@ -124,13 +124,38 @@ function formatHotkey(hk) {
   return parts.join(" + ");
 }
 
+// Non-null while a recording is in progress; calling it cancels. Guards
+// against a second "Change…" click stacking a second keydown listener (both
+// would fire and each remove only itself → double commit).
+let cancelRecording = null;
+
 function recordHotkey() {
   const btn = document.getElementById("record-hotkey");
+  if (cancelRecording) {
+    cancelRecording();
+    return;
+  }
   btn.textContent = "Press keys…";
+  const cancel = () => {
+    document.removeEventListener("keydown", onKey, true);
+    btn.textContent = "Change…";
+    cancelRecording = null;
+  };
   const onKey = async (e) => {
     e.preventDefault();
+    if (e.key === "Escape") {
+      cancel();
+      return;
+    }
     // Wait for a non-modifier key so the binding has a real trigger.
     if (["Alt", "Shift", "Control", "Meta"].includes(e.key)) return;
+    // Require a real modifier (Shift alone doesn't count): the content-script
+    // listener is capture-phase on document, so an unmodified binding like
+    // bare KeyE would hijack typing on every enabled site.
+    if (!e.altKey && !e.ctrlKey && !e.metaKey) {
+      status("Include Alt, Ctrl, or Cmd in the shortcut.");
+      return;
+    }
     config.hotkey = {
       code: e.code,
       alt: e.altKey,
@@ -138,12 +163,12 @@ function recordHotkey() {
       ctrl: e.ctrlKey,
       meta: e.metaKey,
     };
-    document.removeEventListener("keydown", onKey, true);
-    btn.textContent = "Change…";
+    cancel();
     await commit();
     status("Hotkey updated.");
   };
   document.addEventListener("keydown", onKey, true);
+  cancelRecording = cancel;
 }
 
 async function reset() {
