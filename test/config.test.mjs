@@ -61,6 +61,88 @@ test("normalizeConfig falls back wholesale on a malformed hotkey code", () => {
   }
 });
 
+test("default routing converts PDFs in-browser, everything else passthrough", () => {
+  const { routing } = normalizeConfig(undefined);
+  assert.equal(routing.default, "passthrough");
+  assert.equal(routing.rules.length, 1);
+  assert.equal(routing.rules[0].action, "inbrowser");
+  assert.deepEqual(routing.rules[0].match, {
+    mime: ["application/pdf"],
+    ext: ["pdf"],
+  });
+});
+
+test("normalizeConfig falls back to default routing when the section is malformed", () => {
+  for (const bad of [undefined, null, "rules", 42, { rules: "nope" }]) {
+    const { routing } = normalizeConfig({ routing: bad });
+    assert.deepEqual(routing, DEFAULT_CONFIG.routing);
+  }
+});
+
+test("normalizeConfig drops unsalvageable routing rules, keeps valid ones", () => {
+  const { routing } = normalizeConfig({
+    routing: {
+      rules: [
+        { match: { mime: ["application/pdf"] }, action: "inbrowser" },
+        { match: { mime: ["image/png"] }, action: "teleport" }, // unknown action
+        { match: { mime: [] }, action: "inbrowser" }, // matches nothing
+        { match: { ext: ["docx"] }, action: "companion" }, // no endpoint
+        "not a rule",
+        null,
+      ],
+    },
+  });
+  assert.equal(routing.rules.length, 1);
+  assert.equal(routing.rules[0].action, "inbrowser");
+});
+
+test("normalizeConfig fills rule defaults and cleans match values", () => {
+  const { routing } = normalizeConfig({
+    routing: {
+      rules: [
+        { match: { mime: [" Application/PDF ", 7], ext: [".PDF"] }, action: "inbrowser" },
+      ],
+    },
+  });
+  assert.deepEqual(routing.rules[0], {
+    match: { mime: ["application/pdf"], ext: ["pdf"] },
+    action: "inbrowser",
+    enabled: true,
+    onError: "passthrough",
+  });
+});
+
+test("normalizeConfig keeps a well-formed http rule, pins routing default", () => {
+  const { routing } = normalizeConfig({
+    routing: {
+      default: "http", // not allowed — unmatched files must pass through
+      rules: [
+        {
+          match: { mime: ["image/png"] },
+          action: "http",
+          endpoint: "http://127.0.0.1:8765/ocr",
+          request: { encoding: "multipart" },
+          responseField: "text",
+          output: { ext: ".MD", mime: "Text/Markdown" },
+          enabled: false,
+          onError: "inbrowser",
+        },
+      ],
+    },
+  });
+  assert.equal(routing.default, "passthrough");
+  assert.deepEqual(routing.rules[0], {
+    match: { mime: ["image/png"], ext: [] },
+    action: "http",
+    enabled: false,
+    onError: "inbrowser",
+    endpoint: "http://127.0.0.1:8765/ocr",
+    output: { ext: "md", mime: "text/markdown" },
+    responseField: "text",
+    request: { encoding: "multipart" },
+  });
+});
+
 test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
   const cfg = normalizeConfig({
     hotkey: { code: "KeyP", alt: "yes", ctrl: 1, shift: true, meta: null },
