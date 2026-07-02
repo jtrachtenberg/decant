@@ -56,6 +56,35 @@ function dataTransferWith(files) {
   return dt;
 }
 
+// Cache of the most recent <input type=file> the page has ever mounted.
+//
+// Some sites (Gemini) create the picker input transiently — mounted on the
+// "+ → Upload files" click, removed right after — so nothing is findable in
+// the DOM at injection time and synthetic drops are ignored (Gemini's
+// uploader checks isTrusted; verified by QA probes). But the site's change
+// listener is attached directly to that element, so a cached reference stays
+// deliverable even after detachment: assign .files, dispatch change, and the
+// handler still runs. The cache only fills after the user has used the
+// site's picker once per page load; until then drop/paste fall through to
+// the visible failure notice.
+let cachedFileInput = null;
+
+function installFileInputCache() {
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node instanceof HTMLInputElement && node.type === "file") {
+          cachedFileInput = node;
+        } else {
+          const inp = node.querySelector?.('input[type="file"]');
+          if (inp) cachedFileInput = inp;
+        }
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+}
+
 // Pick the file input to inject into. claude.ai currently mounts one, but if
 // a second ever appears (avatar upload, project-knowledge modal), plain "last
 // in DOM order" could hit the wrong one. Cheap preference ordering:
@@ -168,8 +197,18 @@ function logResult(f, r) {
 // If no usable input exists at all, surface a visible notice — a swallowed
 // attach with no feedback is the worst failure mode this extension can have.
 function injectViaInput(preferred, files) {
-  const input =
+  let input =
     preferred && preferred.isConnected ? preferred : findUsableFileInput();
+  if (!input && cachedFileInput) {
+    // Last resort: a previously-mounted (possibly now detached) input. Its
+    // change listener lives on the element itself, so it can still deliver
+    // (see the cache comment above).
+    input = cachedFileInput;
+    console.log(
+      TAG,
+      `injecting via cached${input.isConnected ? "" : " detached"} file input`
+    );
+  }
   if (!input) {
     console.warn(
       TAG,
@@ -204,6 +243,9 @@ document.addEventListener(
     const originals = Array.from(target.files);
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
+    // A change event proves this input has a live site handler — remember it
+    // for drop/paste injection on sites with no persistent input.
+    cachedFileInput = target;
 
     resolveAndInject(target, originals);
   },
@@ -303,5 +345,6 @@ document.addEventListener(
   true
 );
 
+installFileInputCache();
 installPassthroughHotkey();
 console.log(TAG, "intercept installed at", location.href);
