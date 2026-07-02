@@ -44,14 +44,41 @@ function dataTransferWith(files) {
   return dt;
 }
 
+// Pick the file input to inject into. claude.ai currently mounts one, but if
+// a second ever appears (avatar upload, project-knowledge modal), plain "last
+// in DOM order" could hit the wrong one. Cheap preference ordering:
+//   1. inputs whose accept is empty or mentions pdf / application/ types —
+//      composer inputs are typically unrestricted, avatar inputs are image/*;
+//   2. among those, an input near the composer (an ancestor within a few
+//      levels also contains a contenteditable or textarea);
+//   3. otherwise the last connected enabled input (original behavior).
+// Heuristic and claude.ai-calibrated; belongs in per-surface config once the
+// SURFACES.md tier lands.
 function findUsableFileInput() {
-  const inputs = document.querySelectorAll('input[type="file"]');
-  let best = null;
-  for (const el of inputs) {
-    if (el.disabled || !el.isConnected) continue;
-    best = el;
-  }
-  return best;
+  const usable = [
+    ...document.querySelectorAll('input[type="file"]'),
+  ].filter((el) => !el.disabled && el.isConnected);
+  if (usable.length <= 1) return usable[0] || null;
+
+  const acceptsDocuments = (el) => {
+    const accept = (el.getAttribute("accept") || "").toLowerCase();
+    return (
+      accept === "" || accept.includes("pdf") || accept.includes("application/")
+    );
+  };
+  const nearComposer = (el) => {
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      if (node.querySelector('[contenteditable="true"], textarea')) return true;
+    }
+    return false;
+  };
+
+  const pool = usable.filter(acceptsDocuments);
+  const tier = pool.length ? pool : usable;
+  const near = tier.filter(nearComposer);
+  const best = near.length ? near : tier;
+  return best[best.length - 1];
 }
 
 // Convert each file, then inject the results into the upload in a single
