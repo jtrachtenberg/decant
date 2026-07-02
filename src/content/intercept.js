@@ -165,7 +165,7 @@ function injectViaInput(preferred, files) {
     return;
   }
   input.files = dataTransferWith(files).files;
-  const change = new Event("change", { bubbles: true, cancelable: true });
+  const change = new Event("change", { bubbles: true });
   change[SENTINEL] = true;
   input.dispatchEvent(change);
 }

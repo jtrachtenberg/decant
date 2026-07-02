@@ -192,6 +192,9 @@ function linesFromGlyphs(glyphs) {
         cell.text += (needsSpace ? " " : "") + g.str;
         cell.endX = x + w;
       }
+      // Running average, so the line's y drifts toward later glyphs. Harmless
+      // at current tolerances (same-line matching uses half the line height);
+      // switch to a sumY/count mean if that ever tightens.
       last.y = (last.y + y) / 2;
       if (h > last.h) last.h = h;
     } else {
