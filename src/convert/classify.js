@@ -124,23 +124,34 @@ const GAP_FLUSH = 1.8;
 // Single-column pages have no gutter, so they fall through as one region and
 // read exactly as before.
 //
-// Limitations (both leave text interleaved, as before):
+// Limitations:
 //   - A page dominated by a large chart/figure can pollute the gutter vote.
 //     Such pages are image-heavy, so the classifier routes them to passthrough
-//     anyway; pages that actually convert reflow correctly.
-//   - A very short two-column fragment (e.g. a page-break remainder with only a
-//     couple of rows) falls below the detection guards and isn't split. This is
-//     the conservative side of avoiding false splits on short single-column
-//     content.
+//     anyway; pages that actually convert reflow correctly. (Interleaves, as
+//     before.)
+//   - A very short two-column fragment (a page-break remainder with only a
+//     couple of rows) falls below the detection guards on its own. Multi-page
+//     callers mitigate this by threading the previous page's gutter through
+//     reconstructPage — the fragment inherits it when its rows agree. A
+//     fragment on page 1 (or after a full-width page) still interleaves.
 //
 // Returns line objects: { y, h, para, cells: [{ text, x, endX }] }.
 export function reconstructLines(items) {
+  return reconstructPage(items).lines;
+}
+
+// Single-page reconstruction with cross-page column context. `columnHint` is
+// the gutter x the previous page used (or null). Returns { lines, gutter }:
+// callers converting multi-page documents thread `gutter` into the next
+// page's call, which is what lets a short page-break remainder keep reading
+// column-first (see columnRegions).
+export function reconstructPage(items, columnHint = null) {
   const glyphs = items.filter(
     (it) => typeof it.str === "string" && it.str.length
   );
-  if (!glyphs.length) return [];
+  if (!glyphs.length) return { lines: [], gutter: null };
 
-  const regions = columnRegions(glyphs.map(toBox));
+  const { regions, gutter } = columnRegions(glyphs.map(toBox), columnHint);
   const lines = [];
   regions.forEach((region, i) => {
     const regionLines = linesFromGlyphs(region.map((b) => b.g));
@@ -148,7 +159,7 @@ export function reconstructLines(items) {
     if (i > 0 && regionLines.length) regionLines[0].para = true;
     lines.push(...regionLines);
   });
-  return lines;
+  return { lines, gutter };
 }
 
 // Group one region's glyphs into lines + cells (the core reconstruction).
@@ -236,21 +247,21 @@ function toBox(g) {
 // found among narrow rows only, so a full-width heading bridging it doesn't
 // hide it. Returns an ordered list of box-arrays; falls back to [boxes] (single
 // region, unchanged behavior) whenever no confident column layout is found.
-function columnRegions(boxes) {
+function columnRegions(boxes, hint = null) {
   const rows = groupRows(boxes);
-  if (rows.length < MIN_COL_ROWS) return [boxes];
   const med = medianHeight(boxes);
 
-  const gx = findGutter(rows, med);
-  if (gx == null) return [boxes];
+  let gx = detectGutter(rows, med);
 
-  // Column rows are those that don't straddle the gutter. Require enough of
-  // them, spanning enough height (so a short table isn't split into columns).
-  const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
-  if (colRows.length < MIN_COL_ROWS) return [boxes];
-  const top = Math.max(...colRows.map((r) => r.y1));
-  const bottom = Math.min(...colRows.map((r) => r.y0));
-  if (top - bottom < MIN_COL_HEIGHT * med) return [boxes];
+  // Page-break remainder: too short for confident detection, but the previous
+  // page established a gutter. Accept it when this page's rows agree — at
+  // least two rows with text entirely on each side — so the fragment keeps
+  // reading column-first instead of interleaving. A full-width page never
+  // agrees (its rows straddle the gutter), so a stale hint is inert there.
+  if (gx == null && hint != null && fragmentFitsGutter(rows, hint)) {
+    gx = hint;
+  }
+  if (gx == null) return { regions: [boxes], gutter: null };
 
   // Walk rows top-to-bottom: a row straddling the gutter (full-width heading or
   // figure) flushes the current column block and is emitted on its own; other
@@ -278,7 +289,37 @@ function columnRegions(boxes) {
     prevBottom = r.y0;
   }
   flush();
-  return regions.length > 1 ? regions : [boxes];
+  return regions.length > 1
+    ? { regions, gutter: gx }
+    : { regions: [boxes], gutter: null };
+}
+
+// Confident same-page gutter detection (the original guards): enough
+// two-column rows, spanning enough height that a short table isn't split
+// into columns.
+function detectGutter(rows, med) {
+  if (rows.length < MIN_COL_ROWS) return null;
+  const gx = findGutter(rows, med);
+  if (gx == null) return null;
+  const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
+  if (colRows.length < MIN_COL_ROWS) return null;
+  const top = Math.max(...colRows.map((r) => r.y1));
+  const bottom = Math.min(...colRows.map((r) => r.y0));
+  if (top - bottom < MIN_COL_HEIGHT * med) return null;
+  return gx;
+}
+
+// Does a short page agree with a carried gutter? At least two rows must have
+// non-whitespace text entirely on each side of it.
+function fragmentFitsGutter(rows, gx) {
+  let both = 0;
+  for (const r of rows) {
+    if (rowSpansGutter(r, gx)) continue;
+    const left = r.boxes.some((b) => !b.ws && b.x1 <= gx);
+    const right = r.boxes.some((b) => !b.ws && b.x0 >= gx);
+    if (left && right) both++;
+  }
+  return both >= 2;
 }
 
 // A row straddles the gutter (a full-width element) if a non-whitespace glyph
