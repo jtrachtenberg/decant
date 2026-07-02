@@ -74,6 +74,39 @@ test("a period escaped after leading digits stays escaped (list guard)", () => {
   assert.equal(res.markdown, "1\\. not a list\n\nSee item 2. it follows\n");
 });
 
+test("whitespace inside emphasis markers moves outside (CommonMark closes the span)", () => {
+  assert.equal(
+    docxAnalysis("*‘tab *Zawarkand and __student work __folder").markdown,
+    "*‘tab* Zawarkand and __student work__ folder\n"
+  );
+  assert.equal(
+    docxAnalysis("leading __ bold__ span").markdown,
+    "leading  __bold__ span\n"
+  );
+  // No whitespace inside → untouched, including link labels.
+  assert.equal(
+    docxAnalysis("[__http://x.y__](http://x.y)").markdown,
+    "[__http://x.y__](http://x.y)\n"
+  );
+});
+
+test("emphasis pairing: bold label directly followed by a bold link label", () => {
+  assert.equal(
+    docxAnalysis("__FOLDER: __[__http://x.y__](http://x.y)").markdown,
+    "__FOLDER:__ [__http://x.y__](http://x.y)\n"
+  );
+});
+
+test("emphasis pairing never merges two separate spans", () => {
+  const md = "__a__ x __b__ and *i* y *j*";
+  assert.equal(docxAnalysis(md).markdown, md + "\n");
+});
+
+test("unpaired and empty delimiters are left verbatim", () => {
+  assert.equal(docxAnalysis("odd __one__ out __here").markdown, "odd __one__ out __here\n");
+  assert.equal(docxAnalysis("keep __ __ as is").markdown, "keep __ __ as is\n");
+});
+
 test("hyphens and parens unescape mid-line; line-leading hyphen stays (bullet guard)", () => {
   const res = docxAnalysis(
     "917\\-620\\-3998 \\(mobile\\)\n\n\\- dash paragraph, not a bullet"
@@ -97,6 +130,8 @@ test("tiny.docx: Title→h1, heading, bold, no anchors or escapes (real mammoth)
   );
   assert.doesNotMatch(res.markdown, /<a id=/);
   assert.doesNotMatch(res.markdown, /\\[.!()-]/);
+  // Bold run with trailing space: the space belongs outside the markers.
+  assert.match(res.markdown, /__Note:__ bring an oud\./);
 });
 
 test("empty.docx passes through with no-text (real mammoth)", async () => {

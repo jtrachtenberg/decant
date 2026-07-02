@@ -69,7 +69,7 @@ export function docxAnalysis(rawMarkdown) {
   const { markdown: stripped, images } = stripDataUriImages(
     stripBookmarkAnchors(rawMarkdown)
   );
-  const markdown = unescapePunctuation(stripped);
+  const markdown = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
   const summary = { images, chars: markdown.length };
   if (!markdown) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
@@ -80,6 +80,46 @@ export function docxAnalysis(rawMarkdown) {
     summary,
     markdown: markdown + "\n",
   };
+}
+
+// mammoth keeps a run's leading/trailing whitespace inside the emphasis
+// markers ("__student work __folder", "*‘tab *Zawarkand"); CommonMark won't
+// close a span next to a space, so these render as literal underscores or
+// asterisks — read as "inconsistent emphasis". Move the whitespace outside.
+//
+// Delimiters must be *paired sequentially*, not regex-matched — a regex that
+// hunts "delimiter, spaces, delimiter" can pair one span's close with the
+// next span's open ("__label: __[__url__]") and corrupt the line. Pairing is
+// unambiguous here because mammoth escapes literal * and _ in text (\*, \_):
+// every unescaped delimiter is structural, alternating open/close per type.
+function normalizeEmphasisWhitespace(markdown) {
+  const fixLine = (line) => fixDelim(fixDelim(line, "__"), "*");
+  return markdown.split("\n").map(fixLine).join("\n");
+}
+
+function fixDelim(line, delim) {
+  const splitter = delim === "*" ? /(?<!\\)\*/ : /(?<!\\)__/;
+  const parts = line.split(splitter);
+  if (parts.length < 3) return line; // one delimiter or none — nothing to pair
+
+  let out = parts[0];
+  for (let i = 1; i < parts.length; i += 2) {
+    const span = parts[i];
+    if (i + 1 >= parts.length) {
+      out += delim + span; // trailing unpaired delimiter — leave verbatim
+      break;
+    }
+    const core = span.trim();
+    if (!core) {
+      out += delim + span + delim; // whitespace-only span — leave verbatim
+    } else {
+      const lead = span.match(/^\s*/)[0];
+      const trail = span.match(/\s*$/)[0];
+      out += lead + delim + core + delim + trail;
+    }
+    out += parts[i + 1];
+  }
+  return out;
 }
 
 export async function analyzeDocx(file) {

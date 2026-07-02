@@ -49,7 +49,8 @@ const TINY_BODY = `
     <w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:bookmarkStart w:id="0" w:name="_fixture.anchor"/><w:bookmarkEnd w:id="0"/><w:r><w:t>Fixture title.</w:t></w:r></w:p>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Decant fixture</w:t></w:r></w:p>
     <w:p><w:r><w:t xml:space="preserve">Plain paragraph with </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r><w:r><w:t xml:space="preserve"> text!</w:t></w:r></w:p>
-    <w:p><w:r><w:t xml:space="preserve">Mon 11a-12:30p (online): </w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>class folder</w:t></w:r></w:hyperlink></w:p>`;
+    <w:p><w:r><w:t xml:space="preserve">Mon 11a-12:30p (online): </w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>class folder</w:t></w:r></w:hyperlink></w:p>
+    <w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Note: </w:t></w:r><w:r><w:t>bring an oud.</w:t></w:r></w:p>`;
 
 async function makeDocx(path, body) {
   const zip = new JSZip();
