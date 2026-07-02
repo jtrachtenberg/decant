@@ -23,7 +23,7 @@
 // the original file is sent with no conversion.
 
 import { convertFile } from "../convert/index.js";
-import { promptConvertChoice } from "./ui.js";
+import { promptConvertChoice, showAttachFailureNotice } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 
 const TAG = "[decant]";
@@ -49,7 +49,7 @@ function findUsableFileInput() {
 // (converted / passthrough) are injected immediately. Ambiguous ones (text plus
 // charts) prompt the user to choose convert vs. original, then inject the
 // chosen version — deciding before injecting avoids having to un-attach a chip.
-async function resolveAndInject(input, fileArray) {
+async function resolveAndInject(preferredInput, fileArray) {
   const immediate = [];
   const ambiguous = [];
   for (const f of fileArray) {
@@ -59,7 +59,7 @@ async function resolveAndInject(input, fileArray) {
     else immediate.push(r.file);
   }
 
-  if (immediate.length) injectViaInput(input, immediate);
+  if (immediate.length) injectViaInput(preferredInput, immediate);
 
   if (ambiguous.length) {
     let choice = "original";
@@ -70,7 +70,7 @@ async function resolveAndInject(input, fileArray) {
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
     injectViaInput(
-      input,
+      preferredInput,
       ambiguous.map((r) => (choice === "convert" ? r.converted : r.file))
     );
   }
@@ -95,7 +95,27 @@ function logResult(f, r) {
 
 // Inject the (possibly converted) files into the upload by swapping the hidden
 // input's .files and dispatching a trusted-looking change event.
-function injectViaInput(input, files) {
+//
+// The input is resolved (or re-resolved) here, at injection time, not when the
+// attach was intercepted: conversion is async, and if the site re-renders in
+// between, an input captured earlier can be disconnected by now — .files
+// assignment on it still "works" but the change event never reaches the app,
+// silently losing the upload. `preferred` is the input that fired the original
+// change event (the right one when still connected); drop/paste pass null.
+// If no usable input exists at all, surface a visible notice — a swallowed
+// attach with no feedback is the worst failure mode this extension can have.
+function injectViaInput(preferred, files) {
+  const input =
+    preferred && preferred.isConnected ? preferred : findUsableFileInput();
+  if (!input) {
+    console.warn(
+      TAG,
+      "no usable <input type=file> at injection time — attach lost:",
+      files.map((f) => f.name)
+    );
+    showAttachFailureNotice(files.map((f) => f.name));
+    return;
+  }
   input.files = dataTransferWith(files).files;
   const change = new Event("change", { bubbles: true, cancelable: true });
   change[SENTINEL] = true;
@@ -173,13 +193,9 @@ document.addEventListener(
     cleanupDrop[SENTINEL] = true;
     ev.target.dispatchEvent(cleanupDrop);
 
-    // (a) Convert, then inject through the hidden input.
-    const input = findUsableFileInput();
-    if (!input) {
-      console.warn(TAG, "drop: no usable <input type=file> to swap into");
-      return;
-    }
-    resolveAndInject(input, originals);
+    // (a) Convert, then inject through the hidden input. The input is resolved
+    // at injection time (see injectViaInput), after the async conversion.
+    resolveAndInject(null, originals);
   },
   true
 );
@@ -218,12 +234,8 @@ document.addEventListener(
     ev.preventDefault();
     ev.stopImmediatePropagation();
 
-    const input = findUsableFileInput();
-    if (!input) {
-      console.warn(TAG, "paste: no usable <input type=file> to swap into");
-      return;
-    }
-    resolveAndInject(input, originals);
+    // Input resolved at injection time (see injectViaInput).
+    resolveAndInject(null, originals);
   },
   true
 );
