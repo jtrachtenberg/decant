@@ -149,7 +149,10 @@ on it fall back gracefully (in-browser conversion or passthrough).
   activation whitelist (default-deny, with dynamic content-script registration
   and per-host permission prompts) and the passthrough hotkey binding. Still
   ahead: the routing table, Office formats (DOCX/PPTX/XLSX via mammoth.js /
-  SheetJS), per-site adapters so enabling other hosts actually converts there,
+  SheetJS), per-site adapters so enabling other hosts actually converts there
+  (including per-surface file-input selection config), the Web Store packaging
+  pass — manifest icons, production name, and a manual smoke checklist
+  (picker/drop/paste × convert/ambiguous/passthrough/hotkey) in `docs/` —
   and a token-savings estimate.
 - **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
 
