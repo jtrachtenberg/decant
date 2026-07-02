@@ -8,12 +8,28 @@
 // This module is pure (no chrome.*), so it can be unit-tested and imported by
 // both the storage wrapper and the options page.
 
-export const CONFIG_VERSION = 1;
+// Version history:
+//   1 — activation + hotkey (+ routing added late in v1's life)
+//   2 — DOCX ships: stored v1 configs get the default DOCX rule appended
+export const CONFIG_VERSION = 2;
 
 // Routing vocabulary (SPEC §3.2): what can happen to a matched file, and what
 // a rule may fall back to when its engine fails or isn't available.
 export const RULE_ACTIONS = ["inbrowser", "companion", "http", "passthrough"];
 export const RULE_FALLBACKS = ["inbrowser", "passthrough"];
+
+export const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Legacy binary .doc is deliberately absent: mammoth reads OOXML only, so a
+// .doc routed inbrowser would just pass through as "no-engine".
+const DOCX_RULE = {
+  match: { mime: [DOCX_MIME], ext: ["docx"] },
+  action: "inbrowser",
+  enabled: true,
+  onError: "passthrough",
+  output: { ext: "md", mime: "text/markdown" },
+};
 
 export const DEFAULT_CONFIG = {
   version: CONFIG_VERSION,
@@ -45,6 +61,7 @@ export const DEFAULT_CONFIG = {
         onError: "passthrough",
         output: { ext: "md", mime: "text/markdown" },
       },
+      structuredClone(DOCX_RULE),
     ],
   },
   // Passthrough hotkey binding (physical `code` + modifiers).
@@ -82,7 +99,7 @@ export function normalizeConfig(stored) {
           }))
         : structuredClone(DEFAULT_CONFIG.activation.rules),
     },
-    routing: normalizeRouting(stored.routing),
+    routing: normalizeRouting(stored.routing, stored.version),
     hotkey: normalizeHotkey(stored.hotkey),
   };
 }
@@ -92,16 +109,26 @@ export function normalizeConfig(stored) {
 // a malformed rule is dropped; a missing/malformed rules array falls back to
 // the defaults. `default` is pinned to "passthrough" — the only safe fate for
 // an unmatched file (SPEC §3.2).
-function normalizeRouting(stored) {
+function normalizeRouting(stored, storedVersion) {
   if (!stored || typeof stored !== "object") {
     return structuredClone(DEFAULT_CONFIG.routing);
   }
-  return {
-    default: "passthrough",
-    rules: Array.isArray(stored.rules)
-      ? stored.rules.map(normalizeRule).filter(Boolean)
-      : structuredClone(DEFAULT_CONFIG.routing.rules),
-  };
+  const rules = Array.isArray(stored.rules)
+    ? stored.rules.map(normalizeRule).filter(Boolean)
+    : structuredClone(DEFAULT_CONFIG.routing.rules);
+
+  // v1 → v2: v1 predates the DOCX engine, and stored configs keep their own
+  // rule list, so they'd never pick up the new default. Append it once for
+  // pre-v2 configs; a v2+ config without a DOCX rule chose to remove it.
+  if (!(storedVersion >= 2) && !rules.some(matchesDocx)) {
+    rules.push(structuredClone(DOCX_RULE));
+  }
+
+  return { default: "passthrough", rules };
+}
+
+function matchesDocx(rule) {
+  return rule.match.mime.includes(DOCX_MIME) || rule.match.ext.includes("docx");
 }
 
 // One routing rule, or null when it can't be salvaged: unknown action,
