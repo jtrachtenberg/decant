@@ -130,6 +130,31 @@ function isRemoteEndpoint(url) {
   }
 }
 
+// The background worker's fetch needs host permission for the endpoint's
+// origin. Match patterns ignore ports, so one grant covers the whole host.
+function originPattern(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    return `${u.protocol}//${u.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
+// Request permission for endpoint origins (deduped). Must be called from a
+// click handler — that's the gesture Chrome requires. Returns false when
+// declined; the rules still save, their fetches just fail into onError until
+// permission is granted.
+async function requestEndpointPermission(endpoints) {
+  const origins = [...new Set(endpoints.map(originPattern).filter(Boolean))];
+  if (!origins.length) return true;
+  try {
+    return await chrome.permissions.request({ origins });
+  } catch {
+    return false;
+  }
+}
+
 function renderRules() {
   rulesEl.replaceChildren();
   config.routing.rules.forEach((rule, i) => {
@@ -216,11 +241,19 @@ async function addRule() {
     rule.endpoint = endpoint;
   }
 
+  const granted = rule.endpoint
+    ? await requestEndpointPermission([rule.endpoint])
+    : true;
+
   config.routing.rules.push(rule);
   matchInput.value = "";
   endpointInput.value = "";
   await commit();
-  status("Rule added.");
+  status(
+    granted
+      ? "Rule added."
+      : "Rule added — endpoint permission declined, so matching files use the fallback until it's granted."
+  );
 }
 
 // ------------------------------------------------------------ JSON config ---
@@ -253,11 +286,16 @@ async function importJson() {
     if (!ok) return;
   }
 
+  const granted = await requestEndpointPermission(
+    next.routing.rules.filter((r) => r.endpoint).map((r) => r.endpoint)
+  );
+
   config = next;
   await commit();
   textarea.value = JSON.stringify(config, null, 2); // show the normalized form
   status(
-    "Config applied. Newly enabled hosts still need permission — toggle them to grant."
+    "Config applied. Newly enabled hosts still need permission — toggle them to grant." +
+      (granted ? "" : " Endpoint permission declined — those rules use their fallback.")
   );
 }
 
