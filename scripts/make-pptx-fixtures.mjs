@@ -29,8 +29,11 @@ const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const PRESENTATION = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`;
 
+// The chart namespace is declared like real producers do (on every slide,
+// chart or not) — regression cover for the namespace-vs-usage distinction in
+// the engine's chart counter.
 const slide = (body) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
   <p:cSld><p:spTree>${body}</p:spTree></p:cSld>
 </p:sld>`;
 

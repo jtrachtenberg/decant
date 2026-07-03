@@ -49,7 +49,12 @@ function runsText(fragment) {
 // Returns { title, bullets: [{ level, text }], tables: [rows], images }.
 export function extractSlideText(xml) {
   let images = (xml.match(/<p:pic[\s>]/g) || []).length;
-  images += (xml.match(/drawingml\/2006\/chart/g) || []).length;
+  // Charts are counted from actual graphicData uses only — real producers
+  // declare xmlns:c="…drawingml/2006/chart" on EVERY slide whether or not a
+  // chart exists (caught by QA on a real Google Slides export), so a bare
+  // string match false-positives the ambiguous prompt on chart-free decks.
+  images += (xml.match(/<a:graphicData[^>]*uri="[^"]*drawingml\/2006\/chart"/g) || [])
+    .length;
 
   // Tables first, and blank them out so their runs don't re-appear as bullets.
   const tables = [];

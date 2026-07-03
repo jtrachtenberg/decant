@@ -45,6 +45,16 @@ test("extractSlideText counts pictures and charts as visuals", () => {
   assert.equal(s.images, 2);
 });
 
+test("a chart namespace declaration alone is not a visual (real-producer XML)", () => {
+  // Producers declare xmlns:c on every slide whether or not a chart exists.
+  const s = extractSlideText(
+    `<p:sld xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+      sp(`<a:p><a:r><a:t>text only</a:t></a:r></a:p>`) +
+      `</p:sld>`
+  );
+  assert.equal(s.images, 0);
+});
+
 test("extractSlideText pulls tables out without duplicating their text", () => {
   const s = extractSlideText(
     `<a:tbl><a:tr><a:tc><a:txBody><a:p><a:r><a:t>H</a:t></a:r></a:p></a:txBody></a:tc></a:tr><a:tr><a:tc><a:txBody><a:p><a:r><a:t>v</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl>`
