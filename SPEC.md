@@ -244,15 +244,19 @@ reachable with the libraries we already load — three tiers by effort, and the
 omission marker stays as the honest fallback for the residue, not a thing any
 of this replaces:
 
-- **Tier 1 — OOXML cached chart data (highest value/effort; M2 fast-follow).**
+- **Tier 1 — OOXML cached chart data. *(PPTX done; DOCX/XLSX todo.)***
   A native Office chart is not an image: its `chartN.xml` part holds the cached
   series (`<c:ser>` → `c:tx`/`c:cat`/`c:val`), and the engines are already
-  inside the zip (jszip for PPTX). Resolve the `graphicFrame`'s `r:id` through
-  the slide/doc `.rels` to the chart part and emit a series×category Markdown
-  table — deterministic, OCR-free, and often *better* than the source for a
-  model. Footnote stale-cache risk with `[chart data from embedded cache]`.
-  (Cell-shading annotation via `w:shd`/`a:solidFill` is a lower-ranked,
-  legend-dependent cousin — noise-prone, treat separately.)
+  inside the zip (jszip for PPTX). The PPTX engine resolves the `graphicFrame`'s
+  `c:chart r:id` through the slide `.rels` to the chart part and emits a
+  category×series Markdown table (`parseChartXml`) — deterministic, OCR-free,
+  and often *better* than the source for a model. A chart-only slide now
+  **converts** instead of prompting; only charts we *can't* parse fall back to
+  `[chart omitted]`. DOCX (`word/charts/`) and XLSX charts are the same
+  mechanism, still to do. Deferred refinement: a `[chart data from embedded
+  cache]` staleness footnote (skipped for now — per-chart noise). (Cell-shading
+  annotation via `w:shd`/`a:solidFill` is a lower-ranked, legend-dependent
+  cousin — noise-prone, treat separately.)
 - **Tier 2 — PDF geometry confidence signal (classifier upgrade).** The
   spatial reconstruction itself already exists (`classify.js`:
   `linesFromGlyphs` gap-splitting, `columnRegions`, `tableRuns`) — dense

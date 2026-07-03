@@ -7,7 +7,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { analyzePptx, extractSlideText } from "../src/convert/pptx.js";
+import {
+  analyzePptx,
+  extractSlideText,
+  parseChartXml,
+} from "../src/convert/pptx.js";
 
 const fixture = async (name) => {
   const buf = await readFile(new URL(`./fixtures/${name}`, import.meta.url));
@@ -36,16 +40,17 @@ test("extractSlideText joins split runs and decodes entities", () => {
   assert.deepEqual(s.bullets, [{ level: 0, text: "R&D → growth" }]);
 });
 
-test("extractSlideText counts pictures and charts as visuals", () => {
+test("pictures count as visuals; charts are captured as references", () => {
   const s = extractSlideText(
     sp(`<a:p><a:r><a:t>x</a:t></a:r></a:p>`) +
       `<p:pic><p:blipFill/></p:pic>` +
-      `<p:graphicFrame><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></p:graphicFrame>`
+      `<p:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rId7"/></a:graphicData></a:graphic></p:graphicFrame>`
   );
-  assert.equal(s.images, 2);
+  assert.equal(s.images, 1); // the picture only
+  assert.deepEqual(s.chartRefs, ["rId7"]); // the chart, resolved later
 });
 
-test("a chart namespace declaration alone is not a visual (real-producer XML)", () => {
+test("a chart namespace declaration alone is neither a visual nor a ref", () => {
   // Producers declare xmlns:c on every slide whether or not a chart exists.
   const s = extractSlideText(
     `<p:sld xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
@@ -53,6 +58,7 @@ test("a chart namespace declaration alone is not a visual (real-producer XML)", 
       `</p:sld>`
   );
   assert.equal(s.images, 0);
+  assert.deepEqual(s.chartRefs, []);
 });
 
 test("extractSlideText pulls tables out without duplicating their text", () => {
@@ -89,15 +95,64 @@ test("omission markers carry the picture's name/descr when present", () => {
   const s = extractSlideText(
     `<p:pic><p:nvPicPr><p:cNvPr id="4" name="Picture 2" descr="Q3 funnel"/></p:nvPicPr></p:pic>` +
       `<p:pic><p:nvPicPr><p:cNvPr id="5" name="Picture 3"/></p:nvPicPr></p:pic>` +
-      `<p:pic></p:pic>` +
-      `<p:graphicFrame><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></p:graphicFrame>`
+      `<p:pic></p:pic>`
   );
   assert.deepEqual(s.omitted, [
     "[image omitted: Q3 funnel]",
     "[image omitted: Picture 3]",
     "[image omitted]",
-    "[chart omitted]",
   ]);
+});
+
+test("parseChartXml turns cached series into category × series rows", () => {
+  const chart = `<c:chartSpace xmlns:c="x" xmlns:a="y">
+    <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>My </a:t></a:r><a:r><a:t>Chart</a:t></a:r></a:p></c:rich></c:tx></c:title>
+    <c:plotArea><c:barChart>
+      <c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Rev</c:v></c:pt></c:strCache></c:strRef></c:tx>
+        <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt></c:strCache></c:strRef></c:cat>
+        <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
+      <c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Cost</c:v></c:pt></c:strCache></c:strRef></c:tx>
+        <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>3</c:v></c:pt><c:pt idx="1"><c:v>4</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
+    </c:barChart></c:plotArea></c:chart></c:chartSpace>`;
+  const parsed = parseChartXml(chart);
+  assert.equal(parsed.title, "My Chart");
+  assert.deepEqual(parsed.rows, [
+    ["Category", "Rev", "Cost"],
+    ["Q1", "10", "3"],
+    ["Q2", "20", "4"],
+  ]);
+});
+
+test("parseChartXml handles sparse idx gaps and a series without a name", () => {
+  const chart = `<c:chartSpace>
+    <c:ser>
+      <c:cat><c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="2"><c:v>C</c:v></c:pt></c:strCache></c:cat>
+      <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="2"><c:v>9</c:v></c:pt></c:numCache></c:val>
+    </c:ser></c:chartSpace>`;
+  const parsed = parseChartXml(chart);
+  assert.deepEqual(parsed.rows, [
+    ["Category", "Series 1"],
+    ["A", "1"],
+    ["", ""], // idx 1 gap → empty row, preserved positionally
+    ["C", "9"],
+  ]);
+});
+
+test("parseChartXml returns null when there's no usable cached data", () => {
+  assert.equal(parseChartXml("<c:chartSpace></c:chartSpace>"), null);
+  assert.equal(parseChartXml("<c:chartSpace><c:ser></c:ser></c:chartSpace>"), null);
+});
+
+test("chart.pptx recovers the cached chart data as a table → convert (real zip)", async () => {
+  const res = await analyzePptx(await fixture("chart.pptx"));
+  assert.equal(res.decision, "convert"); // nothing lost → no prompt
+  assert.equal(res.summary.images, 0);
+  assert.equal(res.summary.chartsRecovered, 1);
+  assert.match(res.markdown, /## Slide 1: Sales/);
+  assert.match(res.markdown, /\*\*Revenue by Quarter\*\*/);
+  assert.match(res.markdown, /\| Category \| Revenue \| Cost \|/);
+  assert.match(res.markdown, /\| Q3 \| 23 \| 9 \|/);
+  assert.doesNotMatch(res.markdown, /chart omitted/);
 });
 
 test("empty and whitespace-only descr/name fall through to generic markers", () => {

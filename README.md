@@ -172,9 +172,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
   (Embedded charts/images in spreadsheets can't be detected by the community
   SheetJS build — the one format without an "ambiguous" prompt.)
   **PPTX → Markdown**: slide titles become headings, body text becomes
-  leveled bullets, slide tables become Markdown tables — and since decks are
-  the most visual format of all, any deck with pictures or charts gets the
-  Convert / Send-original prompt.
+  leveled bullets, and slide tables become Markdown tables. Native **charts
+  are recovered as data** — a chart isn't an image but a cached data series in
+  the file, so Decant reads it straight into a category×series table (often
+  more useful to a model than the picture was); a slide whose only visual is a
+  recovered chart converts cleanly. Pasted-in pictures still get the Convert /
+  Send-original prompt.
   **HTML → Markdown** via Turndown (+ GFM tables): scripts, styles, and tag
   soup — most of a raw HTML file's token cost — are stripped away; remote
   images survive as ordinary Markdown image links, embedded data-URI images
