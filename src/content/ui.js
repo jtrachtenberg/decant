@@ -11,6 +11,7 @@ const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
 const FAILURE_ID = "decant-attach-failure";
 const CONVERTING_ID = "decant-converting-badge";
+const SAVINGS_ID = "decant-savings-badge";
 
 export function promptConvertChoice(results) {
   return new Promise((resolve) => {
@@ -182,6 +183,57 @@ export function showConvertingBadge(fileName) {
     </div>
   `;
   root.querySelector(".msg").textContent = `Decant: converting “${fileName}”…`;
+  document.body.appendChild(host);
+  return { remove: () => host.remove() };
+}
+
+// Brief post-conversion badge showing the estimated token savings (the
+// eliminated PDF page-image layer). Explicitly an estimate ("~"). Auto-
+// dismisses; same shadow-root pattern. `savings` is aggregateSavings()'s
+// result: { savedTokens, percent, files }.
+const SAVINGS_TIMEOUT_MS = 6000;
+
+function formatTokens(n) {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+export function showSavingsBadge(savings) {
+  document.getElementById(SAVINGS_ID)?.remove();
+
+  const host = document.createElement("div");
+  host.id = SAVINGS_ID;
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .badge {
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+        z-index: 2147483647;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-size: 12.5px; font-weight: 600;
+        background: #12241a; color: #eafff2; border: 1px solid #37b872;
+        border-radius: 999px; padding: 7px 14px;
+        box-shadow: 0 6px 24px rgba(0,0,0,.4);
+        display: flex; align-items: center; gap: 8px;
+        animation: decant-fade .3s ease-out;
+      }
+      @keyframes decant-fade { from { opacity: 0; transform: translate(-50%, -4px); } }
+      .check { color: #37b872; flex: none; }
+      .est { color: #7fbf9c; font-weight: 500; }
+    </style>
+    <div class="badge" role="status">
+      <span class="check">✓</span>
+      <span class="msg"></span>
+      <span class="est">est.</span>
+    </div>
+  `;
+  const label =
+    savings.percent >= 5
+      ? `Decant saved ~${formatTokens(savings.savedTokens)} tokens (~${savings.percent}%)`
+      : `Decant saved ~${formatTokens(savings.savedTokens)} tokens`;
+  root.querySelector(".msg").textContent = label;
+  setTimeout(() => host.remove(), SAVINGS_TIMEOUT_MS);
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }

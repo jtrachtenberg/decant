@@ -18,11 +18,13 @@ many chat backends render every page of a PDF as an image and bill you for it
 alongside the text. Handing the model Markdown instead drops that cost. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
-> **Status: working, early.** Today the browser extension converts PDFs to
-> Markdown on `claude.ai` — through the file picker, drag-and-drop, and paste —
-> and lets scanned or image-only PDFs pass through untouched so it never silently
-> degrades them. It's not yet on the Chrome Web Store, and the higher-fidelity
-> conversion and additional surfaces below are still planned. The
+> **Status: working, M2 complete.** The browser extension converts PDF, Word,
+> Excel, PowerPoint, and HTML to Markdown on `claude.ai`, ChatGPT, and Gemini —
+> through the file picker, drag-and-drop, and paste — recovering native chart
+> data and passing scanned or image-only documents through untouched so it
+> never silently degrades them. It's not yet on the Chrome Web Store, and the
+> higher-fidelity companion tier and additional surfaces below are still
+> planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
 
@@ -152,7 +154,7 @@ on it fall back gracefully (in-browser conversion or passthrough).
   **Convert to Markdown / Send original** choice, and a **passthrough hotkey**
   (`Alt+Shift+O`) arms the next upload to be sent untouched. (Making the hotkey
   binding user-configurable comes with the options page in M2.)
-- **M2 — Polish & config. 🚧 In progress.** An options page now manages the
+- **M2 — Polish & config. ✅ Complete.** An options page now manages the
   activation whitelist (default-deny, with dynamic content-script registration
   and per-host permission prompts), the passthrough hotkey binding, and the
   **routing table** — ordered per-type rules
@@ -191,8 +193,10 @@ on it fall back gracefully (in-browser conversion or passthrough).
   a `Required Notice` + commercial-licensing contact in the license, and a
   pre-publish [smoke checklist](./docs/smoke-checklist.md).
   Per-site adapters now cover claude.ai and ChatGPT with full drop/paste
-  conversion (Gemini stays picker-only by necessity). Still ahead: a
-  token-savings estimate.
+  conversion (Gemini stays picker-only by necessity). And after a conversion,
+  a brief badge shows the **estimated token savings** — the eliminated
+  page-image layer that is the whole point, made visible (a labeled estimate;
+  PDFs today, where the per-page image cost is what conversion removes).
 - **M3 — Companion tier & the image layer.** Local Python service for OCR /
   high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
   charts and images into inline text — the recognition tier the in-browser
