@@ -1,0 +1,118 @@
+// In-browser PPTX engine (shape A) — no library covers PPTX the way mammoth
+// covers DOCX or SheetJS covers XLSX, so this is a small custom extractor:
+// jszip opens the OOXML package and each ppt/slides/slideN.xml is mined for
+// text with targeted patterns.
+//
+// Deliberately pattern-based, not a full XML parse: DOMParser doesn't exist
+// in Node (where the tests run), and the DrawingML we need is narrow and
+// stable — PowerPoint, Google Slides, and Keynote exports all emit the
+// standard a:/p: namespace prefixes. The extractor reads:
+//   - <a:t> runs, concatenated per paragraph (<a:p>), entities decoded;
+//   - <a:pPr lvl="N"> for bullet indent levels (slide body text is lists);
+//   - <p:ph type="title"/ctrTitle"> to lift the title into the slide heading;
+//   - <a:tbl> tables, rendered via the shared Markdown table renderer;
+//   - <p:pic> and chart graphicFrames, counted as visuals.
+//
+// Presentations are the most visually-driven format Decant handles, so any
+// slide deck containing pictures or charts returns "ambiguous" — the user
+// chooses Markdown-without-visuals vs. the untouched original, like PDFs and
+// DOCX. Text-free decks pass through. Speaker notes are ignored in this
+// first cut (often absent, often noise).
+//
+// analyzePptx() returns the shared { decision, reason, summary, markdown }
+// shape, wrapped by resultFromAnalysis() like every other engine.
+
+import JSZipNs from "jszip";
+import { rowsToMarkdownTable } from "./xlsx.js";
+
+const JSZip = JSZipNs.default ?? JSZipNs;
+
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+function decodeEntities(s) {
+  return s.replace(/&(amp|lt|gt|quot|apos|#x?[0-9a-f]+);/gi, (m, e) => {
+    if (ENTITIES[e.toLowerCase()]) return ENTITIES[e.toLowerCase()];
+    const code = e[1]?.toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+  });
+}
+
+// Concatenated text of every <a:t> run inside one XML fragment.
+function runsText(fragment) {
+  return decodeEntities(
+    [...fragment.matchAll(/<a:t>([^<]*)<\/a:t>|<a:t\/>/g)]
+      .map((m) => m[1] ?? "")
+      .join("")
+  ).trim();
+}
+
+// Pure single-slide extractor — exported for direct unit testing.
+// Returns { title, bullets: [{ level, text }], tables: [rows], images }.
+export function extractSlideText(xml) {
+  let images = (xml.match(/<p:pic[\s>]/g) || []).length;
+  images += (xml.match(/drawingml\/2006\/chart/g) || []).length;
+
+  // Tables first, and blank them out so their runs don't re-appear as bullets.
+  const tables = [];
+  xml = xml.replace(/<a:tbl>[\s\S]*?<\/a:tbl>/g, (tbl) => {
+    const rows = [...tbl.matchAll(/<a:tr[\s>][\s\S]*?<\/a:tr>/g)].map((tr) =>
+      [...tr[0].matchAll(/<a:tc[\s>][\s\S]*?<\/a:tc>/g)].map((tc) => runsText(tc[0]))
+    );
+    if (rows.length) tables.push(rows);
+    return "";
+  });
+
+  let title = "";
+  const bullets = [];
+  for (const shape of xml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)) {
+    const sp = shape[0];
+    const isTitle = /<p:ph [^>]*type="(?:title|ctrTitle)"/.test(sp);
+    for (const para of sp.matchAll(/<a:p>[\s\S]*?<\/a:p>|<a:p\/>/g)) {
+      const text = runsText(para[0]);
+      if (!text) continue;
+      if (isTitle && !title) {
+        title = text;
+      } else {
+        const lvl = /<a:pPr[^>]*\blvl="(\d+)"/.exec(para[0]);
+        bullets.push({ level: lvl ? Number(lvl[1]) : 0, text });
+      }
+    }
+  }
+  return { title, bullets, tables, images };
+}
+
+export async function analyzePptx(file) {
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const slidePaths = Object.keys(zip.files)
+    .filter((p) => /^ppt\/slides\/slide\d+\.xml$/.test(p))
+    .sort((a, b) => Number(a.match(/\d+/g).at(-1)) - Number(b.match(/\d+/g).at(-1)));
+
+  const sections = [];
+  let images = 0;
+  let chars = 0;
+  for (let i = 0; i < slidePaths.length; i++) {
+    const slide = extractSlideText(await zip.file(slidePaths[i]).async("string"));
+    images += slide.images;
+
+    const parts = [];
+    for (const b of slide.bullets) parts.push(`${"  ".repeat(b.level)}- ${b.text}`);
+    const bulletBlock = parts.join("\n");
+    const tableBlocks = slide.tables.map(rowsToMarkdownTable).filter(Boolean);
+    const body = [bulletBlock, ...tableBlocks].filter(Boolean).join("\n\n");
+
+    chars += slide.title.length + body.length;
+    if (slide.title || body) {
+      const heading = slide.title ? `## Slide ${i + 1}: ${slide.title}` : `## Slide ${i + 1}`;
+      sections.push(body ? `${heading}\n\n${body}` : heading);
+    }
+  }
+
+  const summary = { slides: slidePaths.length, images, chars };
+  if (!sections.length || chars === 0) {
+    return { decision: "passthrough", reason: "no-text", summary, markdown: null };
+  }
+  const markdown = sections.join("\n\n") + "\n";
+  if (images > 0) {
+    return { decision: "ambiguous", reason: "text-with-images", summary, markdown };
+  }
+  return { decision: "convert", reason: "text", summary, markdown };
+}

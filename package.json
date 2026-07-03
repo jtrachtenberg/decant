@@ -16,6 +16,7 @@
     "esbuild": "^0.28.1"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^6.1.200",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
