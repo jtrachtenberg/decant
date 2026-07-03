@@ -261,9 +261,27 @@ a dumb converter and a single site:
 - DOCX/PPTX/XLSX support (mammoth.js / SheetJS), figure handling settings,
   multi-site support, token-savings estimate display.
 
-**Milestone 3 — Quality tier (shape B)**
-- `localhost` Python service (MarkItDown or Docling) behind the same interface.
+**Milestone 3 — Quality tier (shape B) & the image layer**
+- `localhost` Python service (MarkItDown or Docling) behind the same interface
+  — including describe-in-text figure descriptions (ARCHITECTURE §5 strategy 2).
 - Setting to choose engine; graceful fallback to A if the service is down.
+- **Extract-and-reference for chat surfaces** (ARCHITECTURE §5 strategy 1):
+  injection already delivers a FileList, so attach the converted `.md` plus
+  the document's actual figures as sibling files. PPTX/DOCX first (images are
+  zip entries, extraction is free via jszip); PDF later (decoding image
+  XObjects out of pdf.js is the hard case). Needs junk filtering (logos,
+  backgrounds), per-site attachment-count limits, and probably lands as a
+  third ambiguous-prompt choice: Convert + attach figures.
+- **Evaluated and shelved: Tesseract.js (in-browser WASM OCR).** Feasible,
+  but each job it could take is done better by something else: scanned PDFs
+  pass through to the destination model, whose vision beats classical OCR on
+  exactly the fragile documents (converting them locally would trade fidelity
+  for tokens — the §6 "quietly make answers worse" risk); and dropped
+  charts/figures need *description* (a vision model, i.e. this milestone's
+  companion), not character extraction — OCR'ing a bar chart yields label
+  soup. Add only if demand appears for an explicit opt-in `inbrowser-ocr`
+  routing action (tokens-over-fidelity users, or vision-less chat backends);
+  costs ~10–15 MB of WASM/language data and seconds per page.
 
 **Milestone 4 — Profiles (per-host overrides)**
 - Per-host overlay on the routing table (§3.8): global policy stays, individual

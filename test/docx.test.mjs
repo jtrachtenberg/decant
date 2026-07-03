@@ -22,12 +22,20 @@ const fixture = async (name) => {
 
 const PNG_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
 
-test("stripDataUriImages removes and counts inline images", () => {
+test("stripDataUriImages replaces inline images with omission markers", () => {
   const { markdown, images } = stripDataUriImages(
     `Before\n\n![](${PNG_URI})\n\n![chart](${PNG_URI})\n\nAfter`
   );
   assert.equal(images, 2);
-  assert.equal(markdown, "Before\n\nAfter");
+  assert.equal(
+    markdown,
+    "Before\n\n[image omitted]\n\n[image omitted: chart]\n\nAfter"
+  );
+});
+
+test("whitespace-only alt text falls through to the generic marker", () => {
+  const { markdown } = stripDataUriImages(`x ![  ](${PNG_URI}) y`);
+  assert.equal(markdown, "x [image omitted] y");
 });
 
 test("stripDataUriImages leaves ordinary links and images alone", () => {
@@ -44,15 +52,15 @@ test("text-only markdown → convert", () => {
   assert.equal(res.markdown, "# Title\n\nBody.\n");
 });
 
-test("text with images → ambiguous, markdown carries the stripped text", () => {
+test("text with images → ambiguous, markdown marks the omission in place", () => {
   const res = docxAnalysis(`# Title\n\n![](${PNG_URI})\n\nBody.`);
   assert.equal(res.decision, "ambiguous");
   assert.equal(res.reason, "text-with-images");
   assert.equal(res.summary.images, 1);
-  assert.equal(res.markdown, "# Title\n\nBody.\n");
+  assert.equal(res.markdown, "# Title\n\n[image omitted]\n\nBody.\n");
 });
 
-test("images with no text → passthrough (never attach an empty file)", () => {
+test("images with no text → passthrough (markers don't count as content)", () => {
   const res = docxAnalysis(`![](${PNG_URI})`);
   assert.equal(res.decision, "passthrough");
   assert.equal(res.reason, "no-text");

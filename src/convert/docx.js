@@ -30,14 +30,17 @@ const STYLE_MAP = [
   "p[style-name='Subtitle'] => h2:fresh",
 ];
 
-// Remove data-URI images from mammoth's Markdown and count them. Exported
-// for direct unit testing. Alt text (rarely present) goes with the image —
-// a caption without its figure reads as noise, not content.
+// Replace data-URI images in mammoth's Markdown with visible omission
+// markers and count them. Exported for direct unit testing. The marker sits
+// exactly where the image was, so both the user and the model reading the
+// conversion can see something was dropped there; alt text (rarely present)
+// is carried into the marker.
 export function stripDataUriImages(markdown) {
   let images = 0;
-  const stripped = markdown.replace(/!\[[^\]]*\]\(data:[^)]*\)/g, () => {
+  const stripped = markdown.replace(/!\[([^\]]*)\]\(data:[^)]*\)/g, (_m, alt) => {
     images++;
-    return "";
+    const label = (alt || "").trim(); // whitespace-only alt → generic marker
+    return label ? `[image omitted: ${label}]` : "[image omitted]";
   });
   return { markdown: stripped.replace(/\n{3,}/g, "\n\n").trim(), images };
 }
@@ -70,8 +73,11 @@ export function docxAnalysis(rawMarkdown) {
     stripBookmarkAnchors(rawMarkdown)
   );
   const markdown = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
-  const summary = { images, chars: markdown.length };
-  if (!markdown) {
+  // Omission markers aren't content: an image-only document must still pass
+  // through as no-text rather than convert to a page of markers.
+  const realText = markdown.replace(/\[image omitted[^\]]*\]/g, "").trim();
+  const summary = { images, chars: realText.length };
+  if (!realText) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
   }
   return {

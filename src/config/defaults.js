@@ -12,7 +12,8 @@
 //   1 — activation + hotkey (+ routing added late in v1's life)
 //   2 — DOCX ships: stored v1 configs get the default DOCX rule appended
 //   3 — XLSX/XLS ships: same append-once migration
-export const CONFIG_VERSION = 3;
+//   4 — PPTX ships: same
+export const CONFIG_VERSION = 4;
 
 // Routing vocabulary (SPEC §3.2): what can happen to a matched file, and what
 // a rule may fall back to when its engine fails or isn't available.
@@ -24,6 +25,8 @@ export const DOCX_MIME =
 export const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const XLS_MIME = "application/vnd.ms-excel";
+export const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 // Legacy binary .doc is deliberately absent: mammoth reads OOXML only, so a
 // .doc routed inbrowser would just pass through as "no-engine". (SheetJS
@@ -42,6 +45,14 @@ const XLSX_RULE = {
   onError: "passthrough",
   output: { ext: "md", mime: "text/markdown" },
 };
+// Legacy binary .ppt is absent for the same reason as .doc.
+const PPTX_RULE = {
+  match: { mime: [PPTX_MIME], ext: ["pptx"] },
+  action: "inbrowser",
+  enabled: true,
+  onError: "passthrough",
+  output: { ext: "md", mime: "text/markdown" },
+};
 
 // Engine-arrival migrations: stored configs keep their own rule list, so a
 // pre-<version> config gets the new default rule appended once — unless it
@@ -50,6 +61,7 @@ const XLSX_RULE = {
 const RULE_MIGRATIONS = [
   { version: 2, rule: DOCX_RULE, matches: (r) => r.match.mime.includes(DOCX_MIME) || r.match.ext.includes("docx") },
   { version: 3, rule: XLSX_RULE, matches: (r) => r.match.mime.includes(XLSX_MIME) || r.match.ext.includes("xlsx") },
+  { version: 4, rule: PPTX_RULE, matches: (r) => r.match.mime.includes(PPTX_MIME) || r.match.ext.includes("pptx") },
 ];
 
 export const DEFAULT_CONFIG = {
@@ -86,6 +98,7 @@ export const DEFAULT_CONFIG = {
       },
       structuredClone(DOCX_RULE),
       structuredClone(XLSX_RULE),
+      structuredClone(PPTX_RULE),
     ],
   },
   // Passthrough hotkey binding (physical `code` + modifiers).

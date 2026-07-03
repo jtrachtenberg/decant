@@ -538,6 +538,17 @@ function emitLine(line, bodyH) {
   return text;
 }
 
+// Visible omission marker appended to a page's Markdown when its
+// operator-list scan found raster images — evidence in the converted output
+// that visuals were dropped there. Pages whose scans were sampled away
+// (images unknown) get no marker; the classifier's extrapolation covers the
+// decision, but a marker should only assert what was actually seen.
+export function appendOmittedImagesNote(pageMarkdown, images) {
+  if (!images) return pageMarkdown;
+  const note = `[${images} image${images === 1 ? "" : "s"} omitted]`;
+  return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
+}
+
 // Decide what to do with a document from its per-page signals.
 //
 //   perPage: [{ chars: number, images: number }]

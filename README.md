@@ -169,12 +169,23 @@ on it fall back gracefully (in-browser conversion or passthrough).
   one table per sheet, empty and very large workbooks pass through untouched.
   (Embedded charts/images in spreadsheets can't be detected by the community
   SheetJS build — the one format without an "ambiguous" prompt.)
-  Still ahead: PPTX, per-site adapters so enabling other hosts actually converts there
+  **PPTX → Markdown**: slide titles become headings, body text becomes
+  leveled bullets, slide tables become Markdown tables — and since decks are
+  the most visual format of all, any deck with pictures or charts gets the
+  Convert / Send-original prompt.
+  Still ahead: per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a
   manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)
   in `docs/` — and a token-savings estimate.
-- **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
+- **M3 — Companion tier & the image layer.** Local Python service for OCR /
+  high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
+  charts and images into inline text — the recognition tier the in-browser
+  engines can't provide). Alongside it, **extract-and-reference**: attach the
+  converted Markdown *plus* the document's actual figures as sibling files
+  (free for PPTX/DOCX, whose images are just zip entries), so the model pays
+  image tokens only for figures that matter — likely a third choice on the
+  ambiguous prompt ("Convert + attach figures").
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,

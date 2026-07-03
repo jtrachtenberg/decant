@@ -10,6 +10,7 @@ import {
   countChars,
   shouldScanImages,
   extrapolateImages,
+  appendOmittedImagesNote,
   MIN_CHART_PAGES_FOR_AMBIGUOUS,
   MAX_ANALYZE_PAGES,
   IMAGE_SAMPLE_INTERVAL,
@@ -70,6 +71,13 @@ test("sparse text just over the per-page floor still counts as content", () => {
 test("countChars ignores whitespace", () => {
   assert.equal(countChars("  a b\n c\t "), 3);
   assert.equal(countChars("   \n\t  "), 0);
+});
+
+test("appendOmittedImagesNote marks pages that had images, and only those", () => {
+  assert.equal(appendOmittedImagesNote("page text", 0), "page text");
+  assert.equal(appendOmittedImagesNote("page text", 1), "page text\n\n[1 image omitted]");
+  assert.equal(appendOmittedImagesNote("page text", 3), "page text\n\n[3 images omitted]");
+  assert.equal(appendOmittedImagesNote("", 2), "[2 images omitted]");
 });
 
 test("shouldScanImages scans every page at or below the ceiling", () => {

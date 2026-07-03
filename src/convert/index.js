@@ -20,8 +20,9 @@
 import { analyzePdf } from "./inbrowser.js";
 import { analyzeDocx } from "./docx.js";
 import { analyzeXlsx } from "./xlsx.js";
+import { analyzePptx } from "./pptx.js";
 import { resultFromAnalysis } from "./result.js";
-import { DOCX_MIME, XLSX_MIME, XLS_MIME } from "../config/defaults.js";
+import { DOCX_MIME, XLSX_MIME, XLS_MIME, PPTX_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import {
@@ -82,8 +83,8 @@ async function convertViaBackground(file, rule) {
 }
 
 // Shape A: the in-browser engines, picked by type — PDF (pdf.js + the
-// classifier), DOCX (mammoth), and XLSX/XLS (SheetJS). Anything else routed
-// here passes through untouched (PPTX arrives later in M2).
+// classifier), DOCX (mammoth), XLSX/XLS (SheetJS), and PPTX (jszip +
+// DrawingML extraction). Anything else routed here passes through untouched.
 async function inbrowser(file) {
   let engine = null;
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
@@ -96,6 +97,8 @@ async function inbrowser(file) {
     /\.xlsx?$/i.test(file.name)
   ) {
     engine = analyzeXlsx;
+  } else if (file.type === PPTX_MIME || /\.pptx$/i.test(file.name)) {
+    engine = analyzePptx;
   }
   if (!engine) {
     return { action: "passthrough", file, reason: "no-engine" };
