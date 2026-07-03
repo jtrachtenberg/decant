@@ -165,9 +165,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
   now converts in-browser via mammoth.js: headings and emphasis survive,
   inline images are never dropped silently (documents that contain them get
   the same Convert / Send-original prompt PDFs do), and stored configs migrate
-  to include the new default rule.
-  Still ahead: remaining Office formats (PPTX/XLSX via
-  SheetJS), per-site adapters so enabling other hosts actually converts there
+  to include the new default rule. **XLSX/XLS → Markdown tables** via SheetJS:
+  one table per sheet, empty and very large workbooks pass through untouched.
+  (Embedded charts/images in spreadsheets can't be detected by the community
+  SheetJS build — the one format without an "ambiguous" prompt.)
+  Still ahead: PPTX, per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a
   manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)

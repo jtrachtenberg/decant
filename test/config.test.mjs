@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_CONFIG,
   DOCX_MIME,
+  XLSX_MIME,
+  XLS_MIME,
   enabledHosts,
   normalizeConfig,
 } from "../src/config/defaults.js";
@@ -65,10 +67,10 @@ test("normalizeConfig falls back wholesale on a malformed hotkey code", () => {
   }
 });
 
-test("default routing converts PDFs and DOCX in-browser, else passthrough", () => {
+test("default routing converts PDFs, DOCX, and XLSX in-browser, else passthrough", () => {
   const { routing } = normalizeConfig(undefined);
   assert.equal(routing.default, "passthrough");
-  assert.equal(routing.rules.length, 2);
+  assert.equal(routing.rules.length, 3);
   assert.ok(routing.rules.every((r) => r.action === "inbrowser"));
   assert.deepEqual(routing.rules[0].match, {
     mime: ["application/pdf"],
@@ -78,9 +80,13 @@ test("default routing converts PDFs and DOCX in-browser, else passthrough", () =
     mime: [DOCX_MIME],
     ext: ["docx"],
   });
+  assert.deepEqual(routing.rules[2].match, {
+    mime: [XLSX_MIME, XLS_MIME],
+    ext: ["xlsx", "xls"],
+  });
 });
 
-test("v1 configs get the default DOCX rule appended once", () => {
+test("v1 configs get the DOCX and XLSX default rules appended once", () => {
   const v1 = {
     version: 1,
     routing: {
@@ -88,21 +94,34 @@ test("v1 configs get the default DOCX rule appended once", () => {
     },
   };
   const { routing } = normalizeConfig(v1);
-  assert.equal(routing.rules.length, 2);
+  assert.equal(routing.rules.length, 3);
   assert.deepEqual(routing.rules[1].match.ext, ["docx"]);
+  assert.deepEqual(routing.rules[2].match.ext, ["xlsx", "xls"]);
   // Same for unversioned stored configs.
   const { routing: unversioned } = normalizeConfig({ routing: v1.routing });
-  assert.equal(unversioned.rules.length, 2);
+  assert.equal(unversioned.rules.length, 3);
 });
 
-test("migration respects an existing DOCX rule and v2 removals", () => {
-  // A v1 config that already routes docx its own way: nothing appended.
+test("a v2 config gets only the XLSX migration", () => {
+  const { routing } = normalizeConfig({
+    version: 2,
+    routing: {
+      rules: [{ match: { mime: ["application/pdf"] }, action: "inbrowser" }],
+    },
+  });
+  // DOCX was removed at v2 by the user's choice — stays removed; XLSX is new.
+  assert.equal(routing.rules.length, 2);
+  assert.deepEqual(routing.rules[1].match.ext, ["xlsx", "xls"]);
+});
+
+test("migrations respect existing per-type rules and current-version removals", () => {
+  // A v1 config that already routes docx AND xlsx its own way: nothing added.
   const own = normalizeConfig({
     version: 1,
     routing: {
       rules: [
         {
-          match: { ext: ["docx"] },
+          match: { ext: ["docx", "xlsx"] },
           action: "http",
           endpoint: "http://127.0.0.1:8765/convert",
         },
@@ -112,9 +131,9 @@ test("migration respects an existing DOCX rule and v2 removals", () => {
   assert.equal(own.routing.rules.length, 1);
   assert.equal(own.routing.rules[0].action, "http");
 
-  // A v2 config without a DOCX rule chose to remove it: stays removed.
+  // A current-version config without either rule chose to remove them.
   const removed = normalizeConfig({
-    version: 2,
+    version: 3,
     routing: {
       rules: [{ match: { mime: ["application/pdf"] }, action: "inbrowser" }],
     },
@@ -131,7 +150,7 @@ test("normalizeConfig falls back to default routing when the section is malforme
 
 test("normalizeConfig drops unsalvageable routing rules, keeps valid ones", () => {
   const { routing } = normalizeConfig({
-    version: 2, // current version — keep the v1→v2 migration out of this test
+    version: 3, // current version — keep the engine migrations out of this test
     routing: {
       rules: [
         { match: { mime: ["application/pdf"] }, action: "inbrowser" },
