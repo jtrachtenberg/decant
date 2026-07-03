@@ -1,3 +1,5 @@
+<img width="128" height="128" alt="decant_icon" src="https://github.com/user-attachments/assets/414f16ed-3076-444f-bff2-ebdaa19592b4" />
+
 # Decant
 
 **Convert files to Markdown before they upload.**
