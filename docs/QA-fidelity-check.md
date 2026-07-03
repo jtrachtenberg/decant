@@ -1,9 +1,9 @@
 # Fidelity QA — checking a conversion for information loss
 
-Decant converts PDFs to Markdown to save tokens. The risk is **silent loss** —
+Decant converts to Markdown to save tokens. The risk is **silent loss** —
 the Markdown looks fine but dropped data that was in the original. This is a
 lightweight way for a tester to catch that: use an LLM as a **fidelity judge**,
-feeding it the original PDF and Decant's Markdown and asking, in a structured
+feeding it the original and Decant's Markdown and asking, in a structured
 way, what (if anything) was lost. The output doubles as a bug report we can
 triage.
 
@@ -28,7 +28,7 @@ file:
   extension off at `chrome://extensions`, or run the comparison in a chat / on a
   site where Decant isn't active.
 - **Privacy first.** These are your own documents. The report below is plain
-  text, so you can share the findings *without* sending us the file. **Do not
+  text, so you can either use a version that removes PII or share the findings *without* sending us the file. **Do not
   submit confidential PDFs.** If the document is sensitive, send only the report
   and a redacted description.
 - **The judge isn't infallible.** It reads the PDF via its own rendering and can
@@ -39,12 +39,11 @@ file:
 
 ## Steps (for testers)
 
-1. Convert a PDF with Decant on `claude.ai` as normal. **Download the converted
+1. Convert a file with Decant as normal. **Download the converted
    `.md` attachment**, and copy the `[decant] converted …` line from the console.
-2. **Disable Decant** (or move to a context where it isn't active).
-3. Start a **fresh chat**. Attach the **original PDF** and the **`.md`**.
-4. Paste the **prompt** below and send.
-5. Copy the result, paste the `[decant]` console line above it, and send it to us
+2. **Disable Decant** using the passthrough hotkey (alt-shift-O by default)
+3. Paste the **prompt** below and send.
+4. Copy the result, paste the `[decant]` console line above it, and send it to us
    as a bug report (omit the PDF if it's sensitive).
 
 ---
@@ -53,7 +52,7 @@ file:
 
 ```
 You are auditing a tool that converts PDFs to Markdown to save tokens. I will give you:
-1. The ORIGINAL PDF.
+1. The ORIGINAL file.
 2. The MARKDOWN the tool produced from it.
 
 Determine whether any MEANINGFUL information was lost in the conversion. Compare
@@ -76,12 +75,12 @@ SEVERITY (one of):
 - MINOR     cosmetic only (formatting/decorative)
 
 Rules:
-- Only report REAL losses you can verify against the PDF. Do not invent issues.
+- Only report REAL losses you can verify against the file. Do not invent issues.
 - Ignore acceptable losses: running headers/footers, page numbers, logos, purely
   decorative elements.
 - Quote the specific lost content and cite the page where you can.
 - If the Markdown faithfully captures the content, say so plainly.
-- Flag your own uncertainty where the PDF is hard to read.
+- Flag your own uncertainty where the file is hard to read.
 
 Respond in EXACTLY this format:
 
@@ -104,7 +103,7 @@ Paste these together:
 1. **Decant's console line** — e.g. `[decant] converted report.pdf → report.md (4p, 1224 chars)`. Tells us the decision, page count, and size.
 2. **The judge's report** — the `VERDICT … OVERALL FIDELITY` block above.
 3. **Environment** — browser + OS, and the Decant version (`manifest.json`).
-4. **The PDF** *only if it isn't sensitive*; otherwise a short description of its
+4. **The File** *only if it isn't sensitive*; otherwise a short description of its
    layout (single/multi-column, tables, charts, scanned pages).
 
 ---
@@ -128,7 +127,7 @@ class of bug to catch, since it's the silent-degradation case the classifier
 exists to prevent. Reproduce locally with:
 
 ```
-npm run inspect -- "path/to/report.pdf"
+npm run inspect -- "path/to/file"
 ```
 
 to see the per-page text/image signals behind the decision.
