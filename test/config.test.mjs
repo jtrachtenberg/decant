@@ -68,10 +68,10 @@ test("normalizeConfig falls back wholesale on a malformed hotkey code", () => {
   }
 });
 
-test("default routing converts PDF, DOCX, XLSX, and PPTX in-browser, else passthrough", () => {
+test("default routing converts PDF, DOCX, XLSX, PPTX, and HTML in-browser, else passthrough", () => {
   const { routing } = normalizeConfig(undefined);
   assert.equal(routing.default, "passthrough");
-  assert.equal(routing.rules.length, 4);
+  assert.equal(routing.rules.length, 5);
   assert.ok(routing.rules.every((r) => r.action === "inbrowser"));
   assert.deepEqual(routing.rules[0].match, {
     mime: ["application/pdf"],
@@ -89,6 +89,10 @@ test("default routing converts PDF, DOCX, XLSX, and PPTX in-browser, else passth
     mime: [PPTX_MIME],
     ext: ["pptx"],
   });
+  assert.deepEqual(routing.rules[4].match, {
+    mime: ["text/html"],
+    ext: ["html", "htm"],
+  });
 });
 
 test("v1 configs get all engine default rules appended once", () => {
@@ -99,13 +103,14 @@ test("v1 configs get all engine default rules appended once", () => {
     },
   };
   const { routing } = normalizeConfig(v1);
-  assert.equal(routing.rules.length, 4);
+  assert.equal(routing.rules.length, 5);
   assert.deepEqual(routing.rules[1].match.ext, ["docx"]);
   assert.deepEqual(routing.rules[2].match.ext, ["xlsx", "xls"]);
   assert.deepEqual(routing.rules[3].match.ext, ["pptx"]);
+  assert.deepEqual(routing.rules[4].match.ext, ["html", "htm"]);
   // Same for unversioned stored configs.
   const { routing: unversioned } = normalizeConfig({ routing: v1.routing });
-  assert.equal(unversioned.rules.length, 4);
+  assert.equal(unversioned.rules.length, 5);
 });
 
 test("a v2 config gets only the post-v2 migrations", () => {
@@ -116,9 +121,10 @@ test("a v2 config gets only the post-v2 migrations", () => {
     },
   });
   // DOCX was removed at v2 by the user's choice — stays removed; the rest are new.
-  assert.equal(routing.rules.length, 3);
+  assert.equal(routing.rules.length, 4);
   assert.deepEqual(routing.rules[1].match.ext, ["xlsx", "xls"]);
   assert.deepEqual(routing.rules[2].match.ext, ["pptx"]);
+  assert.deepEqual(routing.rules[3].match.ext, ["html", "htm"]);
 });
 
 test("migrations respect existing per-type rules and current-version removals", () => {
@@ -128,7 +134,7 @@ test("migrations respect existing per-type rules and current-version removals", 
     routing: {
       rules: [
         {
-          match: { ext: ["docx", "xlsx", "pptx"] },
+          match: { ext: ["docx", "xlsx", "pptx", "html"] },
           action: "http",
           endpoint: "http://127.0.0.1:8765/convert",
         },
@@ -140,7 +146,7 @@ test("migrations respect existing per-type rules and current-version removals", 
 
   // A current-version config without either rule chose to remove them.
   const removed = normalizeConfig({
-    version: 4,
+    version: 5,
     routing: {
       rules: [{ match: { mime: ["application/pdf"] }, action: "inbrowser" }],
     },
@@ -157,7 +163,7 @@ test("normalizeConfig falls back to default routing when the section is malforme
 
 test("normalizeConfig drops unsalvageable routing rules, keeps valid ones", () => {
   const { routing } = normalizeConfig({
-    version: 4, // current version — keep the engine migrations out of this test
+    version: 5, // current version — keep the engine migrations out of this test
     routing: {
       rules: [
         { match: { mime: ["application/pdf"] }, action: "inbrowser" },

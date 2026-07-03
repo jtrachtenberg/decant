@@ -21,6 +21,7 @@ import { analyzePdf } from "./inbrowser.js";
 import { analyzeDocx } from "./docx.js";
 import { analyzeXlsx } from "./xlsx.js";
 import { analyzePptx } from "./pptx.js";
+import { analyzeHtml } from "./html.js";
 import { resultFromAnalysis } from "./result.js";
 import { DOCX_MIME, XLSX_MIME, XLS_MIME, PPTX_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
@@ -99,6 +100,8 @@ async function inbrowser(file) {
     engine = analyzeXlsx;
   } else if (file.type === PPTX_MIME || /\.pptx$/i.test(file.name)) {
     engine = analyzePptx;
+  } else if (file.type === "text/html" || /\.html?$/i.test(file.name)) {
+    engine = analyzeHtml;
   }
   if (!engine) {
     return { action: "passthrough", file, reason: "no-engine" };
