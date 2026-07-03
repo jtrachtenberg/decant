@@ -272,6 +272,16 @@ a dumb converter and a single site:
   XObjects out of pdf.js is the hard case). Needs junk filtering (logos,
   backgrounds), per-site attachment-count limits, and probably lands as a
   third ambiguous-prompt choice: Convert + attach figures.
+- **Evaluated and shelved: Tesseract.js (in-browser WASM OCR).** Feasible,
+  but each job it could take is done better by something else: scanned PDFs
+  pass through to the destination model, whose vision beats classical OCR on
+  exactly the fragile documents (converting them locally would trade fidelity
+  for tokens — the §6 "quietly make answers worse" risk); and dropped
+  charts/figures need *description* (a vision model, i.e. this milestone's
+  companion), not character extraction — OCR'ing a bar chart yields label
+  soup. Add only if demand appears for an explicit opt-in `inbrowser-ocr`
+  routing action (tokens-over-fidelity users, or vision-less chat backends);
+  costs ~10–15 MB of WASM/language data and seconds per page.
 
 **Milestone 4 — Profiles (per-host overrides)**
 - Per-host overlay on the routing table (§3.8): global policy stays, individual
