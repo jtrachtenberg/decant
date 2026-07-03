@@ -7,11 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import {
-  analyzePptx,
-  extractSlideText,
-  parseChartXml,
-} from "../src/convert/pptx.js";
+import { analyzePptx, extractSlideText } from "../src/convert/pptx.js";
 
 const fixture = async (name) => {
   const buf = await readFile(new URL(`./fixtures/${name}`, import.meta.url));
@@ -102,45 +98,6 @@ test("omission markers carry the picture's name/descr when present", () => {
     "[image omitted: Picture 3]",
     "[image omitted]",
   ]);
-});
-
-test("parseChartXml turns cached series into category × series rows", () => {
-  const chart = `<c:chartSpace xmlns:c="x" xmlns:a="y">
-    <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>My </a:t></a:r><a:r><a:t>Chart</a:t></a:r></a:p></c:rich></c:tx></c:title>
-    <c:plotArea><c:barChart>
-      <c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Rev</c:v></c:pt></c:strCache></c:strRef></c:tx>
-        <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt></c:strCache></c:strRef></c:cat>
-        <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
-      <c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Cost</c:v></c:pt></c:strCache></c:strRef></c:tx>
-        <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>3</c:v></c:pt><c:pt idx="1"><c:v>4</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
-    </c:barChart></c:plotArea></c:chart></c:chartSpace>`;
-  const parsed = parseChartXml(chart);
-  assert.equal(parsed.title, "My Chart");
-  assert.deepEqual(parsed.rows, [
-    ["Category", "Rev", "Cost"],
-    ["Q1", "10", "3"],
-    ["Q2", "20", "4"],
-  ]);
-});
-
-test("parseChartXml handles sparse idx gaps and a series without a name", () => {
-  const chart = `<c:chartSpace>
-    <c:ser>
-      <c:cat><c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="2"><c:v>C</c:v></c:pt></c:strCache></c:cat>
-      <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="2"><c:v>9</c:v></c:pt></c:numCache></c:val>
-    </c:ser></c:chartSpace>`;
-  const parsed = parseChartXml(chart);
-  assert.deepEqual(parsed.rows, [
-    ["Category", "Series 1"],
-    ["A", "1"],
-    ["", ""], // idx 1 gap → empty row, preserved positionally
-    ["C", "9"],
-  ]);
-});
-
-test("parseChartXml returns null when there's no usable cached data", () => {
-  assert.equal(parseChartXml("<c:chartSpace></c:chartSpace>"), null);
-  assert.equal(parseChartXml("<c:chartSpace><c:ser></c:ser></c:chartSpace>"), null);
 });
 
 test("chart.pptx recovers the cached chart data as a table → convert (real zip)", async () => {

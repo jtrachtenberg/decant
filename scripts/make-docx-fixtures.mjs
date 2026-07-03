@@ -9,6 +9,8 @@
 //                 Heading1, and a paragraph with bold + punctuation — covers
 //                 style mapping, anchor stripping, and unescaping
 //   empty.docx  — a body with no text at all (the no-text passthrough path)
+//   chart.docx  — a paragraph plus a chart part (word/charts) whose cached
+//                 data is recovered into a table (Tier 1)
 
 import { writeFile, mkdir } from "node:fs/promises";
 import JSZip from "jszip";
@@ -52,13 +54,32 @@ const TINY_BODY = `
     <w:p><w:r><w:t xml:space="preserve">Mon 11a-12:30p (online): </w:t></w:r><w:hyperlink r:id="rId2"><w:r><w:t>class folder</w:t></w:r></w:hyperlink></w:p>
     <w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Note: </w:t></w:r><w:r><w:t>bring an oud.</w:t></w:r></w:p>`;
 
-async function makeDocx(path, body) {
+// A native chart embedded in a document: mammoth drops it, but its cached
+// data lives in a chart part that the engine recovers.
+const CHART1 = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart>
+    <c:title><c:tx><c:rich><a:p><a:r><a:t>Growth</a:t></a:r></a:p></c:rich></c:tx></c:title>
+    <c:plotArea><c:lineChart>
+      <c:ser>
+        <c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Users</c:v></c:pt></c:strCache></c:strRef></c:tx>
+        <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>Jan</c:v></c:pt><c:pt idx="1"><c:v>Feb</c:v></c:pt></c:strCache></c:strRef></c:cat>
+        <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>100</c:v></c:pt><c:pt idx="1"><c:v>140</c:v></c:pt></c:numCache></c:numRef></c:val>
+      </c:ser>
+    </c:lineChart></c:plotArea>
+  </c:chart>
+</c:chartSpace>`;
+
+const CHART_BODY = `<w:p><w:r><w:t>Quarterly metrics follow.</w:t></w:r></w:p>`;
+
+async function makeDocx(path, body, extra = {}) {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", CT);
   zip.file("_rels/.rels", RELS);
   zip.file("word/_rels/document.xml.rels", DOC_RELS);
   zip.file("word/styles.xml", STYLES);
   zip.file("word/document.xml", document(body));
+  for (const [p, content] of Object.entries(extra)) zip.file(p, content);
   const buf = await zip.generateAsync({ type: "nodebuffer" });
   await writeFile(path, buf);
   console.log(`${path}  (${buf.length} bytes)`);
@@ -67,3 +88,6 @@ async function makeDocx(path, body) {
 await mkdir("test/fixtures", { recursive: true });
 await makeDocx("test/fixtures/tiny.docx", TINY_BODY);
 await makeDocx("test/fixtures/empty.docx", "<w:p/>");
+await makeDocx("test/fixtures/chart.docx", CHART_BODY, {
+  "word/charts/chart1.xml": CHART1,
+});

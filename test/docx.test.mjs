@@ -147,3 +147,29 @@ test("empty.docx passes through with no-text (real mammoth)", async () => {
   assert.equal(res.decision, "passthrough");
   assert.equal(res.reason, "no-text");
 });
+
+test("docxAnalysis appends recovered chart tables as content (don't prompt)", () => {
+  const res = docxAnalysis("Body text.", [
+    { title: "Growth", rows: [["Category", "Users"], ["Jan", "100"]] },
+  ]);
+  assert.equal(res.decision, "convert"); // charts are recovered data, not a loss
+  assert.equal(res.summary.chartsRecovered, 1);
+  assert.match(res.markdown, /Body text\./);
+  assert.match(res.markdown, /\*\*Growth\*\*/);
+  assert.match(res.markdown, /\| Category \| Users \|/);
+});
+
+test("a chart-only docx (no body text) still converts", () => {
+  const res = docxAnalysis("", [{ title: "", rows: [["Category", "X"], ["a", "1"]] }]);
+  assert.equal(res.decision, "convert");
+  assert.match(res.markdown, /\| Category \| X \|/);
+});
+
+test("chart.docx recovers the embedded chart data (real mammoth + zip)", async () => {
+  const res = await analyzeDocx(await fixture("chart.docx"));
+  assert.equal(res.decision, "convert");
+  assert.equal(res.summary.chartsRecovered, 1);
+  assert.match(res.markdown, /Quarterly metrics follow\./);
+  assert.match(res.markdown, /\*\*Growth\*\*/);
+  assert.match(res.markdown, /\| Feb \| 140 \|/);
+});

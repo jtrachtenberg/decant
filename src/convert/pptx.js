@@ -28,17 +28,9 @@
 
 import JSZipNs from "jszip";
 import { rowsToMarkdownTable } from "./xlsx.js";
+import { decodeEntities, parseChartXml } from "./chart.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;
-
-const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-function decodeEntities(s) {
-  return s.replace(/&(amp|lt|gt|quot|apos|#x?[0-9a-f]+);/gi, (m, e) => {
-    if (ENTITIES[e.toLowerCase()]) return ENTITIES[e.toLowerCase()];
-    const code = e[1]?.toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : m;
-  });
-}
 
 // Concatenated text of every <a:t> run inside one XML fragment.
 function runsText(fragment) {
@@ -107,67 +99,7 @@ export function extractSlideText(xml) {
   return { title, bullets, tables, images: omitted.length, omitted, chartRefs };
 }
 
-// --- Native chart data recovery (Tier 1, SPEC §3.9) ------------------------
-
-// Parse a chart part (ppt/charts/chartN.xml) into { title, rows } — a category
-// column plus one column per data series, from the cached data every native
-// Office chart stores inline. Returns null when there's no usable cached data
-// (caller falls back to a [chart omitted] marker). Pure/exported.
-export function parseChartXml(chartXml) {
-  const series = [];
-  let categories = null;
-  for (const ser of chartXml.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)) {
-    const vals = cachePoints(ser[0], "c:val");
-    if (!vals) continue; // scatter (xVal/yVal) and empty series skipped
-    const cats = cachePoints(ser[0], "c:cat");
-    if (cats && !categories) categories = cats; // categories are shared
-    series.push({ name: seriesName(ser[0]), vals });
-  }
-  if (!series.length) return null;
-
-  const npts = Math.max(
-    categories ? categories.length : 0,
-    ...series.map((s) => s.vals.length)
-  );
-  if (!npts) return null;
-
-  const rows = [["Category", ...series.map((s, i) => s.name || `Series ${i + 1}`)]];
-  for (let i = 0; i < npts; i++) {
-    const cat = categories ? categories[i] ?? "" : String(i + 1);
-    rows.push([cat, ...series.map((s) => s.vals[i] ?? "")]);
-  }
-  return { title: chartTitle(chartXml), rows };
-}
-
-// The <c:pt idx="N"><c:v>…</c:v></c:pt> points inside a series' <c:cat>/<c:val>
-// cache, as a dense array indexed by idx (gaps → "").
-function cachePoints(serXml, tag) {
-  const block = new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`).exec(serXml);
-  if (!block) return null;
-  const pts = [
-    ...block[0].matchAll(/<c:pt\b[^>]*\bidx="(\d+)"[^>]*>[\s\S]*?<c:v>([\s\S]*?)<\/c:v>/g),
-  ];
-  if (!pts.length) return null;
-  const arr = Array(Math.max(...pts.map((p) => Number(p[1]))) + 1).fill("");
-  for (const p of pts) arr[Number(p[1])] = decodeEntities(p[2]).trim();
-  return arr;
-}
-
-function seriesName(serXml) {
-  const tx = /<c:tx>[\s\S]*?<\/c:tx>/.exec(serXml);
-  const v = tx && /<c:v>([\s\S]*?)<\/c:v>/.exec(tx[0]);
-  return v ? decodeEntities(v[1]).trim() : "";
-}
-
-function chartTitle(chartXml) {
-  const t = /<c:title>[\s\S]*?<\/c:title>/.exec(chartXml);
-  if (!t) return "";
-  const runs = [...t[0].matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]);
-  const text = runs.length
-    ? runs.join("")
-    : /<c:v>([\s\S]*?)<\/c:v>/.exec(t[0])?.[1] ?? "";
-  return decodeEntities(text).trim();
-}
+// --- Per-slide chart reference resolution (parser lives in chart.js) --------
 
 // Map rId → resolved chart-part path for one slide, from its .rels file.
 async function slideChartTargets(zip, slidePath) {
