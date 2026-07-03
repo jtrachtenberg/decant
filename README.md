@@ -243,6 +243,12 @@ A note on terms: this makes Decant **source-available**, not "open source" in th
 OSI sense (the OSI and FSF definitions don't permit non-commercial restrictions).
 That's a deliberate choice, not an oversight.
 
+**Commercial use** — noncommercial covers individuals, hobby projects, and
+nonprofits/education/government (see the license for the full list). A for-profit
+company using Decant internally (e.g. rolling it out across a team or bundling it
+into a deployment image) is *not* covered and needs a separate commercial license.
+If that's you, reach out at **j.trachtenberg@gmail.com** — happy to sort it out.
+
 Third-party dependencies keep their own permissive licenses (see
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES)). Any GPL-licensed conversion tools
 are used only at arm's length via the separate companion process, never bundled
