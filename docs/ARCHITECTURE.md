@@ -130,7 +130,11 @@ Two strategies, exposed as a user setting:
 
 1. **Extract-and-reference** — pull real figures out as image files, embed them
    in the Markdown (`![](fig1.png)`). Model sees pixels only for figures that
-   matter, not full-page renders. Moderate token cost.
+   matter, not full-page renders. Moderate token cost. *Chat-surface
+   realization (planned, M3):* uploads deliver a FileList, so the figures can
+   ride as sibling attachments next to the `.md`, referenced by name from the
+   text ("figure from slide 3") — no data-URI bloat, and free extraction for
+   the zip formats (PPTX/DOCX) whose images are just package entries.
 2. **Describe-in-text (figure annotation)** — a vision model writes a textual
    caption per figure, inlined as plain text. Zero downstream image tokens.
    Lossy (you trust the converter's VLM), maximally cheap.

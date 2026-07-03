@@ -178,7 +178,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
   pass — manifest icons, production name, commercial-licensing notice, and a
   manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)
   in `docs/` — and a token-savings estimate.
-- **M3 — Companion tier.** Local Python service for OCR / high-fidelity tables.
+- **M3 — Companion tier & the image layer.** Local Python service for OCR /
+  high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
+  charts and images into inline text — the recognition tier the in-browser
+  engines can't provide). Alongside it, **extract-and-reference**: attach the
+  converted Markdown *plus* the document's actual figures as sibling files
+  (free for PPTX/DOCX, whose images are just zip entries), so the model pays
+  image tokens only for figures that matter — likely a third choice on the
+  ambiguous prompt ("Convert + attach figures").
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,

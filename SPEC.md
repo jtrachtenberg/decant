@@ -261,9 +261,17 @@ a dumb converter and a single site:
 - DOCX/PPTX/XLSX support (mammoth.js / SheetJS), figure handling settings,
   multi-site support, token-savings estimate display.
 
-**Milestone 3 — Quality tier (shape B)**
-- `localhost` Python service (MarkItDown or Docling) behind the same interface.
+**Milestone 3 — Quality tier (shape B) & the image layer**
+- `localhost` Python service (MarkItDown or Docling) behind the same interface
+  — including describe-in-text figure descriptions (ARCHITECTURE §5 strategy 2).
 - Setting to choose engine; graceful fallback to A if the service is down.
+- **Extract-and-reference for chat surfaces** (ARCHITECTURE §5 strategy 1):
+  injection already delivers a FileList, so attach the converted `.md` plus
+  the document's actual figures as sibling files. PPTX/DOCX first (images are
+  zip entries, extraction is free via jszip); PDF later (decoding image
+  XObjects out of pdf.js is the hard case). Needs junk filtering (logos,
+  backgrounds), per-site attachment-count limits, and probably lands as a
+  third ambiguous-prompt choice: Convert + attach figures.
 
 **Milestone 4 — Profiles (per-host overrides)**
 - Per-host overlay on the routing table (§3.8): global policy stays, individual
