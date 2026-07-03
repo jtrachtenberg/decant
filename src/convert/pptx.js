@@ -56,7 +56,11 @@ export function extractSlideText(xml) {
     // original filename) and sometimes a descr (alt text).
     const name = /<p:cNvPr[^>]*\bname="([^"]*)"/.exec(pic[0])?.[1];
     const descr = /<p:cNvPr[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1];
-    const label = decodeEntities(descr || name || "");
+    // Missing, empty, and whitespace-only descr/name all fall through to the
+    // generic marker; descr (alt text) wins over name when both are real.
+    const label = decodeEntities(
+      (descr || "").trim() || (name || "").trim() || ""
+    );
     omitted.push(label ? `[image omitted: ${label}]` : "[image omitted]");
   }
   // Charts are counted from actual graphicData uses only — real producers

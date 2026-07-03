@@ -100,6 +100,19 @@ test("omission markers carry the picture's name/descr when present", () => {
   ]);
 });
 
+test("empty and whitespace-only descr/name fall through to generic markers", () => {
+  const s = extractSlideText(
+    `<p:pic><p:nvPicPr><p:cNvPr id="1" name="" descr=""/></p:nvPicPr></p:pic>` +
+      `<p:pic><p:nvPicPr><p:cNvPr id="2" name="  " descr="   "/></p:nvPicPr></p:pic>` +
+      `<p:pic><p:nvPicPr><p:cNvPr id="3" name="Picture 9" descr=" "/></p:nvPicPr></p:pic>`
+  );
+  assert.deepEqual(s.omitted, [
+    "[image omitted]",
+    "[image omitted]",
+    "[image omitted: Picture 9]", // blank descr falls back to the real name
+  ]);
+});
+
 test("empty.pptx passes through with no-text (real zip)", async () => {
   const res = await analyzePptx(await fixture("empty.pptx"));
   assert.equal(res.decision, "passthrough");

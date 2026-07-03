@@ -33,6 +33,11 @@ test("stripDataUriImages replaces inline images with omission markers", () => {
   );
 });
 
+test("whitespace-only alt text falls through to the generic marker", () => {
+  const { markdown } = stripDataUriImages(`x ![  ](${PNG_URI}) y`);
+  assert.equal(markdown, "x [image omitted] y");
+});
+
 test("stripDataUriImages leaves ordinary links and images alone", () => {
   const md = "See ![alt](https://example.com/x.png) and [a link](https://example.com).";
   const { markdown, images } = stripDataUriImages(md);

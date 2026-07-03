@@ -39,7 +39,8 @@ export function stripDataUriImages(markdown) {
   let images = 0;
   const stripped = markdown.replace(/!\[([^\]]*)\]\(data:[^)]*\)/g, (_m, alt) => {
     images++;
-    return alt ? `[image omitted: ${alt}]` : "[image omitted]";
+    const label = (alt || "").trim(); // whitespace-only alt → generic marker
+    return label ? `[image omitted: ${label}]` : "[image omitted]";
   });
   return { markdown: stripped.replace(/\n{3,}/g, "\n\n").trim(), images };
 }
