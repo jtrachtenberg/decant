@@ -14,9 +14,10 @@ import {
   normalizeConfig,
 } from "../src/config/defaults.js";
 
-test("default config enables only claude.ai and gemini", () => {
+test("default config enables claude.ai, chatgpt, and gemini", () => {
   assert.deepEqual(enabledHosts(DEFAULT_CONFIG), [
     "claude.ai",
+    "chatgpt.com",
     "gemini.google.com",
   ]);
 });

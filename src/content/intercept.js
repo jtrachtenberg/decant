@@ -59,19 +59,30 @@ function dataTransferWith(files) {
 // Per-site intercept adapters — the first cut of the M2 adapter tier, moving
 // to per-site config with profiles (M4).
 //
-// Gemini: drops/pastes can't be substituted. Its uploader accepts only
-// trusted drops (QA probes fired synthetic drops at every element with a
-// drop listener, including the xap-uploader-dropzone — all ignored), and its
-// picker <input type=file> is transient: Angular unbinds the change listener
-// when the element is destroyed, so even a cached reference is a dead
-// letterbox (QA: injection dispatched, nothing happened). Intercepting would
-// turn a working native upload into a lost one, so the native event goes
-// through untouched — the original file uploads unconverted — and conversion
-// remains available via the picker path, which works end-to-end.
+// claude.ai and ChatGPT both substitute the converted file through a
+// persistent hidden <input type=file> (assign .files + dispatch change); they
+// differ only in how the drag overlay is dismissed after we block the real
+// drop:
+//   - overlayCleanup "placeholder-drop": re-dispatch a synthetic drop carrying
+//     a 1-byte placeholder. claude.ai resets its overlay inside its own drop
+//     handler and ignores the file (isTrusted false). ChatGPT would ACCEPT
+//     that placeholder as a real upload (the decant-placeholder.txt leak), so
+//     it must NOT use this.
+//   - overlayCleanup "drag-exit" (default): synthetic dragleave + dragend.
+//     Can never attach a stray file, so it's the safe default and the right
+//     choice for ChatGPT (QA-confirmed it clears the overlay).
+//
+// Gemini can't substitute at all: its uploader rejects synthetic drops and its
+// picker <input> is transient (Angular unbinds the change listener on
+// destroy), so intercepting would only lose the upload — interceptDrop/Paste
+// false steps aside and the native upload proceeds (picker path still
+// converts). See the gemini-adapter memory for the full investigation.
 const SITE_ADAPTERS = {
+  "claude.ai": { overlayCleanup: "placeholder-drop" },
+  "chatgpt.com": { overlayCleanup: "drag-exit" },
   "gemini.google.com": { interceptDrop: false, interceptPaste: false },
 };
-const adapter = SITE_ADAPTERS[location.hostname] ?? {};
+const adapter = SITE_ADAPTERS[location.hostname] ?? { overlayCleanup: "drag-exit" };
 
 // Pick the file input to inject into. claude.ai currently mounts one, but if
 // a second ever appears (avatar upload, project-knowledge modal), plain "last
@@ -227,18 +238,45 @@ document.addEventListener(
   true
 );
 
+// Dismiss the site's drag overlay after we've blocked the real drop, using the
+// adapter's strategy (see SITE_ADAPTERS). Fires synchronously so the overlay
+// releases immediately rather than waiting on the async conversion.
+function clearDropOverlay(ev) {
+  if (adapter.overlayCleanup === "placeholder-drop") {
+    // A synthetic drop with a 1-byte placeholder makes the site's drop handler
+    // run and reset its overlay; claude.ai ignores the file (isTrusted false).
+    // An empty dataTransfer makes claude's handler bail before resetting, so
+    // the placeholder must be present.
+    const placeholder = new File(["x"], "decant-placeholder.txt", { type: "text/plain" });
+    const cleanupDrop = new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: dataTransferWith([placeholder]),
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+    });
+    cleanupDrop[SENTINEL] = true;
+    ev.target.dispatchEvent(cleanupDrop);
+  } else {
+    // "drag-exit": dragleave + dragend never attach a file, so they're safe
+    // on sites (ChatGPT) that would accept the placeholder drop as an upload.
+    for (const type of ["dragleave", "dragend"]) {
+      const e = new DragEvent(type, { bubbles: true });
+      e[SENTINEL] = true;
+      ev.target.dispatchEvent(e);
+    }
+  }
+}
+
 // ------------------------------------------------------------------ drop ---
-// Two synthesized events are needed on Claude:
+// Two steps are needed:
 //   (a) populate the hidden <input type="file"> and dispatch change — the
 //       reliable way to add a file; a synthetic DragEvent isn't trusted as a
 //       file source. This carries the converted file and happens after the
 //       async conversion resolves.
-//   (b) immediately dispatch a synthetic drop on the original target so
-//       Claude's drop handler runs and clears its "drag active" overlay. An
-//       empty dataTransfer makes the handler bail before resetting state, so
-//       the cleanup drop carries a 1-byte placeholder (ignored by Claude
-//       because isTrusted === false). This fires synchronously so the overlay
-//       releases instantly rather than waiting on conversion.
+//   (b) immediately clear the site's "drag active" overlay via the adapter's
+//       overlayCleanup strategy (clearDropOverlay), synchronously, so the
+//       overlay releases instantly rather than waiting on conversion.
 document.addEventListener(
   "drop",
   (ev) => {
@@ -268,19 +306,8 @@ document.addEventListener(
     ev.preventDefault();
     ev.stopImmediatePropagation();
 
-    // (b) Clear the dropzone overlay right away.
-    const placeholder = new File(["x"], "decant-placeholder.txt", {
-      type: "text/plain",
-    });
-    const cleanupDrop = new DragEvent("drop", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dataTransferWith([placeholder]),
-      clientX: ev.clientX,
-      clientY: ev.clientY,
-    });
-    cleanupDrop[SENTINEL] = true;
-    ev.target.dispatchEvent(cleanupDrop);
+    // (b) Clear the dropzone overlay right away (per-site strategy).
+    clearDropOverlay(ev);
 
     // (a) Convert, then inject through the hidden input. The input is resolved
     // at injection time (see injectViaInput), after the async conversion.

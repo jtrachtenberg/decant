@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "description": "Convert PDF, Word, Excel, PowerPoint & HTML to Markdown before uploading to LLM chats - cut token cost, all in-browser.",
   "permissions": ["scripting", "storage"],
-  "host_permissions": ["*://claude.ai/*", "*://gemini.google.com/*"],
+  "host_permissions": ["*://claude.ai/*", "*://chatgpt.com/*", "*://gemini.google.com/*"],
   "optional_host_permissions": ["*://*/*"],
   "background": {
     "service_worker": "background.js"
