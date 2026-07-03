@@ -169,7 +169,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
   one table per sheet, empty and very large workbooks pass through untouched.
   (Embedded charts/images in spreadsheets can't be detected by the community
   SheetJS build — the one format without an "ambiguous" prompt.)
-  Still ahead: PPTX, per-site adapters so enabling other hosts actually converts there
+  **PPTX → Markdown**: slide titles become headings, body text becomes
+  leveled bullets, slide tables become Markdown tables — and since decks are
+  the most visual format of all, any deck with pictures or charts gets the
+  Convert / Send-original prompt.
+  Still ahead: per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a
   manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)

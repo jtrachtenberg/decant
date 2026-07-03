@@ -26,6 +26,17 @@ mammoth.js (mammoth)
 
   Used in Decant: bundled into `content/intercept.js` (DOCX → Markdown engine).
 --------------------------------------------------------------------------------
+JSZip (jszip)
+  Version:   3.10.1
+  Copyright: Copyright (c) 2009-2016 Stuart Knightley, David Duponchel,
+             Franz Buchinger, António Afonso
+  License:   MIT — https://opensource.org/licenses/MIT (dual-licensed
+             MIT/GPLv3; Decant uses it under MIT)
+  Homepage:  https://stuk.github.io/jszip/
+
+  Used in Decant: bundled into `content/intercept.js` (opens the PPTX
+  package for the slide-text engine; also a dependency of mammoth.js).
+--------------------------------------------------------------------------------
 SheetJS Community Edition (xlsx)
   Version:   0.20.3 (installed from the official CDN tarball,
              https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz)
