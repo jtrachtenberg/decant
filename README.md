@@ -77,12 +77,13 @@ Two independent layers, both **default-off**:
 
 ### Activation — where Decant runs
 Decant does nothing on any page unless its host is explicitly whitelisted. It
-ships with `claude.ai` and `gemini.google.com` enabled (with other common LLM
-hosts pre-listed but off — on Gemini the file-picker path converts, while
-drag-and-drop/paste intentionally send the original file unconverted: Gemini's
-uploader only accepts trusted drops, so its site adapter passes the native
-event through rather than lose the upload);
-manage the list from the **options page**. Enabling a host asks Chrome for
+ships with `claude.ai`, `chatgpt.com`, and `gemini.google.com` enabled (with
+other common LLM hosts pre-listed but off). claude.ai and ChatGPT get the full
+treatment — picker, drag-and-drop, and paste all substitute the converted
+file. Gemini converts through the file picker only; its uploader rejects
+synthetic drops, so on Gemini drag-and-drop/paste intentionally send the
+original file unconverted rather than lose it.
+Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
 
@@ -189,9 +190,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
   The **packaging pass** has landed too: toolbar/store icons, production name,
   a `Required Notice` + commercial-licensing contact in the license, and a
   pre-publish [smoke checklist](./docs/smoke-checklist.md).
-  Still ahead: per-site adapters so enabling other hosts actually converts there
-  (including per-surface file-input selection config), and a token-savings
-  estimate.
+  Per-site adapters now cover claude.ai and ChatGPT with full drop/paste
+  conversion (Gemini stays picker-only by necessity). Still ahead: a
+  token-savings estimate.
 - **M3 — Companion tier & the image layer.** Local Python service for OCR /
   high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
   charts and images into inline text — the recognition tier the in-browser
