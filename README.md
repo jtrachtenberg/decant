@@ -223,7 +223,7 @@ on it fall back gracefully (in-browser conversion or passthrough).
 
 ## Contributing
 
-Early-stage and moving fast — issues and discussion are welcome. If you're
+Early-stage and moving fast — [issues](https://github.com/jtrachtenberg/decant/issues) and [discussion](https://github.com/jtrachtenberg/decant/discussions) are welcome. If you're
 opening a PR, please read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the
 intended architecture (especially the parsing-vs-recognition boundary and the
 default-deny config model), and [`SPEC.md`](./SPEC.md) for the browser-surface
