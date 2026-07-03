@@ -40,6 +40,7 @@ export function rowsToMarkdownTable(rows) {
   const cell = (v) =>
     String(v ?? "")
       .replace(/\r?\n/g, " ")
+      .replace(/\\/g, "\\\\")
       .replace(/\|/g, "\\|")
       .trim();
   const grid = rows.map((r) => (Array.isArray(r) ? r.map(cell) : []));
