@@ -37,6 +37,15 @@ JSZip (jszip)
   Used in Decant: bundled into `content/intercept.js` (opens the PPTX
   package for the slide-text engine; also a dependency of mammoth.js).
 --------------------------------------------------------------------------------
+Turndown (turndown, turndown-plugin-gfm)
+  Version:   turndown 7.x, turndown-plugin-gfm 1.x
+  Copyright: Copyright (c) 2017+ Dom Christie
+  License:   MIT — https://opensource.org/licenses/MIT
+  Homepage:  https://github.com/mixmark-io/turndown
+
+  Used in Decant: bundled into `content/intercept.js` (HTML → Markdown
+  engine; the GFM plugin supplies table conversion).
+--------------------------------------------------------------------------------
 SheetJS Community Edition (xlsx)
   Version:   0.20.3 (installed from the official CDN tarball,
              https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz)

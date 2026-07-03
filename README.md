@@ -173,6 +173,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
   leveled bullets, slide tables become Markdown tables — and since decks are
   the most visual format of all, any deck with pictures or charts gets the
   Convert / Send-original prompt.
+  **HTML → Markdown** via Turndown (+ GFM tables): scripts, styles, and tag
+  soup — most of a raw HTML file's token cost — are stripped away; remote
+  images survive as ordinary Markdown image links, embedded data-URI images
+  get omission markers and the prompt. Wherever conversion drops a visual
+  (PDF pages, DOCX, PPTX, HTML), the output now says so in place:
+  `[image omitted: label]`.
   Still ahead: per-site adapters so enabling other hosts actually converts there
   (including per-surface file-input selection config), the Web Store packaging
   pass — manifest icons, production name, commercial-licensing notice, and a

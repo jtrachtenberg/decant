@@ -13,7 +13,8 @@
 //   2 — DOCX ships: stored v1 configs get the default DOCX rule appended
 //   3 — XLSX/XLS ships: same append-once migration
 //   4 — PPTX ships: same
-export const CONFIG_VERSION = 4;
+//   5 — HTML ships: same
+export const CONFIG_VERSION = 5;
 
 // Routing vocabulary (SPEC §3.2): what can happen to a matched file, and what
 // a rule may fall back to when its engine fails or isn't available.
@@ -53,6 +54,13 @@ const PPTX_RULE = {
   onError: "passthrough",
   output: { ext: "md", mime: "text/markdown" },
 };
+const HTML_RULE = {
+  match: { mime: ["text/html"], ext: ["html", "htm"] },
+  action: "inbrowser",
+  enabled: true,
+  onError: "passthrough",
+  output: { ext: "md", mime: "text/markdown" },
+};
 
 // Engine-arrival migrations: stored configs keep their own rule list, so a
 // pre-<version> config gets the new default rule appended once — unless it
@@ -62,6 +70,7 @@ const RULE_MIGRATIONS = [
   { version: 2, rule: DOCX_RULE, matches: (r) => r.match.mime.includes(DOCX_MIME) || r.match.ext.includes("docx") },
   { version: 3, rule: XLSX_RULE, matches: (r) => r.match.mime.includes(XLSX_MIME) || r.match.ext.includes("xlsx") },
   { version: 4, rule: PPTX_RULE, matches: (r) => r.match.mime.includes(PPTX_MIME) || r.match.ext.includes("pptx") },
+  { version: 5, rule: HTML_RULE, matches: (r) => r.match.mime.includes("text/html") || r.match.ext.includes("html") },
 ];
 
 export const DEFAULT_CONFIG = {
@@ -99,6 +108,7 @@ export const DEFAULT_CONFIG = {
       structuredClone(DOCX_RULE),
       structuredClone(XLSX_RULE),
       structuredClone(PPTX_RULE),
+      structuredClone(HTML_RULE),
     ],
   },
   // Passthrough hotkey binding (physical `code` + modifiers).
