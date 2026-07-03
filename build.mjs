@@ -28,6 +28,12 @@ await cp(
 // the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
 await cp("LICENSE", `${outdir}/LICENSE`);
 await cp("THIRD-PARTY-NOTICES", `${outdir}/THIRD-PARTY-NOTICES`);
+// Toolbar / store icons referenced by manifest.json's "icons" block. These
+// must be copied explicitly — the manifest points at them by bare filename,
+// so a missing copy is a silent Chrome load warning + broken icon.
+for (const icon of ["decant_icon16.png", "decant_icon48.png", "decant_icon.png"]) {
+  await cp(icon, `${outdir}/${icon}`);
+}
 // Options page markup (its script is bundled below).
 await mkdir(`${outdir}/options`, { recursive: true });
 await cp("src/options/options.html", `${outdir}/options/options.html`);

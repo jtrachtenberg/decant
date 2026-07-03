@@ -181,11 +181,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
   get omission markers and the prompt. Wherever conversion drops a visual
   (PDF pages, DOCX, PPTX, HTML), the output now says so in place:
   `[image omitted: label]`.
+  The **packaging pass** has landed too: toolbar/store icons, production name,
+  a `Required Notice` + commercial-licensing contact in the license, and a
+  pre-publish [smoke checklist](./docs/smoke-checklist.md).
   Still ahead: per-site adapters so enabling other hosts actually converts there
-  (including per-surface file-input selection config), the Web Store packaging
-  pass — manifest icons, production name, commercial-licensing notice, and a
-  manual smoke checklist (picker/drop/paste × convert/ambiguous/passthrough/hotkey)
-  in `docs/` — and a token-savings estimate.
+  (including per-surface file-input selection config), and a token-savings
+  estimate.
 - **M3 — Companion tier & the image layer.** Local Python service for OCR /
   high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
   charts and images into inline text — the recognition tier the in-browser
@@ -216,6 +217,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
 - [`docs/adr/`](./docs/adr/) — the decision log (architecture decision records).
 - [`docs/QA-fidelity-check.md`](./docs/QA-fidelity-check.md) — how to check a
   conversion for information loss and file a triageable bug report.
+- [`docs/smoke-checklist.md`](./docs/smoke-checklist.md) — the manual pre-publish
+  pass: the real extension in a real browser, format by format and site by site.
 - [`docs/privacy.md`](./docs/privacy.md) — privacy policy: what Decant accesses,
   how files are processed, and what never leaves your device.
 
@@ -242,6 +245,12 @@ is recorded in
 A note on terms: this makes Decant **source-available**, not "open source" in the
 OSI sense (the OSI and FSF definitions don't permit non-commercial restrictions).
 That's a deliberate choice, not an oversight.
+
+**Commercial use** — noncommercial covers individuals, hobby projects, and
+nonprofits/education/government (see the license for the full list). A for-profit
+company using Decant internally (e.g. rolling it out across a team or bundling it
+into a deployment image) is *not* covered and needs a separate commercial license.
+If that's you, reach out at **j.trachtenberg@gmail.com** — happy to sort it out.
 
 Third-party dependencies keep their own permissive licenses (see
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES)). Any GPL-licensed conversion tools

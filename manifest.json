@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Decant (dev)",
+  "name": "Decant",
   "version": "0.0.1",
-  "description": "Convert files to Markdown before they upload to LLM chat UIs. Default-deny activation; converts PDFs in-browser.",
+  "description": "Convert PDF, Word, Excel, PowerPoint & HTML to Markdown before uploading to LLM chats - cut token cost, all in-browser.",
   "permissions": ["scripting", "storage"],
   "host_permissions": ["*://claude.ai/*", "*://gemini.google.com/*"],
   "optional_host_permissions": ["*://*/*"],
