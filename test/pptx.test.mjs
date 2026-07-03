@@ -76,12 +76,28 @@ test("tiny.pptx converts: slide headings, bullets, table (real zip)", async () =
   assert.match(res.markdown, /\| Eng \| 14 \|/);
 });
 
-test("image.pptx → ambiguous with the visuals count (real zip)", async () => {
+test("image.pptx → ambiguous with a visible omission marker (real zip)", async () => {
   const res = await analyzePptx(await fixture("image.pptx"));
   assert.equal(res.decision, "ambiguous");
   assert.equal(res.reason, "text-with-images");
   assert.equal(res.summary.images, 1);
   assert.match(res.markdown, /## Slide 1: Architecture/);
+  assert.match(res.markdown, /^\[image omitted: system diagram\]$/m);
+});
+
+test("omission markers carry the picture's name/descr when present", () => {
+  const s = extractSlideText(
+    `<p:pic><p:nvPicPr><p:cNvPr id="4" name="Picture 2" descr="Q3 funnel"/></p:nvPicPr></p:pic>` +
+      `<p:pic><p:nvPicPr><p:cNvPr id="5" name="Picture 3"/></p:nvPicPr></p:pic>` +
+      `<p:pic></p:pic>` +
+      `<p:graphicFrame><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></p:graphicFrame>`
+  );
+  assert.deepEqual(s.omitted, [
+    "[image omitted: Q3 funnel]",
+    "[image omitted: Picture 3]",
+    "[image omitted]",
+    "[chart omitted]",
+  ]);
 });
 
 test("empty.pptx passes through with no-text (real zip)", async () => {

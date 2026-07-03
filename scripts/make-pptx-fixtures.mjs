@@ -64,7 +64,7 @@ const SLIDE2 = slide(
 const IMAGE_SLIDE = slide(
   titleShape("Architecture") +
     bodyShape(`<a:p><a:r><a:t>See diagram</a:t></a:r></a:p>`) +
-    `<p:pic><p:nvPicPr/><p:blipFill><a:blip r:embed="rId9"/></p:blipFill></p:pic>`
+    `<p:pic><p:nvPicPr><p:cNvPr id="4" name="Picture 2" descr="system diagram"/></p:nvPicPr><p:blipFill><a:blip r:embed="rId9"/></p:blipFill></p:pic>`
 );
 
 const EMPTY_SLIDE = slide(bodyShape(`<a:p/>`));

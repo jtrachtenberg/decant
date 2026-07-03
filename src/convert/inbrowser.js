@@ -22,6 +22,7 @@ import {
   classifyDocument,
   shouldScanImages,
   extrapolateImages,
+  appendOmittedImagesNote,
   IMAGE_OP_NAMES,
 } from "./classify.js";
 
@@ -48,11 +49,11 @@ export async function analyzePdf(file) {
       gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
-      perPage.push({
-        chars: countChars(linesToText(lines)),
-        images: shouldScanImages(n, pageCount) ? await countImages(page) : null,
-      });
-      pageMarkdown.push(linesToMarkdown(lines));
+      const images = shouldScanImages(n, pageCount) ? await countImages(page) : null;
+      perPage.push({ chars: countChars(linesToText(lines)), images });
+      // Scanned pages with images get a visible omission marker in the output
+      // (null = unscanned on a sampled large doc — assert only what was seen).
+      pageMarkdown.push(appendOmittedImagesNote(linesToMarkdown(lines), images ?? 0));
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the

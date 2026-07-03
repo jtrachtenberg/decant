@@ -46,15 +46,27 @@ function runsText(fragment) {
 }
 
 // Pure single-slide extractor — exported for direct unit testing.
-// Returns { title, bullets: [{ level, text }], tables: [rows], images }.
+// Returns { title, bullets: [{ level, text }], tables: [rows], images,
+// omitted: ["[image omitted: Picture 2]", "[chart omitted]", …] } — ready
+// markers that make the dropped visuals visible in the converted output.
 export function extractSlideText(xml) {
-  let images = (xml.match(/<p:pic[\s>]/g) || []).length;
+  const omitted = [];
+  for (const pic of xml.matchAll(/<p:pic[\s>][\s\S]*?<\/p:pic>/g)) {
+    // The drawing's cNvPr carries a human name ("Picture 2", often the
+    // original filename) and sometimes a descr (alt text).
+    const name = /<p:cNvPr[^>]*\bname="([^"]*)"/.exec(pic[0])?.[1];
+    const descr = /<p:cNvPr[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1];
+    const label = decodeEntities(descr || name || "");
+    omitted.push(label ? `[image omitted: ${label}]` : "[image omitted]");
+  }
   // Charts are counted from actual graphicData uses only — real producers
   // declare xmlns:c="…drawingml/2006/chart" on EVERY slide whether or not a
   // chart exists (caught by QA on a real Google Slides export), so a bare
   // string match false-positives the ambiguous prompt on chart-free decks.
-  images += (xml.match(/<a:graphicData[^>]*uri="[^"]*drawingml\/2006\/chart"/g) || [])
-    .length;
+  for (let i = 0; i < (xml.match(/<a:graphicData[^>]*uri="[^"]*drawingml\/2006\/chart"/g) || []).length; i++) {
+    omitted.push("[chart omitted]");
+  }
+  const images = omitted.length;
 
   // Tables first, and blank them out so their runs don't re-appear as bullets.
   const tables = [];
@@ -82,7 +94,7 @@ export function extractSlideText(xml) {
       }
     }
   }
-  return { title, bullets, tables, images };
+  return { title, bullets, tables, images, omitted };
 }
 
 export async function analyzePptx(file) {
@@ -102,9 +114,15 @@ export async function analyzePptx(file) {
     for (const b of slide.bullets) parts.push(`${"  ".repeat(b.level)}- ${b.text}`);
     const bulletBlock = parts.join("\n");
     const tableBlocks = slide.tables.map(rowsToMarkdownTable).filter(Boolean);
-    const body = [bulletBlock, ...tableBlocks].filter(Boolean).join("\n\n");
+    // Visible markers for the slide's dropped visuals — evidence in the
+    // artifact itself, for the reader and the model alike. Markers don't
+    // count toward `chars`, so an image-only deck still passes through.
+    const omittedBlock = slide.omitted.join("\n");
+    const body = [bulletBlock, ...tableBlocks, omittedBlock]
+      .filter(Boolean)
+      .join("\n\n");
 
-    chars += slide.title.length + body.length;
+    chars += slide.title.length + bulletBlock.length + tableBlocks.join("").length;
     if (slide.title || body) {
       const heading = slide.title ? `## Slide ${i + 1}: ${slide.title}` : `## Slide ${i + 1}`;
       sections.push(body ? `${heading}\n\n${body}` : heading);
