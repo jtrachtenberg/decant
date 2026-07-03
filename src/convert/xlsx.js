@@ -8,7 +8,13 @@
 //   - Very large sheets → passthrough with reason "too-large": a Markdown
 //     table of a 100k-cell workbook costs more tokens than it saves, which
 //     is exactly backwards. The cap is generous for human-scale sheets.
-//   - Embedded charts/images: the community SheetJS build doesn't parse
+//   - Native charts: recovered from their cached data (xl/charts/chartN.xml)
+//     into tables and appended after the sheets (Tier 1, SPEC §3.9). Note
+//     that an XLSX chart usually plots cells already present in a sheet, so
+//     this is the most redundancy-prone of the chart-recovery engines — the
+//     win is real only when the chart summarizes or references data the
+//     converted sheets don't already carry.
+//   - Embedded raster images: the community SheetJS build doesn't parse
 //     drawings, so they can't be detected — a known fidelity limitation
 //     (unlike PDFs/DOCX there's no "ambiguous" prompt). Noted in README.
 //
@@ -16,8 +22,11 @@
 // shape as analyzePdf/analyzeDocx, so resultFromAnalysis() wraps all three.
 
 import * as XLSXNs from "xlsx";
+import JSZipNs from "jszip";
+import { chartTablesFromZip } from "./chart.js";
 
 const XLSX = XLSXNs.default ?? XLSXNs;
+const JSZip = JSZipNs.default ?? JSZipNs;
 
 // Above this many populated cells the workbook passes through unconverted.
 export const MAX_CELLS = 50_000;
@@ -50,7 +59,8 @@ export function rowsToMarkdownTable(rows) {
 }
 
 export async function analyzeXlsx(file) {
-  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
 
   const sections = [];
   let cellCount = 0;
@@ -70,20 +80,36 @@ export async function analyzeXlsx(file) {
     if (table) sections.push({ name, table });
   }
 
-  const summary = { sheets: wb.SheetNames.length, tables: sections.length, cellCount };
-  if (!sections.length) {
+  // Recover native charts (Tier 1). Skipped when the workbook is already
+  // over the cell cap — a too-large sheet passes through whole.
+  const charts =
+    cellCount > MAX_CELLS
+      ? []
+      : await chartTablesFromZip(await JSZip.loadAsync(buf), "xl/charts");
+  const chartBlocks = charts.map(
+    (c) => `## Chart: ${c.title || "(untitled)"}\n\n${rowsToMarkdownTable(c.rows)}`
+  );
+
+  const summary = {
+    sheets: wb.SheetNames.length,
+    tables: sections.length,
+    chartsRecovered: chartBlocks.length,
+    cellCount,
+  };
+  if (!sections.length && !chartBlocks.length) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
   }
   if (cellCount > MAX_CELLS) {
     return { decision: "passthrough", reason: "too-large", summary, markdown: null };
   }
 
-  // A single-sheet workbook doesn't need the sheet heading; multi-sheet
-  // workbooks get one section per sheet.
-  const markdown =
-    sections.length === 1
-      ? sections[0].table + "\n"
-      : sections.map((s) => `## Sheet: ${s.name}\n\n${s.table}`).join("\n\n") + "\n";
+  // A lone sheet with no charts needs no heading; anything else gets one
+  // section heading per sheet, then the recovered charts.
+  const single = sections.length === 1 && !chartBlocks.length;
+  const sheetBlocks = sections.map((s) =>
+    single ? s.table : `## Sheet: ${s.name}\n\n${s.table}`
+  );
+  const markdown = [...sheetBlocks, ...chartBlocks].join("\n\n") + "\n";
 
   return { decision: "convert", reason: "table", summary, markdown };
 }

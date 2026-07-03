@@ -10,6 +10,11 @@
 // that *had* images comes back "ambiguous" so the user chooses between
 // Markdown-without-images and the untouched original.
 //
+// Charts: mammoth ignores chart parts entirely, but a chart is data, not an
+// image — its cached series live in word/charts/chartN.xml. We recover them
+// into Markdown tables (Tier 1, SPEC §3.9) and append them after the body;
+// recovered charts are content, so they don't trigger the images prompt.
+//
 // analyzeDocx() returns the same { decision, reason, summary, markdown }
 // shape as analyzePdf(), so resultFromAnalysis() wraps both engines.
 //
@@ -19,8 +24,12 @@
 // defaults deliberately match .docx alone.
 
 import * as mammothNs from "mammoth/mammoth.browser.js";
+import JSZipNs from "jszip";
+import { rowsToMarkdownTable } from "./xlsx.js";
+import { chartTablesFromZip } from "./chart.js";
 
 const mammoth = mammothNs.default ?? mammothNs;
+const JSZip = JSZipNs.default ?? JSZipNs;
 
 // Word's (and Google Docs') "Title"/"Subtitle" styles aren't in mammoth's
 // default style map, so a document's title would fall through as a plain
@@ -67,24 +76,37 @@ function unescapePunctuation(markdown) {
   });
 }
 
-// Decision over mammoth's raw Markdown — pure, exported for tests.
-export function docxAnalysis(rawMarkdown) {
+// Decision over mammoth's raw Markdown plus any recovered native charts
+// (Tier 1) — pure, exported for tests. `charts` is [{ title, rows }] from the
+// document's chart parts; each becomes a labeled table appended after the body.
+export function docxAnalysis(rawMarkdown, charts = []) {
   const { markdown: stripped, images } = stripDataUriImages(
     stripBookmarkAnchors(rawMarkdown)
   );
-  const markdown = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
-  // Omission markers aren't content: an image-only document must still pass
-  // through as no-text rather than convert to a page of markers.
-  const realText = markdown.replace(/\[image omitted[^\]]*\]/g, "").trim();
-  const summary = { images, chars: realText.length };
-  if (!realText) {
+  const body = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
+  const chartBlocks = charts
+    .map((c) => (c.title ? `**${c.title}**\n\n` : "") + rowsToMarkdownTable(c.rows))
+    .filter(Boolean);
+
+  // Omission markers aren't content, but recovered chart tables are: a
+  // document that is only images passes through, one that is only a chart
+  // converts.
+  const realText = body.replace(/\[image omitted[^\]]*\]/g, "").trim();
+  const summary = {
+    images,
+    chartsRecovered: chartBlocks.length,
+    chars: realText.length + chartBlocks.join("").length,
+  };
+  if (!realText && !chartBlocks.length) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
   }
+  const markdown = [body, ...chartBlocks].filter(Boolean).join("\n\n") + "\n";
   return {
+    // Recovered charts don't prompt; only stripped raster images do.
     decision: images > 0 ? "ambiguous" : "convert",
     reason: images > 0 ? "text-with-images" : "text",
     summary,
-    markdown: markdown + "\n",
+    markdown,
   };
 }
 
@@ -129,9 +151,13 @@ function fixDelim(line, delim) {
 }
 
 export async function analyzeDocx(file) {
+  const buf = await file.arrayBuffer();
   const { value } = await mammoth.convertToMarkdown(
-    { arrayBuffer: await file.arrayBuffer() },
+    { arrayBuffer: buf },
     { styleMap: STYLE_MAP }
   );
-  return docxAnalysis(value);
+  // mammoth ignores chart parts entirely, so their cached data would be lost;
+  // recover it ourselves from the zip (Tier 1, SPEC §3.9).
+  const charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "word/charts");
+  return docxAnalysis(value, charts);
 }

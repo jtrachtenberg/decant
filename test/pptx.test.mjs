@@ -36,16 +36,17 @@ test("extractSlideText joins split runs and decodes entities", () => {
   assert.deepEqual(s.bullets, [{ level: 0, text: "R&D → growth" }]);
 });
 
-test("extractSlideText counts pictures and charts as visuals", () => {
+test("pictures count as visuals; charts are captured as references", () => {
   const s = extractSlideText(
     sp(`<a:p><a:r><a:t>x</a:t></a:r></a:p>`) +
       `<p:pic><p:blipFill/></p:pic>` +
-      `<p:graphicFrame><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></p:graphicFrame>`
+      `<p:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rId7"/></a:graphicData></a:graphic></p:graphicFrame>`
   );
-  assert.equal(s.images, 2);
+  assert.equal(s.images, 1); // the picture only
+  assert.deepEqual(s.chartRefs, ["rId7"]); // the chart, resolved later
 });
 
-test("a chart namespace declaration alone is not a visual (real-producer XML)", () => {
+test("a chart namespace declaration alone is neither a visual nor a ref", () => {
   // Producers declare xmlns:c on every slide whether or not a chart exists.
   const s = extractSlideText(
     `<p:sld xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
@@ -53,6 +54,7 @@ test("a chart namespace declaration alone is not a visual (real-producer XML)", 
       `</p:sld>`
   );
   assert.equal(s.images, 0);
+  assert.deepEqual(s.chartRefs, []);
 });
 
 test("extractSlideText pulls tables out without duplicating their text", () => {
@@ -89,15 +91,25 @@ test("omission markers carry the picture's name/descr when present", () => {
   const s = extractSlideText(
     `<p:pic><p:nvPicPr><p:cNvPr id="4" name="Picture 2" descr="Q3 funnel"/></p:nvPicPr></p:pic>` +
       `<p:pic><p:nvPicPr><p:cNvPr id="5" name="Picture 3"/></p:nvPicPr></p:pic>` +
-      `<p:pic></p:pic>` +
-      `<p:graphicFrame><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></p:graphicFrame>`
+      `<p:pic></p:pic>`
   );
   assert.deepEqual(s.omitted, [
     "[image omitted: Q3 funnel]",
     "[image omitted: Picture 3]",
     "[image omitted]",
-    "[chart omitted]",
   ]);
+});
+
+test("chart.pptx recovers the cached chart data as a table → convert (real zip)", async () => {
+  const res = await analyzePptx(await fixture("chart.pptx"));
+  assert.equal(res.decision, "convert"); // nothing lost → no prompt
+  assert.equal(res.summary.images, 0);
+  assert.equal(res.summary.chartsRecovered, 1);
+  assert.match(res.markdown, /## Slide 1: Sales/);
+  assert.match(res.markdown, /\*\*Revenue by Quarter\*\*/);
+  assert.match(res.markdown, /\| Category \| Revenue \| Cost \|/);
+  assert.match(res.markdown, /\| Q3 \| 23 \| 9 \|/);
+  assert.doesNotMatch(res.markdown, /chart omitted/);
 });
 
 test("empty and whitespace-only descr/name fall through to generic markers", () => {

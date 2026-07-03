@@ -83,3 +83,13 @@ test("cell-count cap routes huge workbooks to passthrough", async () => {
   assert.equal(res.decision, "passthrough");
   assert.equal(res.reason, "too-large");
 });
+
+test("chart.xlsx recovers the chart data after the sheet (real SheetJS + zip)", async () => {
+  const res = await analyzeXlsx(await fixture("chart.xlsx"));
+  assert.equal(res.decision, "convert");
+  assert.equal(res.summary.chartsRecovered, 1);
+  assert.match(res.markdown, /## Sheet: Data/);
+  assert.match(res.markdown, /## Chart: Sales/);
+  assert.match(res.markdown, /\| Category \| Sales \|/);
+  assert.match(res.markdown, /\| Feb \| 12 \|/);
+});
