@@ -250,6 +250,15 @@ into the extension.
 
 ---
 
+## Early testers wanted
+
+If you'd like to help test Decant with your own documents, visit our GitHub Discussions:
+
+👉 https://github.com/jtrachtenberg/decant/discussions
+
+Please remove any personally identifiable or confidential information before sharing files or screenshots.
+
+---
 ## Support
 
 Decant is free. If it saves you money on tokens and you'd like to give something
