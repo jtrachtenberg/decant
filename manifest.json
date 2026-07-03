@@ -13,6 +13,11 @@
     "page": "options/options.html",
     "open_in_tab": true
   },
+  "icons": {
+  "16": "decant_icon16.png",
+  "48": "decant_icon48.png",
+  "128": "decant_icon.png"
+  },
   "web_accessible_resources": [
     {
       "resources": ["pdf.worker.mjs"],
