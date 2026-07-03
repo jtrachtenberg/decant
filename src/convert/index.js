@@ -19,8 +19,9 @@
 
 import { analyzePdf } from "./inbrowser.js";
 import { analyzeDocx } from "./docx.js";
+import { analyzeXlsx } from "./xlsx.js";
 import { resultFromAnalysis } from "./result.js";
-import { DOCX_MIME } from "../config/defaults.js";
+import { DOCX_MIME, XLSX_MIME, XLS_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import {
@@ -81,14 +82,20 @@ async function convertViaBackground(file, rule) {
 }
 
 // Shape A: the in-browser engines, picked by type — PDF (pdf.js + the
-// classifier) and DOCX (mammoth). Anything else routed here passes through
-// untouched (SheetJS/PPTX arrive later in M2).
+// classifier), DOCX (mammoth), and XLSX/XLS (SheetJS). Anything else routed
+// here passes through untouched (PPTX arrives later in M2).
 async function inbrowser(file) {
   let engine = null;
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
     engine = analyzePdf;
   } else if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
     engine = analyzeDocx;
+  } else if (
+    file.type === XLSX_MIME ||
+    file.type === XLS_MIME ||
+    /\.xlsx?$/i.test(file.name)
+  ) {
+    engine = analyzeXlsx;
   }
   if (!engine) {
     return { action: "passthrough", file, reason: "no-engine" };

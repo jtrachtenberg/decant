@@ -18,3 +18,21 @@ PDF.js (pdfjs-dist)
   Used in Decant: bundled into `content/intercept.js` and shipped verbatim as
   `pdf.worker.mjs` (the latter retains its original license header).
 --------------------------------------------------------------------------------
+mammoth.js (mammoth)
+  Version:   1.12.0
+  Copyright: Copyright (c) 2013, Michael Williamson
+  License:   BSD 2-Clause — https://opensource.org/licenses/BSD-2-Clause
+  Homepage:  https://github.com/mwilliamson/mammoth.js
+
+  Used in Decant: bundled into `content/intercept.js` (DOCX → Markdown engine).
+--------------------------------------------------------------------------------
+SheetJS Community Edition (xlsx)
+  Version:   0.20.3 (installed from the official CDN tarball,
+             https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz)
+  Copyright: Copyright (C) 2012-present SheetJS LLC
+  License:   Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+  Homepage:  https://sheetjs.com
+
+  Used in Decant: bundled into `content/intercept.js` (XLSX/XLS → Markdown
+  tables engine).
+--------------------------------------------------------------------------------

@@ -11,7 +11,8 @@
 // Version history:
 //   1 — activation + hotkey (+ routing added late in v1's life)
 //   2 — DOCX ships: stored v1 configs get the default DOCX rule appended
-export const CONFIG_VERSION = 2;
+//   3 — XLSX/XLS ships: same append-once migration
+export const CONFIG_VERSION = 3;
 
 // Routing vocabulary (SPEC §3.2): what can happen to a matched file, and what
 // a rule may fall back to when its engine fails or isn't available.
@@ -20,9 +21,13 @@ export const RULE_FALLBACKS = ["inbrowser", "passthrough"];
 
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export const XLS_MIME = "application/vnd.ms-excel";
 
 // Legacy binary .doc is deliberately absent: mammoth reads OOXML only, so a
-// .doc routed inbrowser would just pass through as "no-engine".
+// .doc routed inbrowser would just pass through as "no-engine". (SheetJS
+// does read legacy .xls, so that one IS routed.)
 const DOCX_RULE = {
   match: { mime: [DOCX_MIME], ext: ["docx"] },
   action: "inbrowser",
@@ -30,6 +35,22 @@ const DOCX_RULE = {
   onError: "passthrough",
   output: { ext: "md", mime: "text/markdown" },
 };
+const XLSX_RULE = {
+  match: { mime: [XLSX_MIME, XLS_MIME], ext: ["xlsx", "xls"] },
+  action: "inbrowser",
+  enabled: true,
+  onError: "passthrough",
+  output: { ext: "md", mime: "text/markdown" },
+};
+
+// Engine-arrival migrations: stored configs keep their own rule list, so a
+// pre-<version> config gets the new default rule appended once — unless it
+// already routes that type its own way. A config at/after <version> that
+// lacks the rule chose to remove it.
+const RULE_MIGRATIONS = [
+  { version: 2, rule: DOCX_RULE, matches: (r) => r.match.mime.includes(DOCX_MIME) || r.match.ext.includes("docx") },
+  { version: 3, rule: XLSX_RULE, matches: (r) => r.match.mime.includes(XLSX_MIME) || r.match.ext.includes("xlsx") },
+];
 
 export const DEFAULT_CONFIG = {
   version: CONFIG_VERSION,
@@ -64,6 +85,7 @@ export const DEFAULT_CONFIG = {
         output: { ext: "md", mime: "text/markdown" },
       },
       structuredClone(DOCX_RULE),
+      structuredClone(XLSX_RULE),
     ],
   },
   // Passthrough hotkey binding (physical `code` + modifiers).
@@ -119,18 +141,14 @@ function normalizeRouting(stored, storedVersion) {
     ? stored.rules.map(normalizeRule).filter(Boolean)
     : structuredClone(DEFAULT_CONFIG.routing.rules);
 
-  // v1 → v2: v1 predates the DOCX engine, and stored configs keep their own
-  // rule list, so they'd never pick up the new default. Append it once for
-  // pre-v2 configs; a v2+ config without a DOCX rule chose to remove it.
-  if (!(storedVersion >= 2) && !rules.some(matchesDocx)) {
-    rules.push(structuredClone(DOCX_RULE));
+  // Engine-arrival migrations (see RULE_MIGRATIONS).
+  for (const m of RULE_MIGRATIONS) {
+    if (!(storedVersion >= m.version) && !rules.some(m.matches)) {
+      rules.push(structuredClone(m.rule));
+    }
   }
 
   return { default: "passthrough", rules };
-}
-
-function matchesDocx(rule) {
-  return rule.match.mime.includes(DOCX_MIME) || rule.match.ext.includes("docx");
 }
 
 // One routing rule, or null when it can't be salvaged: unknown action,
