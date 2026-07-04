@@ -47,6 +47,7 @@
   }
   .rule-what { font-family: ui-monospace, monospace; font-size: 12.5px; }
   .rule-action { color: var(--muted); }
+  .field-label { color: var(--muted); font-size: 12.5px; align-self: center; white-space: nowrap; }
   .warn { color: #a05a00; cursor: help; }
   textarea {
     width: 100%; min-height: 180px; padding: 10px; border: 1px solid var(--line);
@@ -98,9 +99,9 @@
     <h2>What happens to each file type</h2>
     <p class="hint">
       Files are matched top-down by extension or MIME type; the first enabled
-      rule wins and anything unmatched is sent untouched. Companion and
-      endpoint rules take effect when those engines arrive (M3) — until then
-      matching files use the rule's fallback.
+      rule wins and anything unmatched is sent untouched. A companion / endpoint
+      rule POSTs the file to a local service; an in-browser rule can also
+      escalate to one — but only when the browser finds no text (a scan).
     </p>
     <ul id="rules"></ul>
     <div class="add">
@@ -114,9 +115,21 @@
       </select>
       <button id="add-rule">Add</button>
     </div>
+    <div class="add" id="onempty-row" hidden>
+      <span class="field-label">If the browser finds no text (a scan):</span>
+      <select id="new-onempty">
+        <option value="">pass through</option>
+        <option value="companion">escalate to local companion</option>
+        <option value="http">escalate to endpoint</option>
+      </select>
+    </div>
     <div class="add" id="endpoint-row" hidden>
       <input id="new-endpoint" type="text"
-             placeholder="endpoint, e.g. http://127.0.0.1:8765/convert" spellcheck="false" />
+             placeholder="endpoint, e.g. http://127.0.0.1:8765/convert-raw" spellcheck="false" />
+    </div>
+    <div class="add" id="responsefield-row" hidden>
+      <input id="new-responsefield" type="text"
+             placeholder="responseField — JSON key holding the text, e.g. text (blank = raw body, as /convert-raw returns)" spellcheck="false" />
     </div>
   </section>
 

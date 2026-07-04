@@ -175,6 +175,9 @@ function renderRules() {
     action.textContent =
       "→ " +
       (ACTION_LABELS[rule.action] || rule.action) +
+      (rule.onEmpty
+        ? ` ⤳ ${ACTION_LABELS[rule.onEmpty] || rule.onEmpty} on empty`
+        : "") +
       (rule.endpoint ? ` · ${rule.endpoint}` : "");
     label.append(cb, what, action);
     if (rule.endpoint && isRemoteEndpoint(rule.endpoint)) {
@@ -211,10 +214,27 @@ async function removeRule(index) {
   status("Rule removed.");
 }
 
+// Show the endpoint / responseField / onEmpty inputs only when the chosen
+// action (or its onEmpty escalation) actually needs them.
+function syncRuleForm() {
+  const action = document.getElementById("new-action").value;
+  const onEmpty = document.getElementById("new-onempty").value;
+  const isInbrowser = action === "inbrowser";
+  document.getElementById("onempty-row").hidden = !isInbrowser;
+  const needsEndpoint =
+    action === "companion" ||
+    action === "http" ||
+    (isInbrowser && (onEmpty === "companion" || onEmpty === "http"));
+  document.getElementById("endpoint-row").hidden = !needsEndpoint;
+  document.getElementById("responsefield-row").hidden = !needsEndpoint;
+}
+
 async function addRule() {
   const matchInput = document.getElementById("new-match");
   const action = document.getElementById("new-action").value;
+  const onEmpty = document.getElementById("new-onempty").value; // "", companion, http
   const endpointInput = document.getElementById("new-endpoint");
+  const responseFieldInput = document.getElementById("new-responsefield");
 
   const tokens = matchInput.value.trim().toLowerCase().split(/[,\s]+/).filter(Boolean);
   if (!tokens.length) {
@@ -226,10 +246,16 @@ async function addRule() {
 
   const rule = { match: { mime, ext }, action, enabled: true, onError: "passthrough" };
 
-  if (action === "companion" || action === "http") {
+  // A rule carries an endpoint when the action posts to one, or when an
+  // in-browser rule escalates to one on an empty (scanned) extraction.
+  const escalating =
+    action === "inbrowser" && (onEmpty === "companion" || onEmpty === "http");
+  const carriesEndpoint = action === "companion" || action === "http" || escalating;
+
+  if (carriesEndpoint) {
     const endpoint = endpointInput.value.trim();
     if (!/^https?:\/\//i.test(endpoint)) {
-      status("This action needs an endpoint URL (http:// or https://).");
+      status("This needs an endpoint URL (http:// or https://).");
       return;
     }
     if (
@@ -241,7 +267,10 @@ async function addRule() {
       return;
     }
     rule.endpoint = endpoint;
+    const responseField = responseFieldInput.value.trim();
+    if (responseField) rule.responseField = responseField;
   }
+  if (escalating) rule.onEmpty = onEmpty;
 
   const granted = rule.endpoint
     ? await requestEndpointPermission([rule.endpoint])
@@ -250,6 +279,9 @@ async function addRule() {
   config.routing.rules.push(rule);
   matchInput.value = "";
   endpointInput.value = "";
+  responseFieldInput.value = "";
+  document.getElementById("new-onempty").value = "";
+  syncRuleForm();
   await commit();
   status(
     granted
@@ -381,11 +413,9 @@ async function init() {
   document.getElementById("new-match").addEventListener("keydown", (e) => {
     if (e.key === "Enter") addRule();
   });
-  document.getElementById("new-action").addEventListener("change", (e) => {
-    document.getElementById("endpoint-row").hidden = !["companion", "http"].includes(
-      e.target.value
-    );
-  });
+  document.getElementById("new-action").addEventListener("change", syncRuleForm);
+  document.getElementById("new-onempty").addEventListener("change", syncRuleForm);
+  syncRuleForm(); // initial visibility (default action is inbrowser)
   document.getElementById("export-json").addEventListener("click", exportJson);
   document.getElementById("import-json").addEventListener("click", importJson);
   document.getElementById("record-hotkey").addEventListener("click", recordHotkey);
