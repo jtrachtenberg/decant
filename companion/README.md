@@ -65,9 +65,21 @@ Options (environment variables):
 | `DECANT_ENGINE` | `markitdown` | `markitdown`, `docling`, or `echo` (see below) |
 | `PORT` | `8765` | port to bind on `127.0.0.1` |
 
-- **`markitdown`** — default; broad format coverage (PDF/DOCX/PPTX/XLSX/HTML/images/audio), light install.
-- **`docling`** — higher-fidelity tables/layout; heavier (ML models). Uncomment `docling` in `requirements.txt`, then `DECANT_ENGINE=docling python server.py`.
+- **`markitdown`** — default; fast, broad format coverage, light install. But its
+  PDF path is flat text extraction: it does **not** reconstruct tables or
+  headings, so on clean text PDFs it can be *worse* than Decant's own in-browser
+  engine. Best for breadth and speed, not PDF fidelity.
+- **`docling`** — the real quality tier: reconstructs headings and tables and
+  does OCR on scanned pages, matching or beating the in-browser engine. Slower
+  (ML models, downloads weights on first run) and a heavier install
+  (`pip install docling`), then `DECANT_ENGINE=docling python server.py`.
 - **`echo`** — no real conversion; returns a deterministic stub. Needs only Flask, so you can verify the **HTTP contract and the extension wiring** before installing a heavy engine.
+
+> **Which engine?** The in-browser engines are already strong on clean text
+> documents, so the companion is a *fidelity* upgrade mainly with **Docling** and
+> mainly on the cases the browser can't handle — complex layouts and **scanned /
+> image-only PDFs** (which the browser passes through untouched). Routing clean
+> text PDFs to **MarkItDown** can lower fidelity, not raise it.
 
 ## Wire it into Decant
 
