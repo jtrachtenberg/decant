@@ -5,9 +5,11 @@
 # HTTP layer — small, ubiquitous, handles multipart + JSON.
 Flask>=3.0
 
-# Default engine: MarkItDown (Microsoft, MIT). Converts PDF/DOCX/PPTX/XLSX/HTML
-# /images/audio to Markdown.
-markitdown>=0.1.0
+# Default engine: MarkItDown (Microsoft, MIT). The document-format extras
+# Decant cares about — bare `markitdown` omits these and errors at conversion
+# time asking for e.g. markitdown[pdf]. Do NOT use markitdown[all]: it pulls in
+# audio/YouTube transcription deps (ffmpeg) that aren't needed here.
+markitdown[pdf,docx,pptx,xlsx,xls]>=0.1.0
 
 # Optional higher-fidelity engine: Docling (IBM, MIT). Heavier install (ML
 # models). Enable with DECANT_ENGINE=docling. Uncomment to use:
