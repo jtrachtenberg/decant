@@ -78,15 +78,17 @@ export const DEFAULT_CONFIG = {
   activation: {
     default: "off",
     // Common LLM chat hosts are pre-listed for convenience. claude.ai,
-    // chatgpt.com, and gemini.google.com are enabled by default (all three
-    // are required host permissions in the manifest, granted at install);
-    // enabling another prompts Chrome for that host's permission (see the
-    // options page / background worker).
+    // chatgpt.com, gemini.google.com, and www.perplexity.ai are enabled by
+    // default (all four are required host permissions in the manifest, granted
+    // at install); enabling another prompts Chrome for that host's permission
+    // (see the options page / background worker). Perplexity runs on the www.
+    // subdomain — a bare "perplexity.ai" rule's `*://perplexity.ai/*` pattern
+    // never matches it, so the host must be spelled with www.
     rules: [
       { type: "host", match: "claude.ai", enabled: true },
       { type: "host", match: "chatgpt.com", enabled: true },
       { type: "host", match: "gemini.google.com", enabled: true },
-      { type: "host", match: "perplexity.ai", enabled: false },
+      { type: "host", match: "www.perplexity.ai", enabled: true },
       { type: "host", match: "chat.mistral.ai", enabled: false },
     ],
   },
