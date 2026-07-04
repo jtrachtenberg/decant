@@ -63,3 +63,18 @@ export function shouldEscalate(result, rule) {
     /^https?:\/\//i.test(rule.endpoint)
   );
 }
+
+// Is a companion/endpoint configured for a matched rule's type? True when the
+// rule carries a usable endpoint (set via the options form's escalation config).
+// Drives the ambiguous prompt's "convert with companion" third choice: an
+// ambiguous doc (text + charts) can be sent to the companion — which captures
+// the visuals the in-browser text-only conversion drops — but only when one is
+// actually configured, so browser-only users see just convert/original. Pure
+// and exported for direct unit testing.
+export function companionAvailable(rule) {
+  return (
+    !!rule &&
+    typeof rule.endpoint === "string" &&
+    /^https?:\/\//i.test(rule.endpoint)
+  );
+}

@@ -28,7 +28,8 @@
 // armed, the handlers get out of the way and let the native upload proceed, so
 // the original file is sent with no conversion.
 
-import { convertFile } from "../convert/index.js";
+import { convertFile, convertViaCompanion } from "../convert/index.js";
+import { companionAvailable } from "../convert/result.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -160,15 +161,40 @@ async function resolveAndInject(preferredInput, fileArray) {
 
   let chosen = [];
   if (ambiguous.length) {
+    // Offer the companion only when one is configured for every ambiguous file
+    // (so the single-file case — the norm — just checks that file's rule).
+    const companion = ambiguous.every((r) => companionAvailable(r.rule));
     let choice = "original";
     try {
-      choice = await promptConvertChoice(ambiguous);
+      choice = await promptConvertChoice(ambiguous, { companion });
     } catch (err) {
       console.warn(TAG, "prompt failed, sending originals:", err);
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
-    chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
-    if (choice === "convert") converted.push(...ambiguous);
+
+    if (choice === "companion") {
+      // Send each original to its companion endpoint (Docling etc.), which can
+      // keep the visuals the text-only path drops. A failed/unreachable
+      // conversion falls back to the original — never lose the file.
+      let badge = null;
+      try {
+        for (const r of ambiguous) {
+          badge?.remove();
+          badge = showConvertingBadge(r.file.name);
+          try {
+            chosen.push(await convertViaCompanion(r.file, r.rule));
+          } catch (err) {
+            console.warn(TAG, `companion conversion failed for ${r.file.name} — sending original:`, err);
+            chosen.push(r.file);
+          }
+        }
+      } finally {
+        badge?.remove();
+      }
+    } else {
+      chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
+      if (choice === "convert") converted.push(...ambiguous);
+    }
   }
 
   const files = [...immediate, ...chosen];

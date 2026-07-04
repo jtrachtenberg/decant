@@ -128,8 +128,21 @@ simply pass through — nothing to install. Escalation that fails for any reason
 (service down, no text recovered) falls back to passing the original through, so
 the file is never lost.
 
-> Set `onEmpty` via the options page's **Show current → edit → Apply JSON**; the
-> quick-add rule form doesn't expose it yet.
+> Configure this in the options page's rule form: action **Convert in browser**,
+> then the *"If the browser finds no text (a scan)"* dropdown → **escalate to
+> local companion**, with the endpoint. (Also available via **Show current →
+> edit → Apply JSON**.)
+
+### Bonus: the companion as a third choice on ambiguous docs
+
+Once a companion endpoint is configured for a type (the `endpoint` above), a
+document that comes back **ambiguous** — substantial text *plus* charts/images,
+where converting to text-only would drop the visuals — offers a third button
+alongside *Convert to Markdown (text only)* and *Send original*: **Convert with
+companion**. It POSTs the original to the endpoint, so a fidelity engine
+(Docling) can convert it *and keep the visuals*. If the service is down or
+fails, it falls back to sending the original — nothing lost. Browser-only users
+(no endpoint) just see the original two choices.
 
 ## Contract (must match the mock endpoint & `src/convert/http.js`)
 

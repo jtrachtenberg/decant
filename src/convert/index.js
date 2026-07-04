@@ -69,6 +69,9 @@ export async function convertFile(file, routing = DEFAULT_CONFIG.routing) {
   // is never lost, and a browser-only user never configures onEmpty so this is
   // inert for them.
   const res = await inbrowser(file);
+  // Carry the matched rule on an ambiguous result so the prompt can offer the
+  // "convert with companion" choice (and run it) when one is configured.
+  if (res.action === "ambiguous") res.rule = rule;
   if (shouldEscalate(res, rule)) {
     try {
       const converted = await convertViaBackground(file, rule);
@@ -86,6 +89,14 @@ export async function convertFile(file, routing = DEFAULT_CONFIG.routing) {
     }
   }
   return res;
+}
+
+// Public entry for running an already-routed file through its companion/http
+// endpoint on demand — the ambiguous prompt's "convert with companion" choice
+// calls this with the original file and the ambiguous result's rule. Resolves
+// to the converted File, or throws (the caller falls back to the original).
+export function convertViaCompanion(file, rule) {
+  return convertViaBackground(file, rule);
 }
 
 // Relay an http/companion conversion through the background service worker

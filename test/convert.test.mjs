@@ -9,6 +9,7 @@ import {
   resultFromAnalysis,
   shouldEscalate,
   ESCALATE_REASONS,
+  companionAvailable,
 } from "../src/convert/result.js";
 
 const pdf = (name) => new File(["%PDF-fake"], name, { type: "application/pdf" });
@@ -98,4 +99,13 @@ test("onEmpty must be a real escalation target, not a fallback verb", () => {
   assert.equal(shouldEscalate(res, { ...companionRule, onEmpty: "passthrough" }), false);
   assert.equal(shouldEscalate(res, { ...companionRule, onEmpty: "inbrowser" }), false);
   assert.equal(shouldEscalate(res, { ...companionRule, onEmpty: "http" }), true);
+});
+
+test("companionAvailable: true only when the rule carries a usable endpoint", () => {
+  assert.equal(companionAvailable(companionRule), true);
+  assert.equal(companionAvailable({ action: "inbrowser", endpoint: "http://127.0.0.1:8765/x" }), true);
+  assert.equal(companionAvailable({ action: "inbrowser" }), false); // browser-only rule
+  assert.equal(companionAvailable({ endpoint: "not-a-url" }), false);
+  assert.equal(companionAvailable(null), false);
+  assert.equal(companionAvailable(undefined), false);
 });
