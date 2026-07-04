@@ -103,6 +103,34 @@ the companion instead, edit that rule in the options page (or JSON import) to:
 - `onError: "inbrowser"` means a dead/failing service degrades gracefully to the
   built-in engine; `passthrough` sends the original file untouched instead.
 
+### Recommended: escalate only on scans (`onEmpty`)
+
+Sending *every* PDF to the companion is usually the wrong trade — the in-browser
+engine is fast and strong on native text PDFs, and MarkItDown can even be worse
+there. The better pattern is **in-browser first, companion only when the browser
+comes up empty** (a scanned / image-only PDF it can't read). Keep the rule on
+`inbrowser` and add an `onEmpty` escalation target:
+
+```jsonc
+{
+  "match": { "mime": ["application/pdf"], "ext": ["pdf"] },
+  "action": "inbrowser",           // native PDFs convert locally, no latency
+  "onEmpty": "companion",          // a scan (no text layer) escalates to OCR
+  "endpoint": "http://127.0.0.1:8765/convert-raw",
+  "output": { "ext": "md", "mime": "text/markdown" }
+}
+```
+
+Now native PDFs are handled instantly in the browser, and only the scans the
+browser *can't* read are sent to the companion (run it with `DECANT_ENGINE=docling`
+for OCR). If you never set up the companion, drop `onEmpty`/`endpoint` and scans
+simply pass through — nothing to install. Escalation that fails for any reason
+(service down, no text recovered) falls back to passing the original through, so
+the file is never lost.
+
+> Set `onEmpty` via the options page's **Show current → edit → Apply JSON**; the
+> quick-add rule form doesn't expose it yet.
+
 ## Contract (must match the mock endpoint & `src/convert/http.js`)
 
 | Method / path | Response |

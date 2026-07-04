@@ -42,3 +42,24 @@ export function resultFromAnalysis(file, res) {
   // "passthrough" (no usable text): keep the original untouched.
   return { action: "passthrough", file, reason: res.reason, meta: res.summary };
 }
+
+// Forward escalation (SPEC §3.3): decide whether an in-browser passthrough
+// should be retried against the rule's companion/http endpoint. Fires only when
+// the browser genuinely came up empty — a scan (`no-text`) or a type it has no
+// engine for (`no-engine`) — AND the rule opts in with an escalation target and
+// a usable endpoint. A browser-only user configures neither, so their scans
+// just pass through; a successful or ambiguous conversion is never escalated.
+// Pure and exported so the decision is unit-tested without chrome.* or pdf.js.
+export const ESCALATE_REASONS = ["no-text", "no-engine"];
+
+export function shouldEscalate(result, rule) {
+  return (
+    !!result &&
+    result.action === "passthrough" &&
+    ESCALATE_REASONS.includes(result.reason) &&
+    !!rule &&
+    (rule.onEmpty === "companion" || rule.onEmpty === "http") &&
+    typeof rule.endpoint === "string" &&
+    /^https?:\/\//i.test(rule.endpoint)
+  );
+}

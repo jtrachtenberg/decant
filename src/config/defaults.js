@@ -20,6 +20,13 @@ export const CONFIG_VERSION = 5;
 // a rule may fall back to when its engine fails or isn't available.
 export const RULE_ACTIONS = ["inbrowser", "companion", "http", "passthrough"];
 export const RULE_FALLBACKS = ["inbrowser", "passthrough"];
+// Forward-escalation targets (SPEC §3.3): when the in-browser engine extracts
+// nothing from a file — a scanned/image-only PDF — an `inbrowser` rule may
+// escalate to a companion/http endpoint that *can* (OCR). Both need an
+// endpoint, so a browser-only user who configures neither just passes the scan
+// through. The complement of onError (which falls back when an endpoint fails);
+// onEmpty steps forward when the browser comes up empty.
+export const RULE_ONEMPTY = ["companion", "http"];
 
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -211,6 +218,12 @@ function normalizeRule(r) {
     onError: RULE_FALLBACKS.includes(r.onError) ? r.onError : "passthrough",
   };
   if (endpoint) rule.endpoint = endpoint;
+  // Forward escalation is opt-in and needs a real endpoint to escalate to; a
+  // bad target or a missing endpoint drops it, leaving a plain inbrowser rule
+  // that passes empty extractions through.
+  if (RULE_ONEMPTY.includes(r.onEmpty) && /^https?:\/\//i.test(endpoint)) {
+    rule.onEmpty = r.onEmpty;
+  }
   if (r.output && typeof r.output === "object") {
     const output = {};
     if (typeof r.output.ext === "string" && r.output.ext.trim()) {

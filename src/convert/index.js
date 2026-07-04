@@ -22,7 +22,7 @@ import { analyzeDocx } from "./docx.js";
 import { analyzeXlsx } from "./xlsx.js";
 import { analyzePptx } from "./pptx.js";
 import { analyzeHtml } from "./html.js";
-import { resultFromAnalysis } from "./result.js";
+import { resultFromAnalysis, shouldEscalate } from "./result.js";
 import { DOCX_MIME, XLSX_MIME, XLS_MIME, PPTX_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
@@ -62,7 +62,30 @@ export async function convertFile(file, routing = DEFAULT_CONFIG.routing) {
     }
   }
 
-  return inbrowser(file);
+  // In-browser (shape A). If it comes up empty on a file a companion could
+  // still crack — a scanned/image-only PDF — and the rule opts into forward
+  // escalation, retry against the endpoint (SPEC §3.3). Escalation failing
+  // (unconfigured, unreachable, empty) keeps the original passthrough: the file
+  // is never lost, and a browser-only user never configures onEmpty so this is
+  // inert for them.
+  const res = await inbrowser(file);
+  if (shouldEscalate(res, rule)) {
+    try {
+      const converted = await convertViaBackground(file, rule);
+      return {
+        action: "converted",
+        file: converted,
+        original: file,
+        reason: `${rule.onEmpty}-escalation`,
+      };
+    } catch (err) {
+      console.warn(
+        TAG,
+        `${rule.onEmpty} escalation failed (${err.message}) — ${file.name} passes through`
+      );
+    }
+  }
+  return res;
 }
 
 // Relay an http/companion conversion through the background service worker

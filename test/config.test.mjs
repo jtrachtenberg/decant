@@ -235,6 +235,46 @@ test("normalizeConfig keeps a well-formed http rule, pins routing default", () =
   });
 });
 
+test("normalizeConfig keeps onEmpty escalation only with a valid endpoint + target", () => {
+  const { routing } = normalizeConfig({
+    version: 5,
+    routing: {
+      rules: [
+        {
+          match: { mime: ["application/pdf"], ext: ["pdf"] },
+          action: "inbrowser",
+          onEmpty: "companion",
+          endpoint: "http://127.0.0.1:8765/convert-raw",
+          responseField: "text",
+        },
+      ],
+    },
+  });
+  assert.equal(routing.rules[0].onEmpty, "companion");
+  assert.equal(routing.rules[0].endpoint, "http://127.0.0.1:8765/convert-raw");
+});
+
+test("normalizeConfig drops onEmpty without an endpoint or with a bad target", () => {
+  const { routing } = normalizeConfig({
+    version: 5,
+    routing: {
+      rules: [
+        // opts into escalation but has nowhere to escalate to
+        { match: { ext: ["pdf"] }, action: "inbrowser", onEmpty: "companion" },
+        // valid endpoint but "passthrough" isn't an escalation target
+        {
+          match: { ext: ["png"] },
+          action: "inbrowser",
+          onEmpty: "passthrough",
+          endpoint: "http://127.0.0.1:8765/ocr",
+        },
+      ],
+    },
+  });
+  assert.equal(routing.rules[0].onEmpty, undefined);
+  assert.equal(routing.rules[1].onEmpty, undefined);
+});
+
 test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
   const cfg = normalizeConfig({
     hotkey: { code: "KeyP", alt: "yes", ctrl: 1, shift: true, meta: null },

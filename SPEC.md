@@ -114,6 +114,14 @@ MIME type.
 - Everything else → **passthrough**.
 - In-browser engines stay selectable per type and act as the **fallback when the
   companion is unreachable** (`onError: inbrowser` or `passthrough`).
+- **Forward escalation (`onEmpty`).** The complement of `onError`: an `inbrowser`
+  rule may name a companion/http `endpoint` to try *when the browser extracts
+  nothing* — a scanned/image-only PDF (classifier `no-text`) or a type with no
+  in-browser engine (`no-engine`). This keeps native PDFs fast and local while
+  routing only genuine scans to the companion (Docling OCR). Opt-in and endpoint-
+  gated, so a browser-only user who configures neither simply passes scans
+  through; a failed/empty escalation falls back to the original, never losing the
+  file. (Escalation targets: `companion`, `http`.)
 
 ### 3.4 The general case (any type → any endpoint)
 Any MIME type can be routed to any endpoint and have the result returned to the
