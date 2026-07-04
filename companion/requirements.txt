@@ -1,0 +1,14 @@
+# Decant companion service (SPEC §4 M3). Install into a virtualenv:
+#   python -m venv .venv && . .venv/bin/activate   (Windows: .venv\Scripts\activate)
+#   pip install -r requirements.txt
+
+# HTTP layer — small, ubiquitous, handles multipart + JSON.
+Flask>=3.0
+
+# Default engine: MarkItDown (Microsoft, MIT). Converts PDF/DOCX/PPTX/XLSX/HTML
+# /images/audio to Markdown.
+markitdown>=0.1.0
+
+# Optional higher-fidelity engine: Docling (IBM, MIT). Heavier install (ML
+# models). Enable with DECANT_ENGINE=docling. Uncomment to use:
+# docling>=2.0.0
