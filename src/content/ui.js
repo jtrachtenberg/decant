@@ -216,9 +216,7 @@ export function showSavingsBadge(savings) {
         border-radius: 999px; padding: 7px 14px;
         box-shadow: 0 6px 24px rgba(0,0,0,.4);
         display: flex; align-items: center; gap: 8px;
-        animation: decant-fade .3s ease-out;
       }
-      @keyframes decant-fade { from { opacity: 0; transform: translate(-50%, -4px); } }
       .check { color: #37b872; flex: none; }
       .est { color: #7fbf9c; font-weight: 500; }
     </style>
