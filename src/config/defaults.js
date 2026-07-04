@@ -113,6 +113,8 @@ export const DEFAULT_CONFIG = {
   },
   // Passthrough hotkey binding (physical `code` + modifiers).
   hotkey: { code: "KeyO", alt: true, shift: true, ctrl: false, meta: false },
+  // Show the estimated token-savings badge after a conversion.
+  showSavings: true,
 };
 
 // Enabled host patterns from a config, lower-cased and de-duplicated.
@@ -148,6 +150,7 @@ export function normalizeConfig(stored) {
     },
     routing: normalizeRouting(stored.routing, stored.version),
     hotkey: normalizeHotkey(stored.hotkey),
+    showSavings: stored.showSavings !== false,
   };
 }
 

@@ -43,14 +43,17 @@ import { DEFAULT_CONFIG } from "../config/defaults.js";
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
 
-// Live routing table — starts at the defaults (which convert PDFs, matching
-// pre-routing behavior), then follows the stored config and any later
+// Live config bits — start at the defaults (routing converts PDFs, matching
+// pre-routing behavior), then follow the stored config and any later
 // options-page edits.
 let routing = DEFAULT_CONFIG.routing;
-loadConfig()
-  .then((c) => (routing = c.routing))
-  .catch(() => {});
-onConfigChanged((c) => (routing = c.routing));
+let showSavings = DEFAULT_CONFIG.showSavings;
+const applyConfig = (c) => {
+  routing = c.routing;
+  showSavings = c.showSavings;
+};
+loadConfig().then(applyConfig).catch(() => {});
+onConfigChanged(applyConfig);
 
 function dataTransferWith(files) {
   const dt = new DataTransfer();
@@ -176,7 +179,7 @@ async function resolveAndInject(preferredInput, fileArray) {
   const savings = aggregateSavings(converted);
   if (savings) {
     console.log(TAG, `est. savings: ~${savings.savedTokens} tokens (~${savings.percent}%)`);
-    showSavingsBadge(savings);
+    if (showSavings) showSavingsBadge(savings);
   }
 }
 

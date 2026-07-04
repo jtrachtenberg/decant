@@ -9,6 +9,7 @@ import { DEFAULT_CONFIG, normalizeConfig } from "../config/defaults.js";
 const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
+const showSavingsEl = document.getElementById("show-savings");
 const statusEl = document.getElementById("status");
 
 let config;
@@ -30,6 +31,7 @@ function render() {
   renderHosts();
   renderRules();
   hotkeyDisplay.textContent = formatHotkey(config.hotkey);
+  showSavingsEl.checked = config.showSavings;
 }
 
 function renderHosts() {
@@ -387,6 +389,11 @@ async function init() {
   document.getElementById("export-json").addEventListener("click", exportJson);
   document.getElementById("import-json").addEventListener("click", importJson);
   document.getElementById("record-hotkey").addEventListener("click", recordHotkey);
+  showSavingsEl.addEventListener("change", async () => {
+    config.showSavings = showSavingsEl.checked;
+    await commit();
+    status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
+  });
   document.getElementById("reset").addEventListener("click", reset);
 }
 

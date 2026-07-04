@@ -56,6 +56,13 @@ test("enabledHosts excludes disabled rules and de-dupes", () => {
   assert.deepEqual(enabledHosts(cfg), ["claude.ai"]);
 });
 
+test("showSavings defaults on and only an explicit false turns it off", () => {
+  assert.equal(normalizeConfig(undefined).showSavings, true);
+  assert.equal(normalizeConfig({}).showSavings, true);
+  assert.equal(normalizeConfig({ showSavings: "nope" }).showSavings, true);
+  assert.equal(normalizeConfig({ showSavings: false }).showSavings, false);
+});
+
 test("normalizeConfig merges hotkey over defaults", () => {
   const cfg = normalizeConfig({ hotkey: { code: "KeyP" } });
   assert.equal(cfg.hotkey.code, "KeyP");
