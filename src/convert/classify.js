@@ -178,6 +178,14 @@ export function reconstructPage(items, columnHint = null) {
   if (regions.length > 1 && looksTabular(lines)) {
     lines.unshift(lowConfidenceMarker());
   }
+  // Tier 2 (SPEC §3.9): otherwise, a page whose text never settled onto
+  // recurring columns is most likely a chart/figure flattened into scattered
+  // labels (the existing marker above only catches column-split tables). Warn
+  // rather than emit the soup as if it were clean text. `else` so a page never
+  // carries both markers.
+  else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
+    lines.unshift(flattenedFigureMarker());
+  }
   return { lines, gutter };
 }
 
@@ -290,21 +298,112 @@ function looksTabular(lines) {
   return tabular / cells.length >= 0.6;
 }
 
-function lowConfidenceMarker() {
+// A visible marker line (sorts to the top of the page, flagged so linesToText
+// / the char count ignore it — it's a note, not extracted content).
+function markerLine(text) {
   return {
     y: Infinity,
     h: 10,
     para: true,
     marker: true,
-    cells: [
-      {
-        text:
-          "[table extracted with low structural confidence — columns may be misaligned and cell-to-row mapping is unverified]",
-        x: 0,
-        endX: 0,
-      },
-    ],
+    cells: [{ text, x: 0, endX: 0 }],
   };
+}
+
+function lowConfidenceMarker() {
+  return markerLine(
+    "[table extracted with low structural confidence — columns may be misaligned and cell-to-row mapping is unverified]"
+  );
+}
+
+// Tier 2 marker: the page's text never converged into columns, so it's most
+// likely a chart/figure whose labels flattened into scattered fragments. Says
+// something different from lowConfidenceMarker (which is about a misaligned
+// *table*) — here the structure isn't tabular at all, it's soup.
+function flattenedFigureMarker() {
+  return markerLine(
+    "[figure or chart on this page was flattened into text — labels may be scrambled and any values here are unreliable]"
+  );
+}
+
+// --- Tier 2: column-clustering convergence (confidence signal, SPEC §3.9) ---
+// How cleanly a page's reconstructed content aligns into columns — the same
+// computation that rebuilds columns also scores its own confidence. A real
+// column position *recurs*: a prose margin, a table column, or either side of
+// a two-column layout is where many rows begin. Chart-label soup does the
+// opposite — a reconstructed "cell" lands wherever a label happened to sit, so
+// each start is at its own lonely x that no other row shares. A low score is
+// the fingerprint of a flattened visual whose emitted text is unreliable; a
+// high score means the content really settled onto recurring columns.
+//
+// score ∈ [0,1] = fraction of content-cell starts that land on a *well-
+// supported* band (one shared by enough rows to be a genuine column). Scoring
+// by support — not by a band count — is deliberate: a top-K-bands measure caps
+// a perfectly clean two-column page near 1/K, mistaking multi-column for
+// scattered. Under support, every recurring column counts, so clean prose (one
+// or two margins) and clean tables (a well-hit band per column) score ~1 while
+// label soup (many single-hit bands) scores low. Pure and exported for direct
+// unit testing and threshold calibration (wiring is a separate, fidelity-QA'd
+// decision — see SPEC §3.9 Tier 2).
+//
+// Below this many content cells there isn't enough signal to judge; report
+// full confidence rather than warn on a sparse fragment.
+export const CONVERGENCE_MIN_CELLS = 6;
+// A text page scoring below this is treated as a flattened chart/figure and
+// gets the flattened-figure marker (wired into reconstructPage). Calibrated on
+// a WHO statistics report: confirmed chart-soup pages scored ≤0.49 (including a
+// prose-plus-dumbbell-plot page at 0.49 whose chart data was never text),
+// clean prose and tables ≥0.95 — so 0.5 catches the soup without flagging good
+// content, and errs toward NOT flagging (a page in the unverified 0.5–0.6 band
+// is left alone). Tunable.
+export const CONVERGENCE_FLAG_THRESHOLD = 0.5;
+// Column bands are "the same" within this fraction of the median line height —
+// a few characters of jitter around a shared start x.
+const CONVERGENCE_TOL_RATIO = 1.5;
+// A band counts as a genuine column only if it recurs across at least this
+// fraction of the page's content lines (floored at 2 lines). One well-hit
+// prose margin, or each column of a table/two-column layout, clears this; a
+// lone chart label never does.
+const CONVERGENCE_MIN_SUPPORT_RATIO = 0.2;
+
+export function columnConvergence(lines) {
+  const content = (lines || []).filter(
+    (l) => l && !l.marker && Array.isArray(l.cells) && l.cells.length
+  );
+  const starts = [];
+  let hSum = 0;
+  for (const l of content) {
+    hSum += l.h || 10;
+    for (const c of l.cells) starts.push(c.x);
+  }
+  if (starts.length < CONVERGENCE_MIN_CELLS) {
+    return { score: 1, columns: content.length ? 1 : 0, bands: 0 };
+  }
+  const tol = (hSum / content.length) * CONVERGENCE_TOL_RATIO;
+  const bands = bandSupport(starts, tol);
+  const minSupport = Math.max(2, content.length * CONVERGENCE_MIN_SUPPORT_RATIO);
+  const strong = bands.filter((b) => b.support >= minSupport);
+  const covered = strong.reduce((sum, b) => sum + b.support, 0);
+  return { score: covered / starts.length, columns: strong.length, bands: bands.length };
+}
+
+// Cluster start-x positions into bands, each { x: mean, support: count },
+// sorted by support descending (busiest columns first).
+function bandSupport(xs, tol) {
+  const groups = [];
+  for (const x of [...xs].sort((a, b) => a - b)) {
+    const last = groups[groups.length - 1];
+    if (last && x - last.max <= tol) {
+      last.sum += x;
+      last.support++;
+      last.max = x;
+    } else {
+      groups.push({ sum: x, support: 1, max: x });
+    }
+  }
+  return groups
+    .map((g) => ({ x: g.sum / g.support, support: g.support }))
+    .sort((a, b) => b.support - a.support);
 }
 
 // Group one region's glyphs into lines + cells (the core reconstruction).

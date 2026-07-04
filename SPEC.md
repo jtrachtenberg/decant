@@ -263,13 +263,19 @@ of this replaces:
   (skipped for now — per-chart noise). (Cell-shading annotation via
   `w:shd`/`a:solidFill` is a lower-ranked, legend-dependent cousin — noise-
   prone, treat separately.)
-- **Tier 2 — PDF geometry confidence signal (classifier upgrade).** The
-  spatial reconstruction itself already exists (`classify.js`:
-  `linesFromGlyphs` gap-splitting, `columnRegions`, `tableRuns`) — dense
-  chart-label soup is a threshold-tuning problem, not a missing mechanism. The
-  *new* idea worth building: use column-clustering convergence as a confidence
-  score — clean convergence → table; scattered x-positions → chart labels, fire
-  the marker. Detection and improvement come from the same computation.
+- **Tier 2 — PDF geometry confidence signal. *(Done.)*** `columnConvergence`
+  (`classify.js`) scores how cleanly a page's text settles onto recurring
+  columns: a real column — a prose margin, a table column, either side of a
+  two-column page — is a start-x band many rows share, while chart-label soup
+  scatters across many single-hit bands. Scoring by band *support* (not a
+  top-K-bands count, which mistakes multi-column for scattered) is what lets a
+  clean two-column page and a table both score ~1 while soup scores near 0.
+  Below `CONVERGENCE_FLAG_THRESHOLD` (0.5, calibrated on a WHO statistics
+  report — confirmed soup ≤0.49, clean prose/tables ≥0.95) `reconstructPage`
+  prepends a flattened-figure marker. It fills the gap the column-split table
+  marker leaves: single-region label scatter, rotated tables, and bar/dumbbell
+  charts whose values were never text and never form a detectable table.
+  Detection and the honest marker come from one computation.
 - **Tier 3 — PDF vector reconstruction (recorded, likely deferred to the
   companion).** `getOperatorList()` exposes filled rects + fills, so traffic-
   light tables / bar charts are *theoretically* recoverable by overlaying text

@@ -189,7 +189,10 @@ on it fall back gracefully (in-browser conversion or passthrough).
   images survive as ordinary Markdown image links, embedded data-URI images
   get omission markers and the prompt. Wherever conversion drops a visual
   (PDF pages, DOCX, PPTX, HTML), the output now says so in place:
-  `[image omitted: label]`.
+  `[image omitted: label]`. And a PDF page whose "text" is really a flattened
+  chart — scattered axis labels and values that never reconstruct into readable
+  structure — is caught by a **column-convergence** check and marked in place,
+  so label soup is never passed off as clean text.
   The **packaging pass** has landed too: toolbar/store icons, production name,
   a `Required Notice` + commercial-licensing contact in the license, and a
   pre-publish [smoke checklist](./docs/smoke-checklist.md).

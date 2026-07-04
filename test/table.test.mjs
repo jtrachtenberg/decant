@@ -100,4 +100,42 @@ test("genuine two-column prose does not fire the marker", () => {
   }
   const md = linesToMarkdown(reconstructPage(items).lines);
   assert.doesNotMatch(md, /low structural confidence/i);
+  // Two clean column margins → converges → no flattened-figure marker either.
+  assert.doesNotMatch(md, /flattened into text/i);
+});
+
+test("scattered chart labels fire the flattened-figure marker (Tier 2)", () => {
+  // Loose labels strewn across x and y with no recurring column — the
+  // fingerprint of a chart flattened into text. Doesn't column-split into a
+  // table (so the tabular marker stays silent); convergence catches it.
+  const xs = [8, 120, 60, 210, 300, 45, 175, 260, 95, 330, 20, 150, 240, 80, 190];
+  const items = xs.map((x, i) => item(`L${i}`, x, 300 - i * 14, { w: 18 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /flattened into text/i);
+});
+
+test("clean single-column prose fires no marker of either kind", () => {
+  const items = [];
+  for (let k = 0; k < 10; k++) {
+    items.push(
+      item(`ordinary running prose line number ${k} of a normal paragraph`, 0, 300 - k * 15, { w: 220 })
+    );
+  }
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /flattened into text|low structural confidence/i);
+});
+
+test("a collapsed table fires only the table marker, never both", () => {
+  // The 2-column short-cell table from above: the tabular marker fires; the
+  // flattened-figure marker must NOT also fire (they're mutually exclusive).
+  const items = [];
+  const labels = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"];
+  labels.forEach((lab, i) => {
+    const y = 200 - i * 18;
+    items.push(item(lab, 0, y, { w: 30 }));
+    items.push(item(String((i + 1) * 100), 160, y, { w: 20 }));
+  });
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /low structural confidence/i);
+  assert.doesNotMatch(md, /flattened into text/i);
 });

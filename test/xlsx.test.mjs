@@ -34,6 +34,19 @@ test("rowsToMarkdownTable escapes pipes, flattens newlines, pads ragged rows", (
   assert.equal(md, "| a\\|b | two lines |\n| --- | --- |\n| only-one |  |");
 });
 
+test("rowsToMarkdownTable escapes backslashes before pipes (CodeQL autofix regression)", () => {
+  // The CodeQL autofix added backslash-doubling. It must run BEFORE pipe
+  // escaping: a literal backslash is doubled so it survives Markdown, and the
+  // `\` that pipe escaping itself introduces must NOT be doubled again. So a
+  // cell holding `a\|b` (backslash then pipe) escapes to `a\\\|b`, not
+  // `a\\\\|b`. A Windows path exercises the plain backslash-doubling case.
+  const md = rowsToMarkdownTable([
+    ["path", "mix"],
+    ["C:\\tmp", "a\\|b"],
+  ]);
+  assert.equal(md, "| path | mix |\n| --- | --- |\n| C:\\\\tmp | a\\\\\\|b |");
+});
+
 test("rowsToMarkdownTable trims trailing empty rows and columns", () => {
   const md = rowsToMarkdownTable([
     ["x", "", ""],
