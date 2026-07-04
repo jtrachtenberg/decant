@@ -219,11 +219,17 @@ export function showSavingsBadge(savings) {
       }
       .check { color: #37b872; flex: none; }
       .est { color: #7fbf9c; font-weight: 500; }
+      .x {
+        background: none; border: none; padding: 0 0 0 4px; font: inherit;
+        color: #7fbf9c; cursor: pointer; flex: none;
+      }
+      .x:hover { color: #eafff2; }
     </style>
     <div class="badge" role="status">
       <span class="check">✓</span>
       <span class="msg"></span>
       <span class="est">est.</span>
+      <button class="x" type="button" aria-label="Dismiss">✕</button>
     </div>
   `;
   const label =
@@ -231,7 +237,11 @@ export function showSavingsBadge(savings) {
       ? `Decant saved ~${formatTokens(savings.savedTokens)} tokens (~${savings.percent}%)`
       : `Decant saved ~${formatTokens(savings.savedTokens)} tokens`;
   root.querySelector(".msg").textContent = label;
-  setTimeout(() => host.remove(), SAVINGS_TIMEOUT_MS);
+  const timer = setTimeout(() => host.remove(), SAVINGS_TIMEOUT_MS);
+  root.querySelector(".x").addEventListener("click", () => {
+    clearTimeout(timer);
+    host.remove();
+  });
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
