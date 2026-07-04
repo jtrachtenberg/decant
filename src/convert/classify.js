@@ -164,27 +164,72 @@ export function reconstructPage(items, columnHint = null) {
     return { lines: [...above, ...gridLines(grid), ...below], gutter: null };
   }
 
-  const { regions, gutter } = columnRegions(glyphs.map(toBox), columnHint);
+  const boxes = glyphs.map(toBox);
+  const { regions, gutter } = columnRegions(boxes, columnHint);
+  const med = medianHeight(boxes);
+
+  // columnRegions already carved the page into reading-order regions, emitting
+  // each column block as a left region immediately followed by its right region
+  // (full-width headings separate stacked blocks into their own regions). Such a
+  // left/right pair is ambiguous: independent prose columns (read column-major,
+  // the default below) OR a row-aligned table whose cells are long free text
+  // (must be read row-major, one row per left/right pair). detectGrid can't see
+  // the table — a 2-column table has only 2 aligned starts, below its 3-column
+  // floor — and looksTabular can't either, since these cells are long text, not
+  // short/numeric. The discriminator is cross-column ROW CORRESPONDENCE: when the
+  // two columns split into the same number of paragraph blocks whose tops
+  // pairwise align, upgrade the pair to a row-major pipe table. Doing it
+  // per-region (not per-page) handles several stacked tables on one page.
   const lines = [];
-  regions.forEach((region, i) => {
-    const regionLines = linesFromGlyphs(region.map((b) => b.g));
+  let sawTable = false;
+  for (let i = 0; i < regions.length; ) {
+    // Collect a maximal run of consecutive left-then-right region pairs, then
+    // test the combined columns as one table. columnRegions flushes a table into
+    // several pairs at wide row gaps (a header row split from its body, or every
+    // row split when the rows are widely spaced); merging the run reattaches
+    // them so the whole table — header included — is recovered as one unit.
+    let j = i;
+    const left = [];
+    const right = [];
+    while (
+      j + 1 < regions.length &&
+      allLeftOf(regions[j], gutter) &&
+      allRightOf(regions[j + 1], gutter)
+    ) {
+      left.push(...regions[j]);
+      right.push(...regions[j + 1]);
+      j += 2;
+    }
+    if (j > i) {
+      const table = tableFromColumns(left, right, med);
+      if (table) {
+        const rowLines = columnTableLines(table);
+        if (lines.length && rowLines.length) rowLines[0].para = true;
+        lines.push(...rowLines);
+        sawTable = true;
+        i = j;
+        continue;
+      }
+    }
+    // Not a table: emit this one region column-major (its right partner, if any,
+    // follows on the next iteration), preserving the existing prose reflow.
+    const regionLines = linesFromGlyphs(regions[i].map((b) => b.g));
     // A region boundary (column or block break) is itself a paragraph break.
-    if (i > 0 && regionLines.length) regionLines[0].para = true;
+    if (lines.length && regionLines.length) regionLines[0].para = true;
     lines.push(...regionLines);
-  });
-  // A multi-column split whose rows are actually row-aligned tabular data (not
-  // independent prose columns) means a table was read column-major — flag the
-  // region as low structural confidence rather than pretend it converted well.
-  if (regions.length > 1 && looksTabular(lines)) {
-    lines.unshift(lowConfidenceMarker());
+    i++;
   }
-  // Tier 2 (SPEC §3.9): otherwise, a page whose text never settled onto
-  // recurring columns is most likely a chart/figure flattened into scattered
-  // labels (the existing marker above only catches column-split tables). Warn
-  // rather than emit the soup as if it were clean text. `else` so a page never
-  // carries both markers.
-  else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
-    lines.unshift(flattenedFigureMarker());
+
+  // Markers only when nothing upgraded to a clean table. A recognized table is
+  // high-fidelity; the markers below flag the cases that stayed column-major —
+  // an unrecognized table read column-major, or chart-label soup — exactly as
+  // before (this whole branch is unchanged for pages with no detected table).
+  if (!sawTable) {
+    if (regions.length > 1 && looksTabular(lines)) {
+      lines.unshift(lowConfidenceMarker());
+    } else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
+      lines.unshift(flattenedFigureMarker());
+    }
   }
   return { lines, gutter };
 }
@@ -296,6 +341,128 @@ function looksTabular(lines) {
   if (cells.length < GRID_MIN_ROWS) return false;
   const tabular = cells.filter((c) => isTabularCell(c.text)).length;
   return tabular / cells.length >= 0.6;
+}
+
+// --- Two-column long-text tables (row correspondence) ----------------------
+// The companion to detectGrid for the case it and looksTabular both miss: a
+// two-column table whose cells are long free text. Column count alone can't
+// separate it from two-column prose (both split into two bands), and the cells
+// are too long for the short/numeric tabular test. What separates them is
+// cross-column ROW CORRESPONDENCE — in a table each left entry has a right
+// entry whose block *top* sits at the same y (a left cell may wrap to several
+// lines; the right cell aligns to the top of that block), so both columns yield
+// the same number of vertical blocks with pairwise-aligned tops. Prose columns
+// are independent streams whose paragraph blocks neither match in count nor
+// align in y. Only attempted after a gutter split (two columns), and only for
+// predominantly long-text cells, so short/numeric two-column tables stay on the
+// existing conservative (marker) path.
+const COLTABLE_MIN_ROWS = 3; // like GRID_MIN_ROWS: fewer can't be told from prose
+// Vertical gap (in median heights) that ends one row-block: between a cell's
+// wrapped lines the gap is smaller, between table rows it's larger. Wider than a
+// cell's line spacing, narrower than typical inter-row spacing.
+const COLTABLE_ROW_GAP = 0.8;
+const COLTABLE_TOP_TOL = 1.0; // paired cells' tops must align within ~one line
+// At least this fraction of the paired cells must be long free text — the case
+// looksTabular's short/numeric rule silently misses. Short/numeric 2-column
+// tables fall through to the existing marker path instead.
+const COLTABLE_MIN_LONG_RATIO = 0.5;
+
+// Group one column's boxes into vertical blocks separated by a gap taller than
+// COLTABLE_ROW_GAP median heights. Each block is one table row's cell (its
+// wrapped lines stay together). Returns blocks top-to-bottom with their y span.
+function columnBlocks(boxes, med) {
+  const blocks = [];
+  let cur = null;
+  let prevBottom = null;
+  for (const r of groupRows(boxes)) {
+    if (cur && prevBottom - r.y1 <= COLTABLE_ROW_GAP * med) {
+      cur.rows.push(r);
+      cur.top = Math.max(cur.top, r.y1);
+      cur.bottom = Math.min(cur.bottom, r.y0);
+    } else {
+      cur = { rows: [r], top: r.y1, bottom: r.y0 };
+      blocks.push(cur);
+    }
+    prevBottom = r.y0;
+  }
+  return blocks;
+}
+
+// One block's text: its wrapped lines reconstructed and space-joined.
+function blockText(block) {
+  const glyphs = block.rows.flatMap((r) => r.boxes.map((b) => b.g));
+  return linesFromGlyphs(glyphs)
+    .map((l) => l.cells.map((c) => c.text).join(" "))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Does a region's non-whitespace content sit entirely on one side of the
+// gutter? columnRegions emits genuine column blocks as an all-left region
+// followed by an all-right one; a full-width heading straddles the gutter and
+// satisfies neither, so it can't be mistaken for half of a table.
+function allLeftOf(boxes, gx) {
+  return (
+    boxes.some((b) => !b.ws) &&
+    boxes.every((b) => b.ws || (b.x0 + b.x1) / 2 < gx)
+  );
+}
+function allRightOf(boxes, gx) {
+  return (
+    boxes.some((b) => !b.ws) &&
+    boxes.every((b) => b.ws || (b.x0 + b.x1) / 2 >= gx)
+  );
+}
+
+// Given a left column's boxes and its right column's boxes (one column block,
+// already split by columnRegions), decide whether they form a row-aligned
+// long-text table. Returns { rows: [{ left, right, y }] } (top-to-bottom) or
+// null to keep the column-major prose reflow.
+function tableFromColumns(leftBoxes, rightBoxes, med) {
+  const leftBlocks = columnBlocks(leftBoxes.filter((b) => !b.ws), med);
+  const rightBlocks = columnBlocks(rightBoxes.filter((b) => !b.ws), med);
+  if (
+    leftBlocks.length < COLTABLE_MIN_ROWS ||
+    leftBlocks.length !== rightBlocks.length
+  )
+    return null;
+
+  // Every paired row must top-align — the table-vs-prose discriminator.
+  const tol = med * COLTABLE_TOP_TOL;
+  for (let i = 0; i < leftBlocks.length; i++) {
+    if (Math.abs(leftBlocks[i].top - rightBlocks[i].top) > tol) return null;
+  }
+
+  // Only the long-text case (what looksTabular misses); short/numeric 2-column
+  // tables stay on the existing conservative (marker) path.
+  const rows = [];
+  let long = 0;
+  for (let i = 0; i < leftBlocks.length; i++) {
+    const left = blockText(leftBlocks[i]);
+    const right = blockText(rightBlocks[i]);
+    rows.push({ left, right, y: leftBlocks[i].top });
+    if (!isTabularCell(left)) long++;
+    if (!isTabularCell(right)) long++;
+  }
+  if (long / (2 * leftBlocks.length) < COLTABLE_MIN_LONG_RATIO) return null;
+  return { rows };
+}
+
+// The detected table as grid line objects (one per row, keeping each row's own
+// y so it sorts correctly among surrounding headings), so linesToMarkdown emits
+// one row-major pipe table with the first row as its header.
+function columnTableLines(table) {
+  return table.rows.map(({ left, right, y }) => ({
+    y,
+    h: 10,
+    para: false,
+    grid: true,
+    cells: [
+      { text: left, x: 0, endX: 0 },
+      { text: right, x: 1, endX: 1 },
+    ],
+  }));
 }
 
 // A visible marker line (sorts to the top of the page, flagged so linesToText
