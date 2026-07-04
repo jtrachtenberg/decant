@@ -151,6 +151,19 @@ export function reconstructPage(items, columnHint = null) {
   );
   if (!glyphs.length) return { lines: [], gutter: null };
 
+  // An aligned grid (a bordered/columnar table) must be read row-major and
+  // rebuilt cell-by-cell at its column bands — column-splitting it (below)
+  // reads it column-major and scrambles the row bindings. Detected first so it
+  // takes precedence over the prose column-reflow path.
+  const grid = detectGrid(glyphs);
+  if (grid) {
+    const yTop = Math.max(...grid.rows.map((r) => r.y1));
+    const yBot = Math.min(...grid.rows.map((r) => r.y0));
+    const above = linesFromGlyphs(glyphs.filter((g) => g.transform[5] > yTop + 1));
+    const below = linesFromGlyphs(glyphs.filter((g) => g.transform[5] < yBot - 1));
+    return { lines: [...above, ...gridLines(grid), ...below], gutter: null };
+  }
+
   const { regions, gutter } = columnRegions(glyphs.map(toBox), columnHint);
   const lines = [];
   regions.forEach((region, i) => {
@@ -159,7 +172,139 @@ export function reconstructPage(items, columnHint = null) {
     if (i > 0 && regionLines.length) regionLines[0].para = true;
     lines.push(...regionLines);
   });
+  // A multi-column split whose rows are actually row-aligned tabular data (not
+  // independent prose columns) means a table was read column-major — flag the
+  // region as low structural confidence rather than pretend it converted well.
+  if (regions.length > 1 && looksTabular(lines)) {
+    lines.unshift(lowConfidenceMarker());
+  }
   return { lines, gutter };
+}
+
+// --- Aligned-grid tables (geometry-based, Deliverable 1) -------------------
+// A bordered/aligned table reads as rows whose content starts at the SAME x
+// positions across many rows. We key off that alignment, not cell content, so
+// long free-text cells convert fine (unlike qualifiesAsTable, the short-cell
+// fallback below). Requires >= 3 aligned columns: two-column prose also aligns
+// into two bands when read row-major, so 3 is the smallest count that can't be
+// prose.
+const GRID_MIN_ROWS = 3;
+const GRID_MIN_COLS = 3;
+const GRID_X_TOL = 6; // px tolerance for "same" column start
+
+// x positions where a row's content segments begin: the first glyph, plus any
+// glyph opening a gap wider than a few word-spaces after the previous.
+function segmentStarts(row) {
+  const bs = row.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
+  const starts = [];
+  let cover = -Infinity;
+  for (const b of bs) {
+    if (b.x0 - cover > WORD_GAP * row.h * 3) starts.push(b.x0);
+    if (b.x1 > cover) cover = b.x1;
+  }
+  return starts;
+}
+
+// 1-D cluster of x positions into bands (cluster means), ascending.
+function clusterBands(xs) {
+  const bands = [];
+  let group = [];
+  for (const x of [...xs].sort((a, b) => a - b)) {
+    if (group.length && x - group[group.length - 1] > GRID_X_TOL) {
+      bands.push(group.reduce((s, v) => s + v, 0) / group.length);
+      group = [];
+    }
+    group.push(x);
+  }
+  if (group.length) bands.push(group.reduce((s, v) => s + v, 0) / group.length);
+  return bands;
+}
+
+// The longest run of consecutive rows that all begin content at the same
+// >= GRID_MIN_COLS bands. Returns { bands, rows } (rows top-to-bottom) or null.
+function detectGrid(glyphs) {
+  const rows = groupRows(glyphs.map(toBox));
+  if (rows.length < GRID_MIN_ROWS) return null;
+  const starts = rows.map(segmentStarts);
+
+  let best = null;
+  for (let i = 0; i < rows.length; i++) {
+    const bands = clusterBands(starts[i]);
+    if (bands.length < GRID_MIN_COLS) continue;
+    const hits = (s) => bands.every((b) => s.some((x) => Math.abs(x - b) <= GRID_X_TOL));
+    let j = i;
+    while (j < rows.length && hits(starts[j])) j++;
+    if (j - i >= GRID_MIN_ROWS && (!best || j - i > best.rows.length)) {
+      best = { bands, rows: rows.slice(i, j) };
+    }
+  }
+  return best;
+}
+
+// Which band an x-position belongs to (largest band start at or left of x).
+function bandOf(bands, x) {
+  let bi = 0;
+  for (let k = 0; k < bands.length; k++) if (x >= bands[k] - GRID_X_TOL) bi = k;
+  return bi;
+}
+
+// Rebuild the grid rows as line objects with one cell per band (flagged
+// `grid` so linesToMarkdown emits them as one pipe table). Cells keep their
+// text verbatim; glyphs are assigned to bands by x and joined with word
+// spacing, so a column whose text nearly fills its width still splits cleanly.
+function gridLines(grid) {
+  return grid.rows
+    .map((row) => {
+      const buckets = grid.bands.map(() => []);
+      for (const b of row.boxes) {
+        if (!b.g.str.trim()) continue;
+        buckets[bandOf(grid.bands, b.x0)].push(b);
+      }
+      const cells = buckets.map((rs, i) => {
+        rs.sort((a, b) => a.x0 - b.x0);
+        let text = "";
+        let cover = -Infinity;
+        for (const b of rs) {
+          if (text && b.x0 - cover > WORD_GAP * row.h && !/\s$/.test(text)) text += " ";
+          text += b.g.str;
+          if (b.x1 > cover) cover = b.x1;
+        }
+        return { text: text.replace(/\s+/g, " ").trim(), x: grid.bands[i], endX: grid.bands[i] };
+      });
+      return { y: row.y0, h: row.h, para: false, grid: true, cells };
+    })
+    .filter((l) => l.cells.some((c) => c.text));
+}
+
+// Low-confidence signal (Deliverable 2): the caller has just column-split the
+// page into >= 2 regions (so >= 2 columns were detected), but that split reads
+// column-major and collapses a table's rows. It's a genuine table loss — not a
+// prose two-column layout — when the collapsed cells are predominantly short or
+// numeric (real prose columns are long running text). Derived from output only.
+function looksTabular(lines) {
+  const cells = lines
+    .filter((l) => !l.grid && !l.marker)
+    .flatMap((l) => l.cells);
+  if (cells.length < GRID_MIN_ROWS) return false;
+  const tabular = cells.filter((c) => isTabularCell(c.text)).length;
+  return tabular / cells.length >= 0.6;
+}
+
+function lowConfidenceMarker() {
+  return {
+    y: Infinity,
+    h: 10,
+    para: true,
+    marker: true,
+    cells: [
+      {
+        text:
+          "[table extracted with low structural confidence — columns may be misaligned and cell-to-row mapping is unverified]",
+        x: 0,
+        endX: 0,
+      },
+    ],
+  };
 }
 
 // Group one region's glyphs into lines + cells (the core reconstruction).
@@ -420,6 +565,16 @@ export function linesToMarkdown(lines) {
   if (!lines.length) return "";
   const bodyH = modeHeight(lines);
   const tableStarts = tableRuns(lines); // Map<startIndex, endIndex>
+  // Geometry-detected grids (Deliverable 1) emit as tables regardless of cell
+  // length; take precedence over the content-based runs above.
+  for (let i = 0; i < lines.length; ) {
+    if (lines[i].grid) {
+      let j = i;
+      while (j < lines.length && lines[j].grid) j++;
+      tableStarts.set(i, j);
+      i = j;
+    } else i++;
+  }
 
   const blocks = [];
   let para = [];
