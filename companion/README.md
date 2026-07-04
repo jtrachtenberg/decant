@@ -14,14 +14,49 @@ and if it's not running, conversions fall back per each rule's `onError`.
 
 ## Install & run
 
+**Pick one shell and stay in it** — a virtualenv is per-OS, so a Windows venv
+(`.venv\Scripts\`) and a WSL/Linux venv (`.venv/bin/`) can't share the same
+`companion/.venv` folder. On Windows + WSL, **WSL is the better choice**: it
+tends to ship a Python (3.11/3.12) with wider wheel coverage than a bleeding-edge
+Windows Python, which matters for the heavier engines.
+
+<details open><summary><b>WSL / macOS / Linux (bash)</b></summary>
+
 ```bash
 cd companion
-python -m venv .venv
-. .venv/bin/activate            # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-python server.py                # MarkItDown, http://127.0.0.1:8765
+python server.py                       # MarkItDown, http://127.0.0.1:8765
+DECANT_ENGINE=echo python server.py    # deterministic stub, no heavy deps
+PORT=9000 python server.py
 ```
+</details>
+
+<details><summary><b>Windows PowerShell</b></summary>
+
+```powershell
+cd companion
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+python server.py                       # MarkItDown, http://127.0.0.1:8765
+$env:DECANT_ENGINE = "echo"; python server.py
+$env:PORT = "9000"; python server.py
+```
+
+In PowerShell, use **`curl.exe`** (bare `curl` is an alias for
+`Invoke-WebRequest`).
+</details>
+
+**The server runs in the foreground** — it prints a startup banner and keeps
+running until `Ctrl-C`. That's correct; it's a service. Test it from a **second**
+terminal (or the browser), not the one it's running in.
+
+> Python 3.14 is very new; MarkItDown/Docling may not have wheels for it yet.
+> If `pip install` fails, use a venv on Python 3.11–3.12.
 
 Options (environment variables):
 
