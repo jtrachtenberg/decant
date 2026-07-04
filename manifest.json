@@ -20,7 +20,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["pdf.worker.mjs"],
+      "resources": ["pdf.worker.mjs", "standard_fonts/*"],
       "matches": ["*://*/*"],
       "use_dynamic_url": true
     }

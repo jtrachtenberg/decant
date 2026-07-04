@@ -28,11 +28,21 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.mjs");
 
+// pdf.js needs the metrics for the 14 standard PDF fonts when a document uses
+// one without embedding it; without this it warns ("Ensure that the
+// standardFontDataUrl API parameter is provided") on every such file. We ship
+// pdf.js's own standard_fonts/ (see build.mjs) and point at it via the dynamic
+// extension URL (trailing slash required — pdf.js appends the font filename).
+const STANDARD_FONT_DATA_URL = chrome.runtime.getURL("standard_fonts/");
+
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
 export async function analyzePdf(file) {
   const data = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = pdfjsLib.getDocument({ data });
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
+  });
   const pdf = await loadingTask.promise;
   const pageCount = pdf.numPages;
 
