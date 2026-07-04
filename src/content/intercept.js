@@ -29,10 +29,12 @@
 // the original file is sent with no conversion.
 
 import { convertFile } from "../convert/index.js";
+import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
   showAttachFailureNotice,
   showConvertingBadge,
+  showSavingsBadge,
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 import { loadConfig, onConfigChanged } from "../config/config.js";
@@ -132,6 +134,8 @@ function findUsableFileInput() {
 async function resolveAndInject(preferredInput, fileArray) {
   const immediate = [];
   const ambiguous = [];
+  // Results actually sent as Markdown — the basis for the token-savings badge.
+  const converted = [];
   // Progress badge per file: conversion can take a while on large PDFs, and
   // without it a slow conversion looks like a swallowed drop.
   let badge = null;
@@ -142,7 +146,10 @@ async function resolveAndInject(preferredInput, fileArray) {
       const r = await convertFile(f, routing);
       logResult(f, r);
       if (r.action === "ambiguous") ambiguous.push(r);
-      else immediate.push(r.file);
+      else {
+        immediate.push(r.file);
+        if (r.action === "converted") converted.push(r);
+      }
     }
   } finally {
     badge?.remove();
@@ -158,10 +165,19 @@ async function resolveAndInject(preferredInput, fileArray) {
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
     chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
+    if (choice === "convert") converted.push(...ambiguous);
   }
 
   const files = [...immediate, ...chosen];
   if (files.length) injectViaInput(preferredInput, files);
+
+  // Estimated token savings (the eliminated PDF page-image layer) — a brief
+  // positive badge after a successful conversion.
+  const savings = aggregateSavings(converted);
+  if (savings) {
+    console.log(TAG, `est. savings: ~${savings.savedTokens} tokens (~${savings.percent}%)`);
+    showSavingsBadge(savings);
+  }
 }
 
 function logResult(f, r) {

@@ -24,6 +24,13 @@ await cp(
   "node_modules/pdfjs-dist/build/pdf.worker.mjs",
   `${outdir}/pdf.worker.mjs`
 );
+// Standard-font metrics pdf.js loads for the 14 non-embedded base PDF fonts
+// (referenced via standardFontDataUrl in inbrowser.js). Copied verbatim.
+await cp(
+  "node_modules/pdfjs-dist/standard_fonts",
+  `${outdir}/standard_fonts`,
+  { recursive: true }
+);
 // Ship the project license and third-party attributions with the extension so
 // the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
 await cp("LICENSE", `${outdir}/LICENSE`);
