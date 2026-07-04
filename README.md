@@ -79,12 +79,13 @@ Two independent layers, both **default-off**:
 
 ### Activation — where Decant runs
 Decant does nothing on any page unless its host is explicitly whitelisted. It
-ships with `claude.ai`, `chatgpt.com`, and `gemini.google.com` enabled (with
-other common LLM hosts pre-listed but off). claude.ai and ChatGPT get the full
-treatment — picker, drag-and-drop, and paste all substitute the converted
-file. Gemini converts through the file picker only; its uploader rejects
-synthetic drops, so on Gemini drag-and-drop/paste intentionally send the
-original file unconverted rather than lose it.
+ships with `claude.ai`, `chatgpt.com`, `gemini.google.com`, and
+`www.perplexity.ai` enabled (with other common LLM hosts pre-listed but off).
+claude.ai, ChatGPT, and Perplexity get the full treatment — picker,
+drag-and-drop, and paste all substitute the converted file. Gemini converts
+through the file picker only; its uploader rejects synthetic drops, so on
+Gemini drag-and-drop/paste intentionally send the original file unconverted
+rather than lose it.
 Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
