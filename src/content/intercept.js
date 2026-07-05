@@ -53,7 +53,10 @@ const applyConfig = (c) => {
   routing = c.routing;
   showSavings = c.showSavings;
 };
-loadConfig().then(applyConfig).catch(() => {});
+// Awaited before routing any intercepted file, so an upload in the first
+// moments of a page load waits the few ms for the stored config instead of
+// racing ahead with the defaults. A failed load keeps the defaults (as before).
+const configReady = loadConfig().then(applyConfig).catch(() => {});
 onConfigChanged(applyConfig);
 
 function dataTransferWith(files) {
@@ -136,6 +139,9 @@ function findUsableFileInput() {
 // change handler — an assumption we don't want to be load-bearing. The cost is
 // a beat of extra latency on the clear files in the mixed-batch case only.
 async function resolveAndInject(preferredInput, fileArray) {
+  // Route with the user's stored config, not the defaults it may still be
+  // racing against right after page load.
+  await configReady;
   const immediate = [];
   const ambiguous = [];
   // Results actually sent as Markdown — the basis for the token-savings badge.
