@@ -244,14 +244,17 @@ test("normalizeConfig keeps onEmpty escalation only with a valid endpoint + targ
           match: { mime: ["application/pdf"], ext: ["pdf"] },
           action: "inbrowser",
           onEmpty: "companion",
-          endpoint: "http://127.0.0.1:8765/convert-raw",
+          // responseField pairs with /convert (JSON {"text": ...}); /convert-raw
+          // would need it omitted — keep this fixture a copyable, working config.
+          endpoint: "http://127.0.0.1:8765/convert",
           responseField: "text",
         },
       ],
     },
   });
   assert.equal(routing.rules[0].onEmpty, "companion");
-  assert.equal(routing.rules[0].endpoint, "http://127.0.0.1:8765/convert-raw");
+  assert.equal(routing.rules[0].endpoint, "http://127.0.0.1:8765/convert");
+  assert.equal(routing.rules[0].responseField, "text");
 });
 
 test("normalizeConfig drops onEmpty without an endpoint or with a bad target", () => {
