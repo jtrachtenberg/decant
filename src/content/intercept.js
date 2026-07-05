@@ -30,6 +30,7 @@
 
 import { convertFile, convertViaCompanion } from "../convert/index.js";
 import { companionAvailable } from "../convert/result.js";
+import { extractFigures, figuresSupported } from "../convert/figures.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -167,12 +168,17 @@ async function resolveAndInject(preferredInput, fileArray) {
 
   let chosen = [];
   if (ambiguous.length) {
-    // Offer the companion only when one is configured for every ambiguous file
-    // (so the single-file case — the norm — just checks that file's rule).
+    // Offer the richer choices only when every ambiguous file supports them
+    // (so the single-file case — the norm — just checks that file's rule/type):
+    // companion when an endpoint is configured, figures when the type's images
+    // are extractable zip entries and the document actually has some.
     const companion = ambiguous.every((r) => companionAvailable(r.rule));
+    const figures = ambiguous.every(
+      (r) => figuresSupported(r.file) && (r.meta?.images ?? 0) > 0
+    );
     let choice = "original";
     try {
-      choice = await promptConvertChoice(ambiguous, { companion });
+      choice = await promptConvertChoice(ambiguous, { companion, figures });
     } catch (err) {
       console.warn(TAG, "prompt failed, sending originals:", err);
     }
@@ -200,6 +206,22 @@ async function resolveAndInject(preferredInput, fileArray) {
       } finally {
         badge?.remove();
       }
+    } else if (choice === "figures") {
+      // Extract-and-reference (SPEC M3): attach the converted Markdown plus
+      // the document's own figures as sibling files. Extraction failing or
+      // finding nothing (all media junk-filtered) degrades to the text-only
+      // conversion — the upload itself is never blocked on it.
+      for (const r of ambiguous) {
+        chosen.push(r.converted);
+        try {
+          const figs = await extractFigures(r.file);
+          console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
+          chosen.push(...figs);
+        } catch (err) {
+          console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
+        }
+      }
+      converted.push(...ambiguous);
     } else {
       chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
       if (choice === "convert") converted.push(...ambiguous);

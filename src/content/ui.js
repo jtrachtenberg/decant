@@ -1,13 +1,16 @@
 // Decant — in-page prompt for ambiguous documents.
 //
-// promptConvertChoice(results, { companion }) shows a small panel near the
-// composer asking what to do with a text-plus-charts document, and resolves to
-// "convert" (in-browser Markdown, text only), "original", or — when a companion
-// is configured for the type (options.companion) — "companion" (send to the
-// local service, which can keep the visuals the text-only path drops). The
-// panel lives in a shadow root so the site's CSS can't reach it (and
-// vice-versa). Dismissing it (Escape / click outside / the X) resolves to
-// "original" — the safe default that never drops chart content.
+// promptConvertChoice(results, { companion, figures }) shows a small panel
+// near the composer asking what to do with a text-plus-charts document, and
+// resolves to "convert" (in-browser Markdown, text only), "original", or the
+// optional richer choices: "companion" (send to the local service, which can
+// keep the visuals — when an endpoint is configured for the type) and
+// "figures" (attach the converted text plus the document's own images as
+// sibling files — when the type supports extraction, SPEC M3
+// extract-and-reference). The panel lives in a shadow root so the site's CSS
+// can't reach it (and vice-versa). Dismissing it (Escape / click outside /
+// the X) resolves to "original" — the safe default that never drops chart
+// content.
 
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
@@ -17,6 +20,7 @@ const SAVINGS_ID = "decant-savings-badge";
 
 export function promptConvertChoice(results, options = {}) {
   const companion = !!options.companion;
+  const figures = !!options.figures;
   return new Promise((resolve) => {
     // Only one prompt at a time — replace any existing one.
     document.getElementById(HOST_ID)?.remove();
@@ -40,17 +44,32 @@ export function promptConvertChoice(results, options = {}) {
         : `${names.length} documents look like text with charts or images`;
     const detail = companion
       ? `Converting to text saves tokens but drops ${count}. The local companion can convert it and keep them, or send the original untouched.`
-      : `Converting to Markdown saves tokens but drops ${count}. Send the original to keep them.`;
+      : figures
+        ? `Converting to Markdown drops ${count} from the text — but they can ride along: attach the document's images as separate files next to the Markdown.`
+        : `Converting to Markdown saves tokens but drops ${count}. Send the original to keep them.`;
 
-    // With a companion, the recommended action is the higher-fidelity companion
-    // conversion; the buttons stack for room. Without one, the original 2-button
-    // row is unchanged.
-    const buttons = companion
-      ? `<button class="primary" data-choice="companion">Convert with companion</button>
-         <button class="secondary" data-choice="convert">Convert to Markdown (text only)</button>
-         <button class="secondary" data-choice="original">Send original</button>`
-      : `<button class="primary" data-choice="convert">Convert to Markdown</button>
-         <button class="secondary" data-choice="original">Send original</button>`;
+    // Optional richer choices go first; whichever is available leads as the
+    // recommended (primary) action. Three or more buttons stack for room;
+    // without extras the original 2-button row is unchanged.
+    const extras = [
+      companion && ["companion", "Convert with companion"],
+      figures && ["figures", "Convert + attach figures"],
+    ].filter(Boolean);
+    const convertLabel = extras.length
+      ? "Convert to Markdown (text only)"
+      : "Convert to Markdown";
+    const choices = [
+      ...extras,
+      ["convert", convertLabel],
+      ["original", "Send original"],
+    ];
+    const buttons = choices
+      .map(
+        ([choice, label], i) =>
+          `<button class="${i === 0 ? "primary" : "secondary"}" data-choice="${choice}">${label}</button>`
+      )
+      .join("\n");
+    const stack = choices.length > 2;
 
     root.innerHTML = `
       <style>
@@ -85,7 +104,7 @@ export function promptConvertChoice(results, options = {}) {
         <p class="brand">Decant</p>
         <p class="title"></p>
         <p class="detail"></p>
-        <div class="row ${companion ? "stack" : ""}">
+        <div class="row ${stack ? "stack" : ""}">
           ${buttons}
         </div>
       </div>
