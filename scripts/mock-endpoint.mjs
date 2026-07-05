@@ -56,6 +56,12 @@ async function parseUpload(req, body) {
   if (ct.startsWith("application/json")) {
     const { name, data } = JSON.parse(body.toString("utf8"));
     if (typeof data !== "string") throw new Error('JSON body has no base64 "data"');
+    // Strict validation, mirroring the companion's b64decode(validate=True):
+    // Buffer.from(data, "base64") is lenient, and a client bug that ships
+    // against a lenient mock would then 400 against the real service.
+    if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+      throw new Error("invalid base64 data");
+    }
     return {
       name: name || "upload",
       bytes: Buffer.from(data, "base64").length,
