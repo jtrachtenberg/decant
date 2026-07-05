@@ -183,6 +183,9 @@ async function resolveAndInject(preferredInput, fileArray) {
           badge = showConvertingBadge(r.file.name);
           try {
             chosen.push(await convertViaCompanion(r.file, r.rule));
+            // A companion conversion is sent as Markdown too — count it toward
+            // the savings badge exactly like the text-only choice does.
+            converted.push(r);
           } catch (err) {
             console.warn(TAG, `companion conversion failed for ${r.file.name} — sending original:`, err);
             chosen.push(r.file);
