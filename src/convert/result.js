@@ -1,8 +1,10 @@
 // Pure mapping from a PDF analysis outcome to the converter's return contract
-// (documented in index.js). Deliberately imports nothing — no pdf.js, no
-// chrome.* — so the mapping is unit-testable in Node (test/convert.test.mjs);
+// (documented in index.js). Deliberately imports nothing impure — no pdf.js,
+// no chrome.* — so the mapping is unit-testable in Node (test/convert.test.mjs);
 // index.js can't be imported there because its pdf.js dependency touches
-// chrome.runtime at module load.
+// chrome.runtime at module load. (config/defaults.js is pure, so it's fine.)
+
+import { isHttpEndpoint } from "../config/defaults.js";
 
 function markdownFile(original, markdown) {
   const name = original.name.replace(/\.[a-z0-9]+$/i, "") + ".md";
@@ -59,8 +61,7 @@ export function shouldEscalate(result, rule) {
     ESCALATE_REASONS.includes(result.reason) &&
     !!rule &&
     (rule.onEmpty === "companion" || rule.onEmpty === "http") &&
-    typeof rule.endpoint === "string" &&
-    /^https?:\/\//i.test(rule.endpoint)
+    isHttpEndpoint(rule.endpoint)
   );
 }
 
@@ -72,9 +73,5 @@ export function shouldEscalate(result, rule) {
 // actually configured, so browser-only users see just convert/original. Pure
 // and exported for direct unit testing.
 export function companionAvailable(rule) {
-  return (
-    !!rule &&
-    typeof rule.endpoint === "string" &&
-    /^https?:\/\//i.test(rule.endpoint)
-  );
+  return !!rule && isHttpEndpoint(rule.endpoint);
 }

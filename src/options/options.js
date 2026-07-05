@@ -4,7 +4,7 @@
 // re-register the content script.
 
 import { loadConfig, saveConfig } from "../config/config.js";
-import { DEFAULT_CONFIG, normalizeConfig } from "../config/defaults.js";
+import { DEFAULT_CONFIG, normalizeConfig, isHttpEndpoint } from "../config/defaults.js";
 
 const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
@@ -254,7 +254,7 @@ async function addRule() {
 
   if (carriesEndpoint) {
     const endpoint = endpointInput.value.trim();
-    if (!/^https?:\/\//i.test(endpoint)) {
+    if (!isHttpEndpoint(endpoint)) {
       status("This needs an endpoint URL (http:// or https://).");
       return;
     }

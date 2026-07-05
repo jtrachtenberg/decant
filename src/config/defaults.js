@@ -28,6 +28,14 @@ export const RULE_FALLBACKS = ["inbrowser", "passthrough"];
 // onEmpty steps forward when the browser comes up empty.
 export const RULE_ONEMPTY = ["companion", "http"];
 
+// Is this a usable companion/http endpoint URL? The single source of truth for
+// endpoint validation — the options form, rule normalization, and the runtime
+// escalation/ambiguous-prompt checks must all agree, or a rule accepted in one
+// place is silently rejected in another.
+export function isHttpEndpoint(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const XLSX_MIME =
@@ -206,7 +214,7 @@ function normalizeRule(r) {
   const endpoint = typeof r.endpoint === "string" ? r.endpoint.trim() : "";
   if (
     (r.action === "companion" || r.action === "http") &&
-    !/^https?:\/\//i.test(endpoint)
+    !isHttpEndpoint(endpoint)
   ) {
     return null;
   }
@@ -221,7 +229,7 @@ function normalizeRule(r) {
   // Forward escalation is opt-in and needs a real endpoint to escalate to; a
   // bad target or a missing endpoint drops it, leaving a plain inbrowser rule
   // that passes empty extractions through.
-  if (RULE_ONEMPTY.includes(r.onEmpty) && /^https?:\/\//i.test(endpoint)) {
+  if (RULE_ONEMPTY.includes(r.onEmpty) && isHttpEndpoint(endpoint)) {
     rule.onEmpty = r.onEmpty;
   }
   if (r.output && typeof r.output === "object") {
