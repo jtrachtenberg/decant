@@ -226,10 +226,15 @@ function normalizeRule(r) {
     onError: RULE_FALLBACKS.includes(r.onError) ? r.onError : "passthrough",
   };
   if (endpoint) rule.endpoint = endpoint;
-  // Forward escalation is opt-in and needs a real endpoint to escalate to; a
-  // bad target or a missing endpoint drops it, leaving a plain inbrowser rule
-  // that passes empty extractions through.
-  if (RULE_ONEMPTY.includes(r.onEmpty) && isHttpEndpoint(endpoint)) {
+  // Forward escalation is an inbrowser-rule concept (SPEC §3.3), opt-in, and
+  // needs a real endpoint to escalate to; a non-inbrowser action, bad target,
+  // or missing endpoint drops it, leaving a rule that passes empty
+  // extractions through.
+  if (
+    r.action === "inbrowser" &&
+    RULE_ONEMPTY.includes(r.onEmpty) &&
+    isHttpEndpoint(endpoint)
+  ) {
     rule.onEmpty = r.onEmpty;
   }
   if (r.output && typeof r.output === "object") {

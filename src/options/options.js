@@ -4,7 +4,18 @@
 // re-register the content script.
 
 import { loadConfig, saveConfig } from "../config/config.js";
-import { DEFAULT_CONFIG, normalizeConfig, isHttpEndpoint } from "../config/defaults.js";
+import {
+  DEFAULT_CONFIG,
+  normalizeConfig,
+  isHttpEndpoint,
+  RULE_ONEMPTY,
+} from "../config/defaults.js";
+
+// A rule escalates when it's in-browser and onEmpty names a real escalation
+// target — the same definition normalizeRule enforces, sharing RULE_ONEMPTY so
+// the form and the normalizer can't drift apart.
+const escalates = (action, onEmpty) =>
+  action === "inbrowser" && RULE_ONEMPTY.includes(onEmpty);
 
 const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
@@ -219,12 +230,9 @@ async function removeRule(index) {
 function syncRuleForm() {
   const action = document.getElementById("new-action").value;
   const onEmpty = document.getElementById("new-onempty").value;
-  const isInbrowser = action === "inbrowser";
-  document.getElementById("onempty-row").hidden = !isInbrowser;
+  document.getElementById("onempty-row").hidden = action !== "inbrowser";
   const needsEndpoint =
-    action === "companion" ||
-    action === "http" ||
-    (isInbrowser && (onEmpty === "companion" || onEmpty === "http"));
+    action === "companion" || action === "http" || escalates(action, onEmpty);
   document.getElementById("endpoint-row").hidden = !needsEndpoint;
   document.getElementById("responsefield-row").hidden = !needsEndpoint;
 }
@@ -248,8 +256,7 @@ async function addRule() {
 
   // A rule carries an endpoint when the action posts to one, or when an
   // in-browser rule escalates to one on an empty (scanned) extraction.
-  const escalating =
-    action === "inbrowser" && (onEmpty === "companion" || onEmpty === "http");
+  const escalating = escalates(action, onEmpty);
   const carriesEndpoint = action === "companion" || action === "http" || escalating;
 
   if (carriesEndpoint) {

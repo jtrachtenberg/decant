@@ -271,11 +271,21 @@ test("normalizeConfig drops onEmpty without an endpoint or with a bad target", (
           onEmpty: "passthrough",
           endpoint: "http://127.0.0.1:8765/ocr",
         },
+        // escalation is an inbrowser concept — a companion rule never comes up
+        // empty in the browser, so a stray onEmpty is stripped
+        {
+          match: { ext: ["csv"] },
+          action: "companion",
+          onEmpty: "http",
+          endpoint: "http://127.0.0.1:8765/convert",
+        },
       ],
     },
   });
   assert.equal(routing.rules[0].onEmpty, undefined);
   assert.equal(routing.rules[1].onEmpty, undefined);
+  assert.equal(routing.rules[2].onEmpty, undefined);
+  assert.equal(routing.rules[2].endpoint, "http://127.0.0.1:8765/convert"); // rule itself survives
 });
 
 test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
