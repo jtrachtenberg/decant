@@ -9,8 +9,11 @@ import JSZipNs from "jszip";
 import {
   extractFigures,
   figuresSupported,
+  sheetLayout,
   MIN_FIGURE_BYTES,
   MAX_FIGURES,
+  SHEET_TILE,
+  SHEET_CAPTION,
 } from "../src/convert/figures.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;
@@ -96,4 +99,32 @@ test("unsupported types and empty packages resolve to []", async () => {
   assert.deepEqual(await extractFigures(new File(["x"], "paper.pdf")), []);
   const empty = await zipFile("deck.pptx", { "ppt/slides/slide1.xml": "<a/>" });
   assert.deepEqual(await extractFigures(empty), []);
+});
+
+// --- contact-sheet layout (pure geometry; compositing is browser-only) ------
+
+test("sheetLayout is near-square, row-major, and fills the tile budget", () => {
+  assert.deepEqual(sheetLayout(1), {
+    cols: 1,
+    rows: 1,
+    width: SHEET_TILE,
+    height: SHEET_TILE + SHEET_CAPTION,
+  });
+  // 6 figures: 3 columns × 2 rows, not a 6-wide strip.
+  assert.deepEqual(sheetLayout(6), {
+    cols: 3,
+    rows: 2,
+    width: 3 * SHEET_TILE,
+    height: 2 * (SHEET_TILE + SHEET_CAPTION),
+  });
+  // 8 figures (the extraction cap): 3×3 grid with one empty cell.
+  const eight = sheetLayout(8);
+  assert.equal(eight.cols, 3);
+  assert.equal(eight.rows, 3);
+  // Every count fits: cells ≥ count, and never a whole empty row.
+  for (let n = 1; n <= MAX_FIGURES; n++) {
+    const { cols, rows } = sheetLayout(n);
+    assert.ok(cols * rows >= n, `n=${n} fits`);
+    assert.ok(cols * (rows - 1) < n, `n=${n} has no empty row`);
+  }
 });

@@ -30,7 +30,12 @@
 
 import { convertFile, convertViaCompanion } from "../convert/index.js";
 import { companionAvailable } from "../convert/result.js";
-import { extractFigures, figuresSupported } from "../convert/figures.js";
+import {
+  extractFigures,
+  figuresSupported,
+  combineFiguresToSheet,
+  MAX_FIGURES,
+} from "../convert/figures.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -87,8 +92,12 @@ function dataTransferWith(files) {
 // destroy), so intercepting would only lose the upload — interceptDrop/Paste
 // false steps aside and the native upload proceeds (picker path still
 // converts). See the gemini-adapter memory for the full investigation.
+// maxImageAttachments: the site's per-message image limit — more extracted
+// figures than this combine into one labeled contact sheet instead of being
+// dropped (see figures.js). claude.ai's limit is 5 (verify at QA); sites
+// without a known limit take the extraction cap as-is.
 const SITE_ADAPTERS = {
-  "claude.ai": { overlayCleanup: "placeholder-drop" },
+  "claude.ai": { overlayCleanup: "placeholder-drop", maxImageAttachments: 5 },
   "chatgpt.com": { overlayCleanup: "drag-exit" },
   "gemini.google.com": { interceptDrop: false, interceptPaste: false },
 };
@@ -211,12 +220,26 @@ async function resolveAndInject(preferredInput, fileArray) {
       // the document's own figures as sibling files. Extraction failing or
       // finding nothing (all media junk-filtered) degrades to the text-only
       // conversion — the upload itself is never blocked on it.
+      const maxImages = adapter.maxImageAttachments ?? MAX_FIGURES;
       for (const r of ambiguous) {
         chosen.push(r.converted);
         try {
           const figs = await extractFigures(r.file);
-          console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
-          chosen.push(...figs);
+          if (figs.length > maxImages) {
+            // Over the site's per-message image limit: one labeled contact
+            // sheet carries all of them instead of silently dropping the
+            // overflow. If compositing fails, attach what fits individually.
+            try {
+              chosen.push(await combineFiguresToSheet(figs, r.file.name));
+              console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
+            } catch (err) {
+              console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
+              chosen.push(...figs.slice(0, maxImages));
+            }
+          } else {
+            console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
+            chosen.push(...figs);
+          }
         } catch (err) {
           console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
         }
