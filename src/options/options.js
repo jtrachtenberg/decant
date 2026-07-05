@@ -32,10 +32,28 @@ function status(msg) {
   if (msg) setTimeout(() => (statusEl.textContent = ""), 2500);
 }
 
+// Persist, re-read the normalized form, re-render. Returns true when the save
+// stuck. chrome.storage.sync can reject (quota — 8KB/item — or transient
+// errors); then the in-memory edit is rolled back to what storage actually
+// holds, so the UI never shows state that didn't persist, and callers skip
+// their success status.
 async function commit() {
-  await saveConfig(config);
+  try {
+    await saveConfig(config);
+  } catch (err) {
+    console.warn("[decant] config save failed:", err);
+    try {
+      config = await loadConfig();
+    } catch {
+      // storage unreadable too — keep the in-memory config so the page stays usable
+    }
+    render();
+    status(`Save failed — ${err.message}`);
+    return false;
+  }
   config = await loadConfig(); // re-read normalized form
   render();
+  return true;
 }
 
 function render() {
@@ -95,7 +113,7 @@ async function toggleHost(host, cb) {
 async function removeHost(host) {
   config.activation.rules = config.activation.rules.filter((r) => r.match !== host);
   await chrome.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
-  await commit();
+  if (!(await commit())) return;
   status(`Removed ${host}.`);
 }
 
@@ -115,7 +133,7 @@ async function addHost() {
   const granted = await chrome.permissions.request({ origins: [pattern(host)] });
   config.activation.rules.push({ type: "host", match: host, enabled: granted });
   input.value = "";
-  await commit();
+  if (!(await commit())) return;
   status(
     granted
       ? `Added and enabled ${host}.`
@@ -215,13 +233,13 @@ async function toggleRule(index, enabled) {
   const rule = config.routing.rules[index];
   if (!rule) return;
   rule.enabled = enabled;
-  await commit();
+  if (!(await commit())) return;
   status(enabled ? "Rule enabled." : "Rule disabled.");
 }
 
 async function removeRule(index) {
   config.routing.rules.splice(index, 1);
-  await commit();
+  if (!(await commit())) return;
   status("Rule removed.");
 }
 
@@ -289,7 +307,7 @@ async function addRule() {
   responseFieldInput.value = "";
   document.getElementById("new-onempty").value = "";
   syncRuleForm();
-  await commit();
+  if (!(await commit())) return;
   status(
     granted
       ? "Rule added."
@@ -332,7 +350,7 @@ async function importJson() {
   );
 
   config = next;
-  await commit();
+  if (!(await commit())) return;
   textarea.value = JSON.stringify(config, null, 2); // show the normalized form
   status(
     "Config applied. Newly enabled hosts still need permission — toggle them to grant." +
@@ -396,7 +414,7 @@ function recordHotkey() {
       meta: e.metaKey,
     };
     cancel();
-    await commit();
+    if (!(await commit())) return;
     status("Hotkey updated.");
   };
   document.addEventListener("keydown", onKey, true);
@@ -405,7 +423,7 @@ function recordHotkey() {
 
 async function reset() {
   config = structuredClone(DEFAULT_CONFIG);
-  await commit();
+  if (!(await commit())) return;
   status("Reset to defaults.");
 }
 
@@ -428,7 +446,7 @@ async function init() {
   document.getElementById("record-hotkey").addEventListener("click", recordHotkey);
   showSavingsEl.addEventListener("change", async () => {
     config.showSavings = showSavingsEl.checked;
-    await commit();
+    if (!(await commit())) return;
     status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
   });
   document.getElementById("reset").addEventListener("click", reset);
