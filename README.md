@@ -215,12 +215,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
   companion"** choice on the ambiguous prompt when an endpoint is configured,
   for keeping the visuals the text-only path drops. Both are opt-in and
   endpoint-gated; a failed or unreachable companion always falls back without
-  losing the upload. Still open in M3: **figure descriptions** as a
-  first-class output, and **extract-and-reference** — attach the converted
-  Markdown *plus* the document's actual figures as sibling files (free for
-  PPTX/DOCX, whose images are just zip entries), so the model pays image
-  tokens only for figures that matter — likely a fourth choice on the
-  ambiguous prompt ("Convert + attach figures").
+  losing the upload. **Extract-and-reference** has landed for the zip
+  formats: an image-bearing PPTX/DOCX offers a **"Convert + attach figures"**
+  choice on the ambiguous prompt — the converted Markdown attaches *plus* the
+  document's actual images as sibling files (they're just zip entries, so
+  extraction is free), junk-filtered and capped, so the model pays image
+  tokens only for figures that matter. Still open in M3: **figure
+  descriptions** as a first-class output, and extract-and-reference for PDF
+  (decoding image XObjects out of pdf.js is the hard case).
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
