@@ -25,7 +25,7 @@
 
 import * as mammothNs from "mammoth/mammoth.browser.js";
 import JSZipNs from "jszip";
-import { rowsToMarkdownTable } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
 import { chartTablesFromZip } from "./chart.js";
 
 const mammoth = mammothNs.default ?? mammothNs;
@@ -85,7 +85,7 @@ export function docxAnalysis(rawMarkdown, charts = []) {
   );
   const body = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
   const chartBlocks = charts
-    .map((c) => (c.title ? `**${c.title}**\n\n` : "") + rowsToMarkdownTable(c.rows))
+    .map((c) => (c.title ? `**${escapeMdInline(c.title)}**\n\n` : "") + rowsToMarkdownTable(c.rows))
     .filter(Boolean);
 
   // Omission markers aren't content, but recovered chart tables are: a

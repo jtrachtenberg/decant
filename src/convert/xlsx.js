@@ -31,6 +31,22 @@ const JSZip = JSZipNs.default ?? JSZipNs;
 // Above this many populated cells the workbook passes through unconverted.
 export const MAX_CELLS = 50_000;
 
+// Escape a snippet of document text (a sheet name, chart title, bullet) for
+// use inline in Markdown we compose around it — inside a heading, bold label,
+// or list item. Newlines collapse (they'd end the construct and leak raw
+// lines); the structural characters — emphasis, code, brackets — are
+// backslash-escaped so a title like "**Q3** [draft]" reads as written instead
+// of restyling the output. Plain punctuation is left alone (same philosophy
+// as docx.js unescapePunctuation: only structural escapes are load-bearing).
+// Shared by the DOCX/XLSX/PPTX engines like rowsToMarkdownTable below, whose
+// cells have their own narrower escaping.
+export function escapeMdInline(text) {
+  return String(text ?? "")
+    .replace(/\r?\n/g, " ")
+    .replace(/([\\`*_[\]])/g, "\\$1")
+    .trim();
+}
+
 // Render one sheet's rows (array-of-arrays, as from sheet_to_json with
 // header:1) to a Markdown table. Pure — exported for direct unit testing.
 // The first row is treated as the header row, matching the overwhelmingly
@@ -88,7 +104,7 @@ export async function analyzeXlsx(file) {
       ? []
       : await chartTablesFromZip(await JSZip.loadAsync(buf), "xl/charts");
   const chartBlocks = charts.map(
-    (c) => `## Chart: ${c.title || "(untitled)"}\n\n${rowsToMarkdownTable(c.rows)}`
+    (c) => `## Chart: ${escapeMdInline(c.title) || "(untitled)"}\n\n${rowsToMarkdownTable(c.rows)}`
   );
 
   const summary = {
@@ -108,7 +124,7 @@ export async function analyzeXlsx(file) {
   // section heading per sheet, then the recovered charts.
   const single = sections.length === 1 && !chartBlocks.length;
   const sheetBlocks = sections.map((s) =>
-    single ? s.table : `## Sheet: ${s.name}\n\n${s.table}`
+    single ? s.table : `## Sheet: ${escapeMdInline(s.name)}\n\n${s.table}`
   );
   const markdown = [...sheetBlocks, ...chartBlocks].join("\n\n") + "\n";
 
