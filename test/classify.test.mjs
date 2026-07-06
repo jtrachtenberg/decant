@@ -95,6 +95,12 @@ test("appendOmittedImagesNote marks pages that had images, and only those", () =
   assert.equal(appendOmittedImagesNote("page text", 1), "page text\n\n[1 image omitted]");
   assert.equal(appendOmittedImagesNote("page text", 3), "page text\n\n[3 images omitted]");
   assert.equal(appendOmittedImagesNote("", 2), "[2 images omitted]");
+  // With a page number the marker is anchored, so it can be matched to an
+  // attached figures PDF (whose footer names document pages).
+  assert.equal(
+    appendOmittedImagesNote("page text", 2, 17),
+    "page text\n\n[2 images omitted — page 17]"
+  );
 });
 
 test("shouldScanImages scans every page at or below the ceiling", () => {

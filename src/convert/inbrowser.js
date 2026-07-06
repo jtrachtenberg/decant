@@ -64,7 +64,7 @@ export async function analyzePdf(file) {
       perPage.push({ chars: countChars(linesToText(lines)), images });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
-      pageMarkdown.push(appendOmittedImagesNote(linesToMarkdown(lines), images ?? 0));
+      pageMarkdown.push(appendOmittedImagesNote(linesToMarkdown(lines), images ?? 0, n));
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the
