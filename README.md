@@ -220,9 +220,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
   choice on the ambiguous prompt — the converted Markdown attaches *plus* the
   document's actual images as sibling files (they're just zip entries, so
   extraction is free), junk-filtered and capped, so the model pays image
-  tokens only for figures that matter. Still open in M3: **figure
-  descriptions** as a first-class output, and extract-and-reference for PDF
-  (decoding image XObjects out of pdf.js is the hard case).
+  tokens only for figures that matter. For **PDFs**, whose charts are vector
+  drawings with no image to extract, the figures choice renders the
+  classifier's detected chart pages to PNG instead — the model sees what the
+  page-image layer would have shown it, but only for the pages that carry
+  charts. Still open in M3: **figure descriptions** as a first-class output,
+  cropping PDF renders to the chart's region, and decoding standalone raster
+  XObjects.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
