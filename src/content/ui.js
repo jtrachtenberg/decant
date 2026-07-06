@@ -7,10 +7,12 @@
 // keep the visuals — when an endpoint is configured for the type) and
 // "figures" (attach the converted text plus the document's own images as
 // sibling files — when the type supports extraction, SPEC M3
-// extract-and-reference). The panel lives in a shadow root so the site's CSS
-// can't reach it (and vice-versa). Dismissing it (Escape / click outside /
-// the X) resolves to "original" — the safe default that never drops chart
-// content.
+// extract-and-reference). Resolves to { choice, remember }: remember is true
+// only when the "set as default" checkbox was ticked AND a button was
+// affirmatively clicked — dismissals never persist a default. The panel lives
+// in a shadow root so the site's CSS can't reach it (and vice-versa).
+// Dismissing it (Escape / the X) resolves to choice "original" — the safe
+// default that never drops chart content.
 
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
@@ -98,6 +100,9 @@ export function promptConvertChoice(results, options = {}) {
         .x { position: absolute; top: 8px; right: 10px; background: none; border: none;
           color: #9aa0aa; font-size: 16px; cursor: pointer; flex: none; padding: 2px 6px; }
         .x:hover { color: #fff; }
+        .remember { display: flex; align-items: center; gap: 6px; margin: 12px 0 0;
+          font-size: 12px; color: #9aa0aa; cursor: pointer; user-select: none; }
+        .remember input { accent-color: #6b5cff; margin: 0; }
       </style>
       <div class="wrap" role="dialog" aria-label="Decant conversion choice">
         <button class="x" data-choice="original" aria-label="Dismiss">✕</button>
@@ -107,29 +112,38 @@ export function promptConvertChoice(results, options = {}) {
         <div class="row ${stack ? "stack" : ""}">
           ${buttons}
         </div>
+        <label class="remember">
+          <input type="checkbox" id="remember" />
+          <span>Set as default (change anytime in Decant options)</span>
+        </label>
       </div>
     `;
     root.querySelector(".title").textContent = title;
     root.querySelector(".detail").textContent = detail;
 
     let done = false;
-    const finish = (choice) => {
+    const finish = (choice, remember) => {
       if (done) return;
       done = true;
       document.removeEventListener("keydown", onKey, true);
       host.remove();
-      resolve(choice);
+      resolve({ choice, remember: !!remember });
     };
     const onKey = (e) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        finish("original");
+        finish("original", false); // dismissal — never persists a default
       }
     };
 
-    root.querySelectorAll("[data-choice]").forEach((btn) =>
-      btn.addEventListener("click", () => finish(btn.dataset.choice))
+    const rememberBox = root.querySelector("#remember");
+    root.querySelectorAll(".row [data-choice]").forEach((btn) =>
+      btn.addEventListener("click", () =>
+        finish(btn.dataset.choice, rememberBox.checked)
+      )
     );
+    // The ✕ is a dismissal, not a choice — it never persists a default.
+    root.querySelector(".x").addEventListener("click", () => finish("original", false));
     document.addEventListener("keydown", onKey, true);
 
     document.body.appendChild(host);

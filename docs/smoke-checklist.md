@@ -47,6 +47,11 @@ expected attachment and the service-worker/page console agrees.
       5 figures attaches ONE `<name>-figures.png` grid instead: every figure
       tiled with its name captioned under it, borders visible, captions
       legible. (Verify claude.ai's actual per-message image limit while here.)
+- [ ] **Ambiguous default** — tick “Set as default” on the prompt and pick a
+      choice → next ambiguous upload applies it without prompting; the options
+      page dropdown (Behavior) shows it and setting back to “ask each time”
+      restores the prompt. Dismissing with ✕/Escape while the box is ticked
+      does NOT save a default.
 - [ ] **PDF chart pages as figures** — an ambiguous PDF (text + chart pages,
       e.g. the WHO doc) offers the figures choice; picking it attaches the
       `.md` plus ONE `<name>-charts.pdf` containing just the chart pages

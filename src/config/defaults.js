@@ -36,6 +36,14 @@ export function isHttpEndpoint(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url);
 }
 
+// What to do with an ambiguous document (text plus charts/images). "ask" shows
+// the prompt (the shipped default — automation is opt-in, never a silent
+// verdict); the rest apply that prompt choice automatically, set either from
+// the options page or the prompt's "set as default" checkbox. A remembered
+// choice that isn't available for a given batch (no companion endpoint, type
+// without extractable figures) falls back to asking.
+export const AMBIGUOUS_CHOICES = ["ask", "convert", "figures", "companion", "original"];
+
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const XLSX_MIME =
@@ -132,6 +140,8 @@ export const DEFAULT_CONFIG = {
   hotkey: { code: "KeyO", alt: true, shift: true, ctrl: false, meta: false },
   // Show the estimated token-savings badge after a conversion.
   showSavings: true,
+  // Ambiguous documents prompt by default; see AMBIGUOUS_CHOICES.
+  ambiguousDefault: "ask",
 };
 
 // Enabled host patterns from a config, lower-cased and de-duplicated.
@@ -168,6 +178,9 @@ export function normalizeConfig(stored) {
     routing: normalizeRouting(stored.routing, stored.version),
     hotkey: normalizeHotkey(stored.hotkey),
     showSavings: stored.showSavings !== false,
+    ambiguousDefault: AMBIGUOUS_CHOICES.includes(stored.ambiguousDefault)
+      ? stored.ambiguousDefault
+      : "ask",
   };
 }
 

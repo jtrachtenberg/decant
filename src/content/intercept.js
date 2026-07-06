@@ -46,7 +46,7 @@ import {
   showSavingsBadge,
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
-import { loadConfig, onConfigChanged } from "../config/config.js";
+import { loadConfig, saveConfig, onConfigChanged } from "../config/config.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const TAG = "[decant]";
@@ -57,9 +57,11 @@ const SENTINEL = "__decantSynthetic";
 // options-page edits.
 let routing = DEFAULT_CONFIG.routing;
 let showSavings = DEFAULT_CONFIG.showSavings;
+let ambiguousDefault = DEFAULT_CONFIG.ambiguousDefault;
 const applyConfig = (c) => {
   routing = c.routing;
   showSavings = c.showSavings;
+  ambiguousDefault = c.ambiguousDefault;
 };
 // Awaited before routing any intercepted file, so an upload in the first
 // moments of a page load waits the few ms for the stored config instead of
@@ -190,11 +192,29 @@ async function resolveAndInject(preferredInput, fileArray) {
         (figuresSupported(r.file) && (r.meta?.images ?? 0) > 0) ||
         pdfFiguresAvailable(r.meta)
     );
+    // A remembered default (set from the prompt's checkbox or the options
+    // page) skips the prompt — but only when it's available for this batch;
+    // a companion/figures default that can't apply falls back to asking
+    // rather than silently picking something else.
+    const available = { convert: true, original: true, companion, figures };
     let choice = "original";
-    try {
-      choice = await promptConvertChoice(ambiguous, { companion, figures });
-    } catch (err) {
-      console.warn(TAG, "prompt failed, sending originals:", err);
+    if (ambiguousDefault !== "ask" && available[ambiguousDefault]) {
+      choice = ambiguousDefault;
+      console.log(TAG, `ambiguous default applied: ${choice} (change in options)`);
+    } else {
+      try {
+        const res = await promptConvertChoice(ambiguous, { companion, figures });
+        choice = res.choice;
+        if (res.remember) {
+          // Fire-and-forget: the default applies from the next upload on
+          // either way (onConfigChanged also updates this tab).
+          loadConfig()
+            .then((c) => saveConfig({ ...c, ambiguousDefault: res.choice }))
+            .catch((err) => console.warn(TAG, "couldn't save ambiguous default:", err));
+        }
+      } catch (err) {
+        console.warn(TAG, "prompt failed, sending originals:", err);
+      }
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
 
