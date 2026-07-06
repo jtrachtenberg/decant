@@ -5,7 +5,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PDFDocument } from "pdf-lib";
-import { buildChartPagesPdf, MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
+import {
+  buildChartPagesPdf,
+  MAX_SUBSET_PAGES,
+  STAMP_STRIP_PT,
+} from "../src/convert/pdf-subset.js";
 
 // An n-page PDF whose page widths encode their 1-based number (100 + n), so
 // assertions can tell exactly which pages were copied.
@@ -65,13 +69,13 @@ test("page cap holds at MAX_SUBSET_PAGES, keeping the first pages", async () => 
   assert.equal(out.pages[0], 1); // capped from the front
 });
 
-test("a cropped page embeds at the crop's size; others copy whole", async () => {
+test("a cropped page embeds at the crop's size (plus stamp strip); others copy whole", async () => {
   const src = await makePdf(5);
   const crops = new Map([[2, { png: PNG_1x1, widthPt: 300, heightPt: 180 }]]);
   const out = await buildChartPagesPdf(src, { chartPageNumbers: [2, 4] }, crops);
   assert.deepEqual(out.pages, [2, 4]);
   assert.deepEqual(await pageSizes(out.file), [
-    [300, 180], // page 2 → tight figure crop
-    [104, 200], // page 4 → whole-page vector copy
+    [300, Math.round(180 + STAMP_STRIP_PT)], // crop + "document page 2" strip
+    [104, 200], // whole-page vector copy (stamp overlays, size unchanged)
   ]);
 });

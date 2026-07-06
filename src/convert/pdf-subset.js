@@ -13,13 +13,45 @@
 // Built with pdf-lib (pure JS, no chrome.*), so unlike the pdf.js modules
 // this unit-tests in Node.
 
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 // Page cap: each subset page still costs the platform's per-page image render
 // (~hundreds of tokens), so a pathological chart-every-page document
 // shouldn't smuggle the whole report back in. Generous for real reports —
 // the WHO-scale case is ~11.
 export const MAX_SUBSET_PAGES = 20;
+
+// Every mini-PDF page is stamped "document page N" so the label rides in the
+// page content itself — the model can associate a figure with the text's
+// "[images omitted — page N]" markers no matter how the platform numbers or
+// reorders attachment pages. Crop pages get a strip added above the figure;
+// whole-page copies get the label overlaid in the top margin.
+export const STAMP_STRIP_PT = 16;
+const STAMP_FONT_PT = 10;
+
+async function stamper(out) {
+  const font = await out.embedFont(StandardFonts.Helvetica);
+  return (page, n, { strip }) => {
+    const text = `document page ${n}`;
+    const w = font.widthOfTextAtSize(text, STAMP_FONT_PT);
+    const y = page.getHeight() - (strip ? STAMP_STRIP_PT : 18);
+    page.drawRectangle({
+      x: strip ? 0 : 4,
+      y,
+      width: strip ? page.getWidth() : w + 10,
+      height: strip ? STAMP_STRIP_PT : STAMP_FONT_PT + 4,
+      color: rgb(0.93, 0.93, 0.95),
+      opacity: strip ? 1 : 0.85,
+    });
+    page.drawText(text, {
+      x: strip ? 6 : 9,
+      y: y + 3.5,
+      size: STAMP_FONT_PT,
+      font,
+      color: rgb(0.15, 0.15, 0.2),
+    });
+  };
+}
 
 // Build "<doc>-charts.pdf" from the chart pages, or null when there's nothing
 // to subset. Throws on documents pdf-lib can't load (e.g. encrypted) — the
@@ -44,20 +76,26 @@ export async function buildChartPagesPdf(file, meta, crops = null) {
   if (!pages.length) return null;
 
   const out = await PDFDocument.create();
+  const stamp = await stamper(out);
   for (const n of pages) {
     const crop = crops?.get?.(n);
     if (crop) {
+      // Crop pages grow a strip above the figure for the stamp, so the label
+      // never covers chart content.
       const img = await out.embedPng(crop.png);
-      const page = out.addPage([crop.widthPt, crop.heightPt]);
+      const page = out.addPage([crop.widthPt, crop.heightPt + STAMP_STRIP_PT]);
       page.drawImage(img, {
         x: 0,
         y: 0,
         width: crop.widthPt,
         height: crop.heightPt,
       });
+      stamp(page, n, { strip: true });
     } else {
+      // Whole-page copies can't grow, so the label overlays the top margin.
       const [copied] = await out.copyPages(src, [n - 1]);
-      out.addPage(copied);
+      const page = out.addPage(copied);
+      stamp(page, n, { strip: false });
     }
   }
   const bytes = await out.save();
