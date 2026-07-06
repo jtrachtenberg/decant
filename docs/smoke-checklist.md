@@ -49,9 +49,11 @@ expected attachment and the service-worker/page console agrees.
       legible. (Verify claude.ai's actual per-message image limit while here.)
 - [ ] **PDF chart pages as figures** — an ambiguous PDF (text + chart pages,
       e.g. the WHO doc) offers the figures choice; picking it attaches the
-      `.md` plus `<name>-pN.png` renders of the chart pages (crisp at ~2×,
-      chart text readable). Overflow slices to the site limit — page renders
-      never contact-sheet.
+      `.md` plus ONE `<name>-charts.pdf` containing just the chart pages
+      (native fidelity; a document attachment, so it doesn't count against the
+      image limit). Open the mini-PDF and confirm the right pages made it.
+      An encrypted PDF falls back to `<name>-pN.png` page renders, sliced to
+      the site's image limit.
 - [ ] **Passthrough** — a scanned / no-text PDF attaches unchanged (no prompt).
 - [ ] **Passthrough hotkey** — press `Alt+Shift+O` (badge appears), then drop a
       convertible file → the **original** attaches, badge clears. Press again /

@@ -221,12 +221,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
   document's actual images as sibling files (they're just zip entries, so
   extraction is free), junk-filtered and capped, so the model pays image
   tokens only for figures that matter. For **PDFs**, whose charts are vector
-  drawings with no image to extract, the figures choice renders the
-  classifier's detected chart pages to PNG instead — the model sees what the
-  page-image layer would have shown it, but only for the pages that carry
-  charts. Still open in M3: **figure descriptions** as a first-class output,
-  cropping PDF renders to the chart's region, and decoding standalone raster
-  XObjects.
+  drawings with no image to extract, the figures choice rebuilds the upload
+  as a **chart-pages-only mini-PDF** — one document attachment (it doesn't
+  count against per-message image limits), rendered natively by the platform
+  at full fidelity, so an 88-page report with 11 chart pages becomes cheap
+  Markdown text plus an 11-page visual appendix. Documents pdf-lib can't
+  rebuild (e.g. encrypted) fall back to per-page PNG renders. Still open in
+  M3: **figure descriptions** as a first-class output, and decoding
+  standalone raster XObjects.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
