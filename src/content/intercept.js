@@ -269,6 +269,9 @@ async function resolveAndInject(preferredInput, fileArray) {
         // ahead of its figures.
         const attachments = [];
         let note = null;
+        // Pages whose image layer we reattach (mini-PDF pages / page renders)
+        // were NOT saved — the savings estimate nets them out.
+        let attachedFigurePages = 0;
         try {
           if (figuresSupported(r.file)) {
             // Zip formats (PPTX/DOCX): pull the media entries. Over the
@@ -313,6 +316,7 @@ async function resolveAndInject(preferredInput, fileArray) {
               const subset = await buildChartPagesPdf(r.file, r.meta, crops);
               if (subset) {
                 attachments.push(subset.file);
+                attachedFigurePages = subset.pages.length;
                 note =
                   `The figures from this document are attached as "${subset.file.name}" ` +
                   `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
@@ -322,6 +326,7 @@ async function resolveAndInject(preferredInput, fileArray) {
               console.warn(TAG, `chart-pages PDF failed for ${r.file.name} — rendering pages:`, err);
               const figs = (await extractPdfFigures(r.file, r.meta)).slice(0, maxImages);
               attachments.push(...figs);
+              attachedFigurePages = figs.length;
               if (figs.length) {
                 note = `The document's figure pages are attached as images: ${figs
                   .map((f) => {
@@ -337,8 +342,11 @@ async function resolveAndInject(preferredInput, fileArray) {
         }
         chosen.push(note ? await withFiguresNote(r.converted, note) : r.converted);
         chosen.push(...attachments);
+        // Count toward the savings badge with the reattached pages netted out.
+        converted.push(
+          attachedFigurePages ? { ...r, attachedFigurePages } : r
+        );
       }
-      converted.push(...ambiguous);
     } else {
       chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
       if (choice === "convert") converted.push(...ambiguous);

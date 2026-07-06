@@ -28,19 +28,28 @@ export const IMAGE_TOKENS_PER_PAGE = 500;
 // aren't page-rendered the same way, so we don't claim savings there (yet).
 // Returns { savedTokens, markdownTokens, originalTokens }.
 //
-// NOTE for when Office savings land: the ambiguous prompt's "Convert + attach
-// figures" choice (Office-only today) sends the Markdown PLUS the document's
-// images — each attached figure costs real image tokens on the destination
-// model. An Office estimate must net that cost out, or the badge overstates
-// savings exactly when the user chose to pay for images. Today this is moot
-// by construction: figure-choice results are Office results, which return
-// null here, so the badge stays silent rather than wrong.
+// The ambiguous prompt's "Convert + attach figures" choice sends the Markdown
+// PLUS figure attachments the destination re-renders — those pages' image
+// cost was NOT saved. The caller records how many pages it reattached
+// (result.attachedFigurePages) and each is netted out at the full per-page
+// figure, which under-promises: a cropped figure costs less than the whole
+// page it came from.
+//
+// NOTE for when Office savings land: the same netting applies to attached
+// zip figures / contact sheets. Today Office results return null here, so
+// their badge stays silent rather than wrong.
 export function estimateSavings(result) {
   const meta = result?.meta;
   if (meta?.pageCount == null) return null;
   const markdownTokens = estimateTokens(meta.totalChars);
-  const savedTokens = meta.pageCount * IMAGE_TOKENS_PER_PAGE;
-  return { savedTokens, markdownTokens, originalTokens: markdownTokens + savedTokens };
+  const reattached = Math.max(0, result.attachedFigurePages || 0);
+  const savedTokens =
+    Math.max(0, meta.pageCount - reattached) * IMAGE_TOKENS_PER_PAGE;
+  // The original's full cost includes every page's image layer — also the
+  // reattached ones (they were part of the original upload's price).
+  const originalTokens =
+    markdownTokens + meta.pageCount * IMAGE_TOKENS_PER_PAGE;
+  return { savedTokens, markdownTokens, originalTokens };
 }
 
 // Sum the estimable savings across a batch of converted results. Returns

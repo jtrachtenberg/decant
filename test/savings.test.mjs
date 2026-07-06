@@ -32,6 +32,18 @@ test("estimateSavings on a PDF = eliminated page-images plus the text base", () 
   assert.equal(s.originalTokens, 2000 + 10 * IMAGE_TOKENS_PER_PAGE);
 });
 
+test("reattached figure pages are netted out of the savings claim", () => {
+  // "Convert + attach figures" on an 88-page PDF with 11 chart pages: the
+  // 11 reattached pages' image layer was NOT saved.
+  const s = estimateSavings({ ...pdf(88, 100000), attachedFigurePages: 11 });
+  assert.equal(s.savedTokens, (88 - 11) * IMAGE_TOKENS_PER_PAGE);
+  // The original's price still includes every page — percent stays honest.
+  assert.equal(s.originalTokens, 25000 + 88 * IMAGE_TOKENS_PER_PAGE);
+  // Degenerate: everything reattached → nothing saved, never negative.
+  const zero = estimateSavings({ ...pdf(5, 4000), attachedFigurePages: 9 });
+  assert.equal(zero.savedTokens, 0);
+});
+
 test("estimateSavings returns null for non-PDF results (no pageCount)", () => {
   assert.equal(estimateSavings({ action: "converted", meta: { images: 2 } }), null);
   assert.equal(estimateSavings({ action: "converted", meta: { sheets: 1 } }), null);
