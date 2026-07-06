@@ -92,6 +92,62 @@ test("two-column page reads left column fully, then right", () => {
   assert.ok(lastLeft < firstRight, "left column should precede right column");
 });
 
+test("two columns on independent baselines still read column-first", () => {
+  // The WHO "World health statistics" p.17 regression: the two columns are
+  // typeset on offset baselines (a taller subheading in the left column knocks
+  // its grid out of sync with the right), so NO row contains both columns.
+  // findGutter reads each row's interior gutter gap and thus sees nothing, and
+  // the page used to fall back to single-region y-order — interleaving the
+  // columns into false sentences. A short subheading that happens to share a
+  // right-column baseline was the worst case: it merged with the right line into
+  // "2.4.1 Global subsection <right text>", exactly the reported symptom.
+  const LEFT = 0;
+  const RIGHT = 150;
+  const items = [];
+  // Right column: 10 continuous prose lines on grid y = 270 - 14k.
+  for (let k = 0; k < 10; k++) {
+    items.push(item(`rightcol line ${k} onward`, RIGHT, 270 - k * 14, { w: 70, h: 10 }));
+  }
+  // Left column prose, baselines offset +7 from the right grid (never merge).
+  [277, 263, 249].forEach((y, k) =>
+    items.push(item(`leftcol line ${k + 1} onward`, LEFT, y, { w: 70, h: 10 }))
+  );
+  // Short subheading, taller font, sharing the right-grid baseline y=200 (k=5),
+  // with whitespace around it in the left column.
+  items.push(item("2.4.1 Global subsection", LEFT, 200, { w: 90, h: 14 }));
+  // Whitespace below the subheading before the left column resumes.
+  [180, 166, 152, 138].forEach((y, k) =>
+    items.push(item(`leftcol line ${k + 4} onward`, LEFT, y, { w: 70, h: 10 }))
+  );
+
+  const lines = linesToMarkdown(reconstructLines(items))
+    .split("\n")
+    .filter((l) => l.trim());
+
+  // No line may mix the two columns, and the subheading must not swallow a
+  // right-column line.
+  for (const l of lines) {
+    assert.ok(
+      !(l.includes("leftcol") && l.includes("rightcol")),
+      `columns interleaved on one line: "${l}"`
+    );
+    assert.ok(
+      !(l.includes("Global subsection") && l.includes("rightcol")),
+      `subheading joined a right-column line: "${l}"`
+    );
+  }
+  // The subheading is emitted as its own heading.
+  assert.ok(
+    lines.some((l) => /^#+\s+2\.4\.1 Global subsection$/.test(l)),
+    "subheading not emitted as its own heading:\n" + lines.join("\n")
+  );
+  // Left column reads fully before the right column.
+  const lastLeft = lines.findIndex((l) => l.includes("leftcol line 7"));
+  const firstRight = lines.findIndex((l) => l.includes("rightcol line 0"));
+  assert.ok(lastLeft >= 0 && firstRight >= 0, "both columns present");
+  assert.ok(lastLeft < firstRight, "left column should precede right column");
+});
+
 test("single-column page is unaffected by column detection", () => {
   const items = [];
   for (let k = 1; k <= 10; k++) {

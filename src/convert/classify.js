@@ -710,13 +710,78 @@ function columnRegions(boxes, hint = null) {
 // into columns.
 function detectGutter(rows, med) {
   if (rows.length < MIN_COL_ROWS) return null;
-  const gx = findGutter(rows, med);
+  // findGutter reads each row's interior gutter gap, so it needs rows that hold
+  // both columns (shared baselines). When the columns are typeset on independent
+  // baselines — no row holds both — it sees nothing; findGutterByColumnStarts
+  // recovers the gutter from the two left-edge bands instead.
+  const gx = findGutter(rows, med) ?? findGutterByColumnStarts(rows, med);
   if (gx == null) return null;
   const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
   if (colRows.length < MIN_COL_ROWS) return null;
   const top = Math.max(...colRows.map((r) => r.y1));
   const bottom = Math.min(...colRows.map((r) => r.y0));
   if (top - bottom < MIN_COL_HEIGHT * med) return null;
+  return gx;
+}
+
+// Fallback gutter detection for columns whose baselines don't line up. Two
+// columns on independent baselines (a taller heading in one column offsets its
+// grid, or the columns simply start at different y) never share a row, so
+// findGutter's per-row gutter gap sees nothing. But the rows then fall into two
+// left-edge bands — the left margin, and the right column's start — and the
+// gutter sits just left of the right band. Confirmed only when a real vertical
+// whitespace corridor separates the columns: each side has enough rows entirely
+// on its own side of the gutter, both span enough height, and clear whitespace
+// lies between the left content's right edge and the right column's start. A
+// single-column page (one band) or a hanging indent (left content crosses the
+// candidate, so few rows sit entirely left of it) fails these and stays whole.
+function findGutterByColumnStarts(rows, med) {
+  const starts = [];
+  for (const r of rows) {
+    let min = Infinity;
+    for (const b of r.boxes) if (!b.ws && b.x0 < min) min = b.x0;
+    if (min !== Infinity) starts.push(min);
+  }
+  if (starts.length < 2 * MIN_COL_ROWS) return null;
+
+  const bands = bandSupport(starts, med)
+    .filter((b) => b.support >= MIN_COL_ROWS)
+    .sort((a, b) => a.x - b.x);
+  if (bands.length < 2) return null;
+  const leftBand = bands[0].x;
+  const rightBand = bands.find((b) => b.x > leftBand + V_GUTTER * med);
+  if (!rightBand) return null;
+  const gx = rightBand.x - 1;
+
+  // Measure the columns from rows that sit wholly on one side (a full-width
+  // heading straddles gx and is skipped, so it can't collapse the corridor).
+  let leftRows = 0;
+  let rightRows = 0;
+  let leftMaxX1 = -Infinity;
+  let rightMinX0 = Infinity;
+  let leftTop = -Infinity;
+  let leftBot = Infinity;
+  let rightTop = -Infinity;
+  let rightBot = Infinity;
+  for (const r of rows) {
+    const content = r.boxes.filter((b) => !b.ws);
+    if (!content.length) continue;
+    if (content.every((b) => (b.x0 + b.x1) / 2 < gx)) {
+      leftRows++;
+      for (const b of content) if (b.x1 > leftMaxX1) leftMaxX1 = b.x1;
+      leftTop = Math.max(leftTop, r.y1);
+      leftBot = Math.min(leftBot, r.y0);
+    } else if (content.every((b) => (b.x0 + b.x1) / 2 >= gx)) {
+      rightRows++;
+      for (const b of content) if (b.x0 < rightMinX0) rightMinX0 = b.x0;
+      rightTop = Math.max(rightTop, r.y1);
+      rightBot = Math.min(rightBot, r.y0);
+    }
+  }
+  if (leftRows < MIN_COL_ROWS || rightRows < MIN_COL_ROWS) return null;
+  if (leftTop - leftBot < MIN_COL_HEIGHT * med) return null;
+  if (rightTop - rightBot < MIN_COL_HEIGHT * med) return null;
+  if (rightMinX0 - leftMaxX1 < V_GUTTER * med) return null;
   return gx;
 }
 
