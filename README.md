@@ -220,9 +220,15 @@ on it fall back gracefully (in-browser conversion or passthrough).
   choice on the ambiguous prompt — the converted Markdown attaches *plus* the
   document's actual images as sibling files (they're just zip entries, so
   extraction is free), junk-filtered and capped, so the model pays image
-  tokens only for figures that matter. Still open in M3: **figure
-  descriptions** as a first-class output, and extract-and-reference for PDF
-  (decoding image XObjects out of pdf.js is the hard case).
+  tokens only for figures that matter. For **PDFs**, whose charts are vector
+  drawings with no image to extract, the figures choice rebuilds the upload
+  as a **chart-pages-only mini-PDF** — one document attachment (it doesn't
+  count against per-message image limits), rendered natively by the platform
+  at full fidelity, so an 88-page report with 11 chart pages becomes cheap
+  Markdown text plus an 11-page visual appendix. Documents pdf-lib can't
+  rebuild (e.g. encrypted) fall back to per-page PNG renders. Still open in
+  M3: **figure descriptions** as a first-class output, and decoding
+  standalone raster XObjects.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,

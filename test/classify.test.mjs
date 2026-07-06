@@ -39,6 +39,23 @@ test("text with many image-charts → ambiguous (WHO profile)", () => {
   const res = classifyDocument(pages);
   assert.equal(res.decision, "ambiguous");
   assert.equal(res.summary.chartPages, 11);
+  // The summary names WHICH pages (1-based) so pdf-figures.js can render
+  // exactly the chart pages: 78..88 here.
+  assert.deepEqual(
+    res.summary.chartPageNumbers,
+    Array.from({ length: 11 }, (_, i) => 78 + i)
+  );
+});
+
+test("chartPageNumbers stays consistent with the chartPages count", () => {
+  const res = classifyDocument([
+    { chars: 2000, images: 0 },
+    { chars: 2000, images: 1 }, // page 2 — chart page
+    { chars: 10, images: 3 }, // image-only page: not a chart page (no text)
+    { chars: 2000, images: 2 }, // page 4 — chart page
+  ]);
+  assert.deepEqual(res.summary.chartPageNumbers, [2, 4]);
+  assert.equal(res.summary.chartPages, 2);
 });
 
 test("text with a single incidental image → convert (header logo)", () => {

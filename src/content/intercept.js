@@ -36,6 +36,8 @@ import {
   combineFiguresToSheet,
   MAX_FIGURES,
 } from "../convert/figures.js";
+import { extractPdfFigures, pdfFiguresAvailable } from "../convert/pdf-figures.js";
+import { buildChartPagesPdf } from "../convert/pdf-subset.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -179,11 +181,14 @@ async function resolveAndInject(preferredInput, fileArray) {
   if (ambiguous.length) {
     // Offer the richer choices only when every ambiguous file supports them
     // (so the single-file case — the norm — just checks that file's rule/type):
-    // companion when an endpoint is configured, figures when the type's images
-    // are extractable zip entries and the document actually has some.
+    // companion when an endpoint is configured, figures when the document's
+    // images are recoverable — extractable zip entries (PPTX/DOCX) or
+    // renderable chart pages (PDF).
     const companion = ambiguous.every((r) => companionAvailable(r.rule));
     const figures = ambiguous.every(
-      (r) => figuresSupported(r.file) && (r.meta?.images ?? 0) > 0
+      (r) =>
+        (figuresSupported(r.file) && (r.meta?.images ?? 0) > 0) ||
+        pdfFiguresAvailable(r.meta)
     );
     let choice = "original";
     try {
@@ -224,21 +229,40 @@ async function resolveAndInject(preferredInput, fileArray) {
       for (const r of ambiguous) {
         chosen.push(r.converted);
         try {
-          const figs = await extractFigures(r.file);
-          if (figs.length > maxImages) {
-            // Over the site's per-message image limit: one labeled contact
-            // sheet carries all of them instead of silently dropping the
-            // overflow. If compositing fails, attach what fits individually.
-            try {
-              chosen.push(await combineFiguresToSheet(figs, r.file.name));
-              console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
-            } catch (err) {
-              console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
-              chosen.push(...figs.slice(0, maxImages));
+          if (figuresSupported(r.file)) {
+            // Zip formats (PPTX/DOCX): pull the media entries. Over the
+            // site's per-message image limit they combine into one labeled
+            // contact sheet; if compositing fails, attach what fits.
+            const figs = await extractFigures(r.file);
+            if (figs.length > maxImages) {
+              try {
+                chosen.push(await combineFiguresToSheet(figs, r.file.name));
+                console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
+              } catch (err) {
+                console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
+                chosen.push(...figs.slice(0, maxImages));
+              }
+            } else {
+              console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
+              chosen.push(...figs);
             }
           } else {
-            console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
-            chosen.push(...figs);
+            // PDF: one chart-pages-only mini-PDF. A document attachment
+            // doesn't count against the image limit, and the platform
+            // renders its pages natively — full fidelity, no tiles. Falls
+            // back to page renders (sliced to the image limit) when pdf-lib
+            // can't rebuild the document (e.g. encrypted).
+            try {
+              const subset = await buildChartPagesPdf(r.file, r.meta);
+              if (subset) {
+                console.log(TAG, `attaching chart-pages PDF (${r.meta.chartPageNumbers.length} pages) for ${r.file.name}`);
+                chosen.push(subset);
+              }
+            } catch (err) {
+              console.warn(TAG, `chart-pages PDF failed for ${r.file.name} — rendering pages:`, err);
+              const figs = await extractPdfFigures(r.file, r.meta);
+              chosen.push(...figs.slice(0, maxImages));
+            }
           }
         } catch (err) {
           console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
