@@ -149,7 +149,22 @@
   </section>
 
   <section>
-    <h2>Notifications</h2>
+    <h2>Behavior</h2>
+    <label class="row-gap">
+      <span class="host">When a document is text plus charts/images:</span>
+      <select id="ambiguous-default">
+        <option value="ask">ask each time</option>
+        <option value="convert">convert to Markdown (text only)</option>
+        <option value="figures">convert + attach figures</option>
+        <option value="companion">convert with the local companion</option>
+        <option value="original">send the original</option>
+      </select>
+    </label>
+    <p class="hint">
+      The in-page prompt's “Set as default” checkbox changes this too. A choice
+      that isn't possible for a file (no companion endpoint configured, no
+      extractable figures) falls back to asking.
+    </p>
     <label>
       <input id="show-savings" type="checkbox" />
       <span class="host">Show the estimated token-savings badge after a conversion</span>

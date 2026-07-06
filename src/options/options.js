@@ -21,6 +21,7 @@ const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
 const showSavingsEl = document.getElementById("show-savings");
+const ambiguousDefaultEl = document.getElementById("ambiguous-default");
 const statusEl = document.getElementById("status");
 
 let config;
@@ -61,6 +62,7 @@ function render() {
   renderRules();
   hotkeyDisplay.textContent = formatHotkey(config.hotkey);
   showSavingsEl.checked = config.showSavings;
+  ambiguousDefaultEl.value = config.ambiguousDefault;
 }
 
 function renderHosts() {
@@ -448,6 +450,15 @@ async function init() {
     config.showSavings = showSavingsEl.checked;
     if (!(await commit())) return;
     status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
+  });
+  ambiguousDefaultEl.addEventListener("change", async () => {
+    config.ambiguousDefault = ambiguousDefaultEl.value;
+    if (!(await commit())) return;
+    status(
+      config.ambiguousDefault === "ask"
+        ? "Ambiguous documents will prompt."
+        : "Ambiguous default saved."
+    );
   });
   document.getElementById("reset").addEventListener("click", reset);
 }

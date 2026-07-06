@@ -288,6 +288,17 @@ test("normalizeConfig drops onEmpty without an endpoint or with a bad target", (
   assert.equal(routing.rules[2].endpoint, "http://127.0.0.1:8765/convert"); // rule itself survives
 });
 
+test("ambiguousDefault: defaults to ask, keeps valid choices, drops junk", () => {
+  assert.equal(normalizeConfig(undefined).ambiguousDefault, "ask");
+  assert.equal(normalizeConfig({}).ambiguousDefault, "ask");
+  for (const v of ["ask", "convert", "figures", "companion", "original"]) {
+    assert.equal(normalizeConfig({ ambiguousDefault: v }).ambiguousDefault, v);
+  }
+  // Hand-edited junk falls back to asking — never to a silent verdict.
+  assert.equal(normalizeConfig({ ambiguousDefault: "yolo" }).ambiguousDefault, "ask");
+  assert.equal(normalizeConfig({ ambiguousDefault: 3 }).ambiguousDefault, "ask");
+});
+
 test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
   const cfg = normalizeConfig({
     hotkey: { code: "KeyP", alt: "yes", ctrl: 1, shift: true, meta: null },
