@@ -893,9 +893,24 @@ function groupRows(boxes) {
   return rows;
 }
 
+// Character-weighted median box height. A plain box-count median breaks on
+// pages where a figure's label soup outnumbers the prose (WHO-doc p17: 4.5pt
+// median from ~160 tiny chart fragments vs ~40 real 9.5pt body runs), which
+// shrinks every med-scaled threshold — GAP_FLUSH fired on an ordinary
+// heading-to-body gap and split the column block. Characters vote instead,
+// the same principle as modeHeight: body runs are long, chart labels short.
 function medianHeight(boxes) {
-  const hs = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
-  return hs[Math.floor(hs.length / 2)] || 10;
+  const entries = boxes
+    .map((b) => ({ h: b.y1 - b.y0, w: b.g?.str?.trim().length ?? 1 }))
+    .sort((a, b) => a.h - b.h);
+  const total = entries.reduce((s, e) => s + e.w, 0);
+  if (!total) return 10;
+  let acc = 0;
+  for (const e of entries) {
+    acc += e.w;
+    if (acc * 2 >= total) return e.h || 10;
+  }
+  return entries[entries.length - 1].h || 10;
 }
 
 // Plain text of reconstructed lines — cells space-joined, lines newline-joined.
