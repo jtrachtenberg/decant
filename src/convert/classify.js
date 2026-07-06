@@ -159,9 +159,24 @@ export function reconstructPage(items, columnHint = null) {
   if (grid) {
     const yTop = Math.max(...grid.rows.map((r) => r.y1));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
-    const above = linesFromGlyphs(glyphs.filter((g) => g.transform[5] > yTop + 1));
-    const below = linesFromGlyphs(glyphs.filter((g) => g.transform[5] < yBot - 1));
-    return { lines: [...above, ...gridLines(grid), ...below], gutter: null };
+    // The prose above/below the grid still deserves the full reconstruction —
+    // WHO-doc p17 is two-column body text above a figure's label grid, and
+    // assembling those bands as plain y-order lines interleaves the columns.
+    // Each band is just a smaller page, so recurse (terminates: the grid's own
+    // glyphs are excluded from both bands, so any nested grid is a different,
+    // strictly smaller band).
+    const above = reconstructPage(
+      glyphs.filter((g) => g.transform[5] > yTop + 1),
+      columnHint
+    );
+    const below = reconstructPage(
+      glyphs.filter((g) => g.transform[5] < yBot - 1),
+      above.gutter ?? columnHint
+    );
+    return {
+      lines: [...above.lines, ...gridLines(grid), ...below.lines],
+      gutter: below.lines.length ? below.gutter : above.gutter,
+    };
   }
 
   const boxes = glyphs.map(toBox);
@@ -948,11 +963,18 @@ export function linesToMarkdown(lines) {
   return blocks.join("\n\n");
 }
 
+// The document's body-text height: the mode of line heights, weighted by
+// text length. Counting lines alone breaks on pages where a figure's label
+// soup outnumbers the prose (WHO-doc chart pages: 40+ tiny 5.5pt fragments vs
+// ~18 real 9.5pt body lines) — the tiny mode wins and every body paragraph
+// looks 1.7× "taller than body", emitting as a heading. Characters vote
+// instead: body lines are long, chart labels are short.
 function modeHeight(lines) {
   const counts = new Map();
   for (const l of lines) {
     const k = Math.round(l.h);
-    counts.set(k, (counts.get(k) || 0) + 1);
+    const chars = l.cells.reduce((s, c) => s + c.text.length, 0);
+    counts.set(k, (counts.get(k) || 0) + chars);
   }
   let best = 10;
   let bestN = 0;

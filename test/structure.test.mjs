@@ -92,6 +92,64 @@ test("two-column page reads left column fully, then right", () => {
   assert.ok(lastLeft < firstRight, "left column should precede right column");
 });
 
+test("two-column prose above an aligned grid still reads column-first", () => {
+  // The real WHO p.17 mechanism (QA 2026-07-06): a figure's label soup at the
+  // bottom of the page forms an aligned grid, and detectGrid used to divert
+  // the whole page — the prose ABOVE the grid was assembled as plain y-order
+  // lines with no column pass, interleaving the columns into false sentences.
+  // The grid branch now recurses on the bands around the grid.
+  const LEFT = 0;
+  const RIGHT = 150;
+  const items = [];
+  // Two-column prose block: shared baselines, 8 rows.
+  for (let k = 0; k < 8; k++) {
+    const y = 300 - k * 14;
+    items.push(item(`leftcol prose line number ${k}`, LEFT, y, { w: 100, h: 10 }));
+    items.push(item(`rightcol prose line number ${k}`, RIGHT, y, { w: 100, h: 10 }));
+  }
+  // An aligned 3-column × 4-row grid (a chart's data labels) well below.
+  for (let r = 0; r < 4; r++) {
+    const y = 120 - r * 12;
+    items.push(item("0.21", 10, y, { w: 18, h: 5 }));
+    items.push(item("0.04", 90, y, { w: 18, h: 5 }));
+    items.push(item("5.17", 170, y, { w: 18, h: 5 }));
+  }
+
+  const text = linesToText(reconstructLines(items));
+  // Column-major: every left line precedes every right line.
+  const lastLeft = text.lastIndexOf("leftcol prose line number 7");
+  const firstRight = text.indexOf("rightcol prose line number 0");
+  assert.ok(lastLeft !== -1 && firstRight !== -1, "both columns present");
+  assert.ok(
+    lastLeft < firstRight,
+    `left column must finish before the right column starts:\n${text}`
+  );
+  // No interleaved false sentence: a left line never merges with a right line.
+  assert.doesNotMatch(text, /leftcol prose line number \d rightcol/);
+});
+
+test("figure label soup doesn't inflate body text into headings", () => {
+  // modeHeight votes by characters, not lines: 12 tiny chart labels must not
+  // out-vote 4 long body lines, or the body emits as "##" headings (the
+  // WHO p.17 symptom after the column fix).
+  const items = [];
+  for (let k = 0; k < 4; k++) {
+    items.push(
+      item(
+        "a long body paragraph line with plenty of characters to vote with",
+        0,
+        300 - k * 14,
+        { w: 300, h: 10 }
+      )
+    );
+  }
+  for (let k = 0; k < 12; k++) {
+    items.push(item("0.2", (k % 3) * 40, 150 - Math.floor(k / 3) * 12, { w: 12, h: 5 }));
+  }
+  const md = linesToMarkdown(reconstructLines(items));
+  assert.doesNotMatch(md, /^#+ a long body paragraph/m);
+});
+
 test("two columns on independent baselines still read column-first", () => {
   // The WHO "World health statistics" p.17 regression: the two columns are
   // typeset on offset baselines (a taller subheading in the left column knocks
