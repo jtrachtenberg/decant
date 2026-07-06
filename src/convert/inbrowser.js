@@ -47,6 +47,18 @@ export async function analyzePdf(file) {
   const pdf = await loadingTask.promise;
   const pageCount = pdf.numPages;
 
+  // The document's printed page labels ("OFC1, i, ii, …, 1, 2") when the PDF
+  // defines them. Markers, figure stamps, and footers speak this numbering —
+  // it's what the document's own TOC and cross-references use, and what's
+  // visibly printed on the rendered pages (WHO doc: physical page 17 is
+  // printed "7"). Physical indices stay the internal key everywhere else.
+  let pageLabels = null;
+  try {
+    pageLabels = await pdf.getPageLabels();
+  } catch {
+    // no label table — physical indices are the labels
+  }
+
   const perPage = [];
   const pageMarkdown = [];
   // Column gutter carried page-to-page, so a page-break remainder (too short
@@ -64,7 +76,13 @@ export async function analyzePdf(file) {
       perPage.push({ chars: countChars(linesToText(lines)), images });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
-      pageMarkdown.push(appendOmittedImagesNote(linesToMarkdown(lines), images ?? 0, n));
+      pageMarkdown.push(
+        appendOmittedImagesNote(
+          linesToMarkdown(lines),
+          images ?? 0,
+          pageLabels?.[n - 1] ?? n
+        )
+      );
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the
@@ -75,6 +93,9 @@ export async function analyzePdf(file) {
   const { decision, reason, summary } = classifyDocument(
     extrapolateImages(perPage)
   );
+  // Ride the label table on the summary so the figure paths (mini-PDF stamps,
+  // association footer) can label pages the way the document itself does.
+  if (pageLabels) summary.pageLabels = pageLabels;
   const markdown =
     decision === "convert" || decision === "ambiguous"
       ? pageMarkdown.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"

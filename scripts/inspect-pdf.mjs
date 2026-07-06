@@ -93,7 +93,14 @@ if (pageArg != null) {
   const conv = columnConvergence(lines);
   const chars = countChars(linesToText(lines));
   const images = await countImages(await pdf.getPage(pageArg));
-  const md = appendOmittedImagesNote(linesToMarkdown(lines), images);
+  // Match the extension: markers speak the document's printed page labels
+  // when the PDF defines them, physical index otherwise.
+  const labels = await pdf.getPageLabels().catch(() => null);
+  const md = appendOmittedImagesNote(
+    linesToMarkdown(lines),
+    images,
+    labels?.[pageArg - 1] ?? pageArg
+  );
   const low = chars >= 50 && conv.score < CONV_THRESHOLD;
 
   console.log(`\nFile:  ${path}`);

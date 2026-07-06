@@ -159,9 +159,24 @@ export function reconstructPage(items, columnHint = null) {
   if (grid) {
     const yTop = Math.max(...grid.rows.map((r) => r.y1));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
-    const above = linesFromGlyphs(glyphs.filter((g) => g.transform[5] > yTop + 1));
-    const below = linesFromGlyphs(glyphs.filter((g) => g.transform[5] < yBot - 1));
-    return { lines: [...above, ...gridLines(grid), ...below], gutter: null };
+    // The prose above/below the grid still deserves the full reconstruction —
+    // WHO-doc p17 is two-column body text above a figure's label grid, and
+    // assembling those bands as plain y-order lines interleaves the columns.
+    // Each band is just a smaller page, so recurse (terminates: the grid's own
+    // glyphs are excluded from both bands, so any nested grid is a different,
+    // strictly smaller band).
+    const above = reconstructPage(
+      glyphs.filter((g) => g.transform[5] > yTop + 1),
+      columnHint
+    );
+    const below = reconstructPage(
+      glyphs.filter((g) => g.transform[5] < yBot - 1),
+      above.gutter ?? columnHint
+    );
+    return {
+      lines: [...above.lines, ...gridLines(grid), ...below.lines],
+      gutter: below.lines.length ? below.gutter : above.gutter,
+    };
   }
 
   const boxes = glyphs.map(toBox);
@@ -710,13 +725,78 @@ function columnRegions(boxes, hint = null) {
 // into columns.
 function detectGutter(rows, med) {
   if (rows.length < MIN_COL_ROWS) return null;
-  const gx = findGutter(rows, med);
+  // findGutter reads each row's interior gutter gap, so it needs rows that hold
+  // both columns (shared baselines). When the columns are typeset on independent
+  // baselines — no row holds both — it sees nothing; findGutterByColumnStarts
+  // recovers the gutter from the two left-edge bands instead.
+  const gx = findGutter(rows, med) ?? findGutterByColumnStarts(rows, med);
   if (gx == null) return null;
   const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
   if (colRows.length < MIN_COL_ROWS) return null;
   const top = Math.max(...colRows.map((r) => r.y1));
   const bottom = Math.min(...colRows.map((r) => r.y0));
   if (top - bottom < MIN_COL_HEIGHT * med) return null;
+  return gx;
+}
+
+// Fallback gutter detection for columns whose baselines don't line up. Two
+// columns on independent baselines (a taller heading in one column offsets its
+// grid, or the columns simply start at different y) never share a row, so
+// findGutter's per-row gutter gap sees nothing. But the rows then fall into two
+// left-edge bands — the left margin, and the right column's start — and the
+// gutter sits just left of the right band. Confirmed only when a real vertical
+// whitespace corridor separates the columns: each side has enough rows entirely
+// on its own side of the gutter, both span enough height, and clear whitespace
+// lies between the left content's right edge and the right column's start. A
+// single-column page (one band) or a hanging indent (left content crosses the
+// candidate, so few rows sit entirely left of it) fails these and stays whole.
+function findGutterByColumnStarts(rows, med) {
+  const starts = [];
+  for (const r of rows) {
+    let min = Infinity;
+    for (const b of r.boxes) if (!b.ws && b.x0 < min) min = b.x0;
+    if (min !== Infinity) starts.push(min);
+  }
+  if (starts.length < 2 * MIN_COL_ROWS) return null;
+
+  const bands = bandSupport(starts, med)
+    .filter((b) => b.support >= MIN_COL_ROWS)
+    .sort((a, b) => a.x - b.x);
+  if (bands.length < 2) return null;
+  const leftBand = bands[0].x;
+  const rightBand = bands.find((b) => b.x > leftBand + V_GUTTER * med);
+  if (!rightBand) return null;
+  const gx = rightBand.x - 1;
+
+  // Measure the columns from rows that sit wholly on one side (a full-width
+  // heading straddles gx and is skipped, so it can't collapse the corridor).
+  let leftRows = 0;
+  let rightRows = 0;
+  let leftMaxX1 = -Infinity;
+  let rightMinX0 = Infinity;
+  let leftTop = -Infinity;
+  let leftBot = Infinity;
+  let rightTop = -Infinity;
+  let rightBot = Infinity;
+  for (const r of rows) {
+    const content = r.boxes.filter((b) => !b.ws);
+    if (!content.length) continue;
+    if (content.every((b) => (b.x0 + b.x1) / 2 < gx)) {
+      leftRows++;
+      for (const b of content) if (b.x1 > leftMaxX1) leftMaxX1 = b.x1;
+      leftTop = Math.max(leftTop, r.y1);
+      leftBot = Math.min(leftBot, r.y0);
+    } else if (content.every((b) => (b.x0 + b.x1) / 2 >= gx)) {
+      rightRows++;
+      for (const b of content) if (b.x0 < rightMinX0) rightMinX0 = b.x0;
+      rightTop = Math.max(rightTop, r.y1);
+      rightBot = Math.min(rightBot, r.y0);
+    }
+  }
+  if (leftRows < MIN_COL_ROWS || rightRows < MIN_COL_ROWS) return null;
+  if (leftTop - leftBot < MIN_COL_HEIGHT * med) return null;
+  if (rightTop - rightBot < MIN_COL_HEIGHT * med) return null;
+  if (rightMinX0 - leftMaxX1 < V_GUTTER * med) return null;
   return gx;
 }
 
@@ -813,9 +893,24 @@ function groupRows(boxes) {
   return rows;
 }
 
+// Character-weighted median box height. A plain box-count median breaks on
+// pages where a figure's label soup outnumbers the prose (WHO-doc p17: 4.5pt
+// median from ~160 tiny chart fragments vs ~40 real 9.5pt body runs), which
+// shrinks every med-scaled threshold — GAP_FLUSH fired on an ordinary
+// heading-to-body gap and split the column block. Characters vote instead,
+// the same principle as modeHeight: body runs are long, chart labels short.
 function medianHeight(boxes) {
-  const hs = boxes.map((b) => b.y1 - b.y0).sort((a, b) => a - b);
-  return hs[Math.floor(hs.length / 2)] || 10;
+  const entries = boxes
+    .map((b) => ({ h: b.y1 - b.y0, w: b.g?.str?.trim().length ?? 1 }))
+    .sort((a, b) => a.h - b.h);
+  const total = entries.reduce((s, e) => s + e.w, 0);
+  if (!total) return 10;
+  let acc = 0;
+  for (const e of entries) {
+    acc += e.w;
+    if (acc * 2 >= total) return e.h || 10;
+  }
+  return entries[entries.length - 1].h || 10;
 }
 
 // Plain text of reconstructed lines — cells space-joined, lines newline-joined.
@@ -883,11 +978,18 @@ export function linesToMarkdown(lines) {
   return blocks.join("\n\n");
 }
 
+// The document's body-text height: the mode of line heights, weighted by
+// text length. Counting lines alone breaks on pages where a figure's label
+// soup outnumbers the prose (WHO-doc chart pages: 40+ tiny 5.5pt fragments vs
+// ~18 real 9.5pt body lines) — the tiny mode wins and every body paragraph
+// looks 1.7× "taller than body", emitting as a heading. Characters vote
+// instead: body lines are long, chart labels are short.
 function modeHeight(lines) {
   const counts = new Map();
   for (const l of lines) {
     const k = Math.round(l.h);
-    counts.set(k, (counts.get(k) || 0) + 1);
+    const chars = l.cells.reduce((s, c) => s + c.text.length, 0);
+    counts.set(k, (counts.get(k) || 0) + chars);
   }
   let best = 10;
   let bestN = 0;

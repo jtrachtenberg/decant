@@ -101,6 +101,16 @@ test("appendOmittedImagesNote marks pages that had images, and only those", () =
     appendOmittedImagesNote("page text", 2, 17),
     "page text\n\n[2 images omitted — page 17]"
   );
+  // Printed page labels (PDF label table) pass through as-is: the WHO doc's
+  // physical page 17 is printed "7", and front matter is "i, ii, …".
+  assert.equal(
+    appendOmittedImagesNote("page text", 2, "7"),
+    "page text\n\n[2 images omitted — page 7]"
+  );
+  assert.equal(
+    appendOmittedImagesNote("page text", 1, "iv"),
+    "page text\n\n[1 image omitted — page iv]"
+  );
 });
 
 test("shouldScanImages scans every page at or below the ceiling", () => {
