@@ -985,15 +985,23 @@ export function classifyDocument(perPage) {
   const contentPages = perPage.filter(
     (p) => p.chars >= MIN_TEXT_CHARS_PER_PAGE
   ).length;
-  const chartPages = perPage.filter(
-    (p) => p.chars >= MIN_TEXT_CHARS_PER_PAGE && p.images >= 1
-  ).length;
+  // Which pages are chart-like (1-based), not just how many: PDF figure
+  // extraction renders exactly these pages (pdf-figures.js), so the numbers
+  // ride along in the summary. chartPages stays the count for display/tests.
+  const chartPageNumbers = [];
+  perPage.forEach((p, i) => {
+    if (p.chars >= MIN_TEXT_CHARS_PER_PAGE && p.images >= 1) {
+      chartPageNumbers.push(i + 1);
+    }
+  });
+  const chartPages = chartPageNumbers.length;
   const totalChars = perPage.reduce((s, p) => s + p.chars, 0);
   const totalImages = perPage.reduce((s, p) => s + p.images, 0);
   const summary = {
     pageCount,
     contentPages,
     chartPages,
+    chartPageNumbers,
     totalChars,
     totalImages,
   };

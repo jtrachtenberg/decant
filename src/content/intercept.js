@@ -36,6 +36,7 @@ import {
   combineFiguresToSheet,
   MAX_FIGURES,
 } from "../convert/figures.js";
+import { extractPdfFigures, pdfFiguresAvailable } from "../convert/pdf-figures.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -179,11 +180,14 @@ async function resolveAndInject(preferredInput, fileArray) {
   if (ambiguous.length) {
     // Offer the richer choices only when every ambiguous file supports them
     // (so the single-file case — the norm — just checks that file's rule/type):
-    // companion when an endpoint is configured, figures when the type's images
-    // are extractable zip entries and the document actually has some.
+    // companion when an endpoint is configured, figures when the document's
+    // images are recoverable — extractable zip entries (PPTX/DOCX) or
+    // renderable chart pages (PDF).
     const companion = ambiguous.every((r) => companionAvailable(r.rule));
     const figures = ambiguous.every(
-      (r) => figuresSupported(r.file) && (r.meta?.images ?? 0) > 0
+      (r) =>
+        (figuresSupported(r.file) && (r.meta?.images ?? 0) > 0) ||
+        pdfFiguresAvailable(r.meta)
     );
     let choice = "original";
     try {
@@ -224,16 +228,27 @@ async function resolveAndInject(preferredInput, fileArray) {
       for (const r of ambiguous) {
         chosen.push(r.converted);
         try {
-          const figs = await extractFigures(r.file);
+          // Zip formats pull their media entries; PDFs render their detected
+          // chart pages (there's no embedded image to pull — the chart is the
+          // page's drawing operators).
+          const zip = figuresSupported(r.file);
+          const figs = zip
+            ? await extractFigures(r.file)
+            : await extractPdfFigures(r.file, r.meta);
           if (figs.length > maxImages) {
-            // Over the site's per-message image limit: one labeled contact
-            // sheet carries all of them instead of silently dropping the
-            // overflow. If compositing fails, attach what fits individually.
-            try {
-              chosen.push(await combineFiguresToSheet(figs, r.file.name));
-              console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
-            } catch (err) {
-              console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
+            // Over the site's per-message image limit. Zip figures combine
+            // into one labeled contact sheet; PDF page renders don't sheet
+            // (a whole page in a tile is unreadable) so they slice instead.
+            if (zip) {
+              try {
+                chosen.push(await combineFiguresToSheet(figs, r.file.name));
+                console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
+              } catch (err) {
+                console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
+                chosen.push(...figs.slice(0, maxImages));
+              }
+            } else {
+              console.log(TAG, `attaching first ${maxImages} of ${figs.length} chart pages for ${r.file.name}`);
               chosen.push(...figs.slice(0, maxImages));
             }
           } else {

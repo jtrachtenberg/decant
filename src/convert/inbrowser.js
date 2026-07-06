@@ -33,7 +33,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.mjs")
 // standardFontDataUrl API parameter is provided") on every such file. We ship
 // pdf.js's own standard_fonts/ (see build.mjs) and point at it via the dynamic
 // extension URL (trailing slash required — pdf.js appends the font filename).
-const STANDARD_FONT_DATA_URL = chrome.runtime.getURL("standard_fonts/");
+// Exported for pdf-figures.js, which re-opens the document to render pages.
+export const STANDARD_FONT_DATA_URL = chrome.runtime.getURL("standard_fonts/");
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
