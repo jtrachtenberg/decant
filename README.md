@@ -147,94 +147,49 @@ on it fall back gracefully (in-browser conversion or passthrough).
 - **M0 — Hello, swap. ✅ Complete.** Interception proven: file picker,
   drag-and-drop, and paste uploads on `claude.ai` are intercepted and the file
   is substituted before the site sees it.
-- **M1 — In-browser conversion. ✅ Complete.** Real PDF→Markdown via pdf.js
-  across all three intake paths (picker, drag-and-drop, paste). A content
-  classifier decides per document — **convert** (text), **passthrough** (scans /
-  no usable text), or **ambiguous** (text plus image-charts). The extracted
-  Markdown carries heading and table structure, and multi-column pages are
-  reflowed into reading order (column-by-column) rather than left interleaved.
-  Two manual overrides put you in control: ambiguous documents prompt a per-file
-  **Convert to Markdown / Send original** choice, and a **passthrough hotkey**
-  (`Alt+Shift+O`) arms the next upload to be sent untouched. (Making the hotkey
-  binding user-configurable comes with the options page in M2.)
-- **M2 — Polish & config. ✅ Complete.** An options page now manages the
-  activation whitelist (default-deny, with dynamic content-script registration
-  and per-host permission prompts), the passthrough hotkey binding, and the
-  **routing table** — ordered per-type rules
-  (`inbrowser` / `companion` / `http` / `passthrough`) deciding each
-  intercepted file's fate, with whole-config JSON import/export and a warning
-  whenever a rule points at a non-localhost endpoint. The `http` / `companion`
-  transport is live: matching files POST to the configured endpoint from the
-  background worker (multipart or base64-JSON, per-rule response parsing and
-  output naming), and any endpoint failure takes the rule's fallback —
-  in-browser conversion or passthrough — so a dead endpoint can never lose an
-  upload. A zero-dependency mock endpoint (`npm run mock-endpoint`) doubles as
-  the executable contract for the M3 companion service. **DOCX → Markdown**
-  now converts in-browser via mammoth.js: headings and emphasis survive,
-  inline images are never dropped silently (documents that contain them get
-  the same Convert / Send-original prompt PDFs do), and stored configs migrate
-  to include the new default rule. **XLSX/XLS → Markdown tables** via SheetJS:
-  one table per sheet, empty and very large workbooks pass through untouched.
-  (Raster images in spreadsheets can't be detected by the community
-  SheetJS build — the one format without an "ambiguous" prompt.)
-  **PPTX → Markdown**: slide titles become headings, body text becomes
-  leveled bullets, and slide tables become Markdown tables. Native **charts
-  are recovered as data** — a chart isn't an image but a cached data series in
-  the file, so Decant reads it straight into a category×series table (often
-  more useful to a model than the picture was); a slide whose only visual is a
-  recovered chart converts cleanly; DOCX charts (which mammoth would otherwise
-  drop) and XLSX charts are recovered the same way, though a spreadsheet chart
-  often just restates cells already in a sheet. Pasted-in pictures still get the Convert /
-  Send-original prompt.
-  **HTML → Markdown** via Turndown (+ GFM tables): scripts, styles, and tag
-  soup — most of a raw HTML file's token cost — are stripped away; remote
-  images survive as ordinary Markdown image links, embedded data-URI images
-  get omission markers and the prompt. Wherever conversion drops a visual
-  (PDF pages, DOCX, PPTX, HTML), the output now says so in place:
-  `[image omitted: label]`. And a PDF page whose "text" is really a flattened
-  chart — scattered axis labels and values that never reconstruct into readable
-  structure — is caught by a **column-convergence** check and marked in place,
-  so label soup is never passed off as clean text. Silent corruption the
-  convergence score can't see is caught by hard signals: a table cell holding
-  **control characters** (a font with no text mapping — provably garbage) makes
-  the whole table emit as `[chart table omitted — unreliable extraction; see
-  attached figure, document page N]` instead of plausible-looking wrong data,
-  and floating legend/axis text boxes beside a chart's grid are kept out of
-  its rows instead of shredding into them.
-  The **packaging pass** has landed too: toolbar/store icons, production name,
-  a `Required Notice` + commercial-licensing contact in the license, and a
-  pre-publish [smoke checklist](./docs/smoke-checklist.md).
-  Per-site adapters now cover claude.ai and ChatGPT with full drop/paste
-  conversion (Gemini stays picker-only by necessity). And after a conversion,
-  a brief badge shows the **estimated token savings** — the eliminated
-  page-image layer that is the whole point, made visible (a labeled estimate;
-  PDFs today, where the per-page image cost is what conversion removes).
-- **M3 — Companion tier & the image layer. 🚧 Core shipped.** The local
-  Python companion service is live (`companion/`): a Flask endpoint speaking
-  the same wire contract as the mock, with **MarkItDown** as the default
-  engine, **Docling** opt-in for the real quality tier (OCR, reconstructed
-  tables), and a zero-dependency `echo` engine for contract smoke tests.
-  Wired into routing two ways: **forward escalation** (`onEmpty`) — an
-  in-browser rule can name a companion endpoint to try only when the browser
-  extracts nothing (a scanned/image-only PDF), so native PDFs stay fast and
-  local while genuine scans reach OCR — and a third **"Convert with
-  companion"** choice on the ambiguous prompt when an endpoint is configured,
-  for keeping the visuals the text-only path drops. Both are opt-in and
-  endpoint-gated; a failed or unreachable companion always falls back without
-  losing the upload. **Extract-and-reference** has landed for the zip
-  formats: an image-bearing PPTX/DOCX offers a **"Convert + attach figures"**
-  choice on the ambiguous prompt — the converted Markdown attaches *plus* the
-  document's actual images as sibling files (they're just zip entries, so
-  extraction is free), junk-filtered and capped, so the model pays image
-  tokens only for figures that matter. For **PDFs**, whose charts are vector
-  drawings with no image to extract, the figures choice rebuilds the upload
-  as a **chart-pages-only mini-PDF** — one document attachment (it doesn't
-  count against per-message image limits), rendered natively by the platform
-  at full fidelity, so an 88-page report with 11 chart pages becomes cheap
-  Markdown text plus an 11-page visual appendix. Documents pdf-lib can't
-  rebuild (e.g. encrypted) fall back to per-page PNG renders. Still open in
-  M3: **figure descriptions** as a first-class output, and decoding
-  standalone raster XObjects.
+- **M1 — In-browser conversion. ✅ Complete.**
+  - PDF → Markdown via pdf.js across picker, drag-and-drop, and paste, with
+    heading/table structure and multi-column reflow in reading order.
+  - Per-document classifier: **convert** (text) / **passthrough** (scans, no
+    usable text) / **ambiguous** (text plus charts — prompts a per-file choice).
+  - Manual overrides: the ambiguous prompt and a **passthrough hotkey**
+    (`Alt+Shift+O`) that sends the next upload untouched.
+- **M2 — Polish & config. ✅ Complete.**
+  - Options page: default-deny activation whitelist (dynamic permissions),
+    routing table, hotkey binding, JSON import/export, non-localhost warnings.
+  - `http`/`companion` transport with per-rule fallbacks — a dead endpoint can
+    never lose an upload; `npm run mock-endpoint` is the executable contract.
+  - **DOCX / XLSX / PPTX / HTML engines** (mammoth, SheetJS, Turndown + native
+    parsers); dropped visuals are marked in place (`[image omitted: label]`).
+  - **Charts recovered as data** — cached OOXML series become Markdown tables
+    instead of lost pictures
+    ([ADR 0005](./docs/adr/0005-charts-recovered-as-data.md)).
+  - Flattened-chart "label soup" caught by a column-convergence check;
+    packaging pass, per-site adapters (claude.ai/ChatGPT full, Gemini
+    picker-only), and the estimated **token-savings badge**.
+- **M3 — Companion tier & the image layer. 🚧 Core shipped.**
+  - Local **companion service** (`companion/`): Flask, MarkItDown default,
+    **Docling** opt-in for OCR/quality, `echo` for contract tests.
+  - **Forward escalation** (`onEmpty`): scans the browser can't read escalate
+    to companion OCR; native PDFs stay fast and local. Plus a **"Convert with
+    companion"** choice on the ambiguous prompt. Both opt-in, always
+    fall back without losing the upload.
+  - **Extract-and-reference**: a **"Convert + attach figures"** choice —
+    PPTX/DOCX images attach as sibling files (contact sheet on overflow);
+    PDF chart pages ship as a **cropped, page-stamped mini-PDF** the model can
+    cross-reference by the document's own printed page numbers, with savings
+    netted honestly
+    ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)).
+  - A **"set as default"** choice on the ambiguous prompt + matching options
+    setting (`ask` by default — automation is opt-in).
+  - **Corrupt chart tables gated**: a table cell holding control characters
+    (a font with no text mapping — provably garbage) makes the whole table
+    emit as `[chart table omitted — unreliable extraction; see attached
+    figure, document page N]` instead of plausible-looking wrong data, and
+    floating legend/axis text boxes beside a chart's grid are kept out of its
+    rows instead of shredding into them.
+  - Still open: **figure descriptions** as a first-class output and standalone
+    raster XObject extraction.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
