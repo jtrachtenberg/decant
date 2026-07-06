@@ -37,6 +37,7 @@ import {
   MAX_FIGURES,
 } from "../convert/figures.js";
 import { extractPdfFigures, pdfFiguresAvailable } from "../convert/pdf-figures.js";
+import { buildChartPagesPdf } from "../convert/pdf-subset.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -228,18 +229,12 @@ async function resolveAndInject(preferredInput, fileArray) {
       for (const r of ambiguous) {
         chosen.push(r.converted);
         try {
-          // Zip formats pull their media entries; PDFs render their detected
-          // chart pages (there's no embedded image to pull — the chart is the
-          // page's drawing operators).
-          const zip = figuresSupported(r.file);
-          const figs = zip
-            ? await extractFigures(r.file)
-            : await extractPdfFigures(r.file, r.meta);
-          if (figs.length > maxImages) {
-            // Over the site's per-message image limit. Zip figures combine
-            // into one labeled contact sheet; PDF page renders don't sheet
-            // (a whole page in a tile is unreadable) so they slice instead.
-            if (zip) {
+          if (figuresSupported(r.file)) {
+            // Zip formats (PPTX/DOCX): pull the media entries. Over the
+            // site's per-message image limit they combine into one labeled
+            // contact sheet; if compositing fails, attach what fits.
+            const figs = await extractFigures(r.file);
+            if (figs.length > maxImages) {
               try {
                 chosen.push(await combineFiguresToSheet(figs, r.file.name));
                 console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
@@ -248,12 +243,26 @@ async function resolveAndInject(preferredInput, fileArray) {
                 chosen.push(...figs.slice(0, maxImages));
               }
             } else {
-              console.log(TAG, `attaching first ${maxImages} of ${figs.length} chart pages for ${r.file.name}`);
-              chosen.push(...figs.slice(0, maxImages));
+              console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
+              chosen.push(...figs);
             }
           } else {
-            console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
-            chosen.push(...figs);
+            // PDF: one chart-pages-only mini-PDF. A document attachment
+            // doesn't count against the image limit, and the platform
+            // renders its pages natively — full fidelity, no tiles. Falls
+            // back to page renders (sliced to the image limit) when pdf-lib
+            // can't rebuild the document (e.g. encrypted).
+            try {
+              const subset = await buildChartPagesPdf(r.file, r.meta);
+              if (subset) {
+                console.log(TAG, `attaching chart-pages PDF (${r.meta.chartPageNumbers.length} pages) for ${r.file.name}`);
+                chosen.push(subset);
+              }
+            } catch (err) {
+              console.warn(TAG, `chart-pages PDF failed for ${r.file.name} — rendering pages:`, err);
+              const figs = await extractPdfFigures(r.file, r.meta);
+              chosen.push(...figs.slice(0, maxImages));
+            }
           }
         } catch (err) {
           console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
