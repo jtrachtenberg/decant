@@ -78,7 +78,7 @@ export async function analyzePdf(file) {
       // (null = unscanned on a sampled large doc — assert only what was seen).
       pageMarkdown.push(
         appendOmittedImagesNote(
-          linesToMarkdown(lines),
+          linesToMarkdown(lines, pageLabels?.[n - 1] ?? n),
           images ?? 0,
           pageLabels?.[n - 1] ?? n
         )

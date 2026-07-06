@@ -97,7 +97,7 @@ if (pageArg != null) {
   // when the PDF defines them, physical index otherwise.
   const labels = await pdf.getPageLabels().catch(() => null);
   const md = appendOmittedImagesNote(
-    linesToMarkdown(lines),
+    linesToMarkdown(lines, labels?.[pageArg - 1] ?? pageArg),
     images,
     labels?.[pageArg - 1] ?? pageArg
   );

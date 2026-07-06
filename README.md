@@ -194,7 +194,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
   `[image omitted: label]`. And a PDF page whose "text" is really a flattened
   chart — scattered axis labels and values that never reconstruct into readable
   structure — is caught by a **column-convergence** check and marked in place,
-  so label soup is never passed off as clean text.
+  so label soup is never passed off as clean text. Silent corruption the
+  convergence score can't see is caught by hard signals: a table cell holding
+  **control characters** (a font with no text mapping — provably garbage) makes
+  the whole table emit as `[chart table omitted — unreliable extraction; see
+  attached figure, document page N]` instead of plausible-looking wrong data,
+  and floating legend/axis text boxes beside a chart's grid are kept out of
+  its rows instead of shredding into them.
   The **packaging pass** has landed too: toolbar/store icons, production name,
   a `Required Notice` + commercial-licensing contact in the license, and a
   pre-publish [smoke checklist](./docs/smoke-checklist.md).

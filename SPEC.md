@@ -284,6 +284,16 @@ of this replaces:
   marker leaves: single-region label scatter, rotated tables, and bar/dumbbell
   charts whose values were never text and never form a detectable table.
   Detection and the honest marker come from one computation.
+  Two hard signals cover the silent-corruption gap convergence can't see
+  (WHO p17: a corrupt chart table on a page that scored above threshold):
+  **C0 control characters** in any table's cells (a font with no usable
+  ToUnicode map makes pdf.js emit raw glyph codes — provable corruption)
+  replace that table with `[chart table omitted — unreliable extraction; see
+  attached figure, document page N]`, pointing at the figure the extract-and-
+  reference flow attaches, N in the document's printed page labels; and
+  **floating text boxes** outside a grid's column bands (chart legends, axis
+  labels) are excluded from grid row merging so they can't shred
+  fragment-by-fragment into data rows.
 - **Tier 3 — PDF vector reconstruction (recorded, likely deferred to the
   companion).** `getOperatorList()` exposes filled rects + fills, so traffic-
   light tables / bar charts are *theoretically* recoverable by overlaying text
