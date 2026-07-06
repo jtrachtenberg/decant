@@ -28,7 +28,8 @@
 // armed, the handlers get out of the way and let the native upload proceed, so
 // the original file is sent with no conversion.
 
-import { convertFile } from "../convert/index.js";
+import { convertFile, convertViaCompanion } from "../convert/index.js";
+import { companionAvailable } from "../convert/result.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -52,7 +53,10 @@ const applyConfig = (c) => {
   routing = c.routing;
   showSavings = c.showSavings;
 };
-loadConfig().then(applyConfig).catch(() => {});
+// Awaited before routing any intercepted file, so an upload in the first
+// moments of a page load waits the few ms for the stored config instead of
+// racing ahead with the defaults. A failed load keeps the defaults (as before).
+const configReady = loadConfig().then(applyConfig).catch(() => {});
 onConfigChanged(applyConfig);
 
 function dataTransferWith(files) {
@@ -135,6 +139,9 @@ function findUsableFileInput() {
 // change handler — an assumption we don't want to be load-bearing. The cost is
 // a beat of extra latency on the clear files in the mixed-batch case only.
 async function resolveAndInject(preferredInput, fileArray) {
+  // Route with the user's stored config, not the defaults it may still be
+  // racing against right after page load.
+  await configReady;
   const immediate = [];
   const ambiguous = [];
   // Results actually sent as Markdown — the basis for the token-savings badge.
@@ -160,15 +167,43 @@ async function resolveAndInject(preferredInput, fileArray) {
 
   let chosen = [];
   if (ambiguous.length) {
+    // Offer the companion only when one is configured for every ambiguous file
+    // (so the single-file case — the norm — just checks that file's rule).
+    const companion = ambiguous.every((r) => companionAvailable(r.rule));
     let choice = "original";
     try {
-      choice = await promptConvertChoice(ambiguous);
+      choice = await promptConvertChoice(ambiguous, { companion });
     } catch (err) {
       console.warn(TAG, "prompt failed, sending originals:", err);
     }
     console.log(TAG, `ambiguous → ${choice}:`, ambiguous.map((r) => r.file.name));
-    chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
-    if (choice === "convert") converted.push(...ambiguous);
+
+    if (choice === "companion") {
+      // Send each original to its companion endpoint (Docling etc.), which can
+      // keep the visuals the text-only path drops. A failed/unreachable
+      // conversion falls back to the original — never lose the file.
+      let badge = null;
+      try {
+        for (const r of ambiguous) {
+          badge?.remove();
+          badge = showConvertingBadge(r.file.name);
+          try {
+            chosen.push(await convertViaCompanion(r.file, r.rule));
+            // A companion conversion is sent as Markdown too — count it toward
+            // the savings badge exactly like the text-only choice does.
+            converted.push(r);
+          } catch (err) {
+            console.warn(TAG, `companion conversion failed for ${r.file.name} — sending original:`, err);
+            chosen.push(r.file);
+          }
+        }
+      } finally {
+        badge?.remove();
+      }
+    } else {
+      chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));
+      if (choice === "convert") converted.push(...ambiguous);
+    }
   }
 
   const files = [...immediate, ...chosen];

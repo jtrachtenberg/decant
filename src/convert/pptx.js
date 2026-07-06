@@ -27,7 +27,7 @@
 // shape, wrapped by resultFromAnalysis() like every other engine.
 
 import JSZipNs from "jszip";
-import { rowsToMarkdownTable } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
 import { decodeEntities, parseChartXml } from "./chart.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;
@@ -155,7 +155,7 @@ export async function analyzePptx(file) {
         const parsed = part ? parseChartXml(await part.async("string")) : null;
         if (parsed) {
           chartsRecovered++;
-          const label = parsed.title ? `**${parsed.title}**\n\n` : "";
+          const label = parsed.title ? `**${escapeMdInline(parsed.title)}**\n\n` : "";
           chartTables.push(label + rowsToMarkdownTable(parsed.rows));
         } else {
           chartOmitted.push("[chart omitted]");
@@ -165,7 +165,7 @@ export async function analyzePptx(file) {
     images += slide.images + chartOmitted.length;
 
     const parts = [];
-    for (const b of slide.bullets) parts.push(`${"  ".repeat(b.level)}- ${b.text}`);
+    for (const b of slide.bullets) parts.push(`${"  ".repeat(b.level)}- ${escapeMdInline(b.text)}`);
     const bulletBlock = parts.join("\n");
     const tableBlocks = slide.tables.map(rowsToMarkdownTable).filter(Boolean);
     // Omission markers are visible evidence but not content; recovered chart
@@ -181,7 +181,9 @@ export async function analyzePptx(file) {
       tableBlocks.join("").length +
       chartTables.join("").length;
     if (slide.title || body) {
-      const heading = slide.title ? `## Slide ${i + 1}: ${slide.title}` : `## Slide ${i + 1}`;
+      const heading = slide.title
+        ? `## Slide ${i + 1}: ${escapeMdInline(slide.title)}`
+        : `## Slide ${i + 1}`;
       sections.push(body ? `${heading}\n\n${body}` : heading);
     }
   }

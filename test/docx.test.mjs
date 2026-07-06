@@ -165,6 +165,14 @@ test("a chart-only docx (no body text) still converts", () => {
   assert.match(res.markdown, /\| Category \| X \|/);
 });
 
+test("chart titles with markdown-structural characters are escaped in the label", () => {
+  const res = docxAnalysis("Body.", [
+    { title: "**Bold** [Q3]\nplans", rows: [["A", "B"], ["1", "2"]] },
+  ]);
+  // The title reads as written — no injected emphasis, link, or raw line.
+  assert.match(res.markdown, /\*\*\\\*\\\*Bold\\\*\\\* \\\[Q3\\\] plans\*\*/);
+});
+
 test("chart.docx recovers the embedded chart data (real mammoth + zip)", async () => {
   const res = await analyzeDocx(await fixture("chart.docx"));
   assert.equal(res.decision, "convert");

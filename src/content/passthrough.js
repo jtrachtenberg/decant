@@ -5,7 +5,7 @@
 // as-is, regardless of how it would be classified. A badge shows while armed;
 // the state is consumed by the next upload, Escape, or a second press.
 //
-// Binding is a constant for now; it moves to the options page / config in M2.
+// The binding lives in config (editable from the options page).
 
 import { showPassthroughBadge } from "./ui.js";
 import { loadConfig, onConfigChanged } from "../config/config.js";
@@ -17,7 +17,12 @@ const TAG = "[decant]";
 // page). Default is Alt+Shift+O ("O" for Original): Alt+Shift avoids Chrome
 // access keys (Alt+key) and common browser combos, and won't fire while typing.
 // `code` is physical-key based, so it's keyboard-layout independent.
-let hotkey = DEFAULT_CONFIG.hotkey;
+//
+// null until the stored binding loads: a keydown in that window can't safely
+// match — the user may have rebound the key, and matching the default there
+// means a custom binding is briefly inert while the default briefly works.
+// Only a *failed* load falls back to the default.
+let hotkey = null;
 
 // Auto-disarm timeout — disabled for now, so the armed state persists until it
 // is used or cancelled. To restore, uncomment ARMED_TIMEOUT_MS and the `timer`
@@ -58,6 +63,7 @@ export function consumePassthrough() {
 
 function matches(e) {
   return (
+    !!hotkey &&
     e.code === hotkey.code &&
     e.altKey === hotkey.alt &&
     e.shiftKey === hotkey.shift &&
@@ -68,7 +74,9 @@ function matches(e) {
 
 export function installPassthroughHotkey() {
   // Load the binding from config, and follow later edits from the options page.
-  loadConfig().then((c) => (hotkey = c.hotkey)).catch(() => {});
+  loadConfig()
+    .then((c) => (hotkey = c.hotkey))
+    .catch(() => (hotkey = DEFAULT_CONFIG.hotkey));
   onConfigChanged((c) => (hotkey = c.hotkey));
 
   document.addEventListener(

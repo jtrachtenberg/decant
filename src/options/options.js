@@ -4,7 +4,18 @@
 // re-register the content script.
 
 import { loadConfig, saveConfig } from "../config/config.js";
-import { DEFAULT_CONFIG, normalizeConfig } from "../config/defaults.js";
+import {
+  DEFAULT_CONFIG,
+  normalizeConfig,
+  isHttpEndpoint,
+  RULE_ONEMPTY,
+} from "../config/defaults.js";
+
+// A rule escalates when it's in-browser and onEmpty names a real escalation
+// target — the same definition normalizeRule enforces, sharing RULE_ONEMPTY so
+// the form and the normalizer can't drift apart.
+const escalates = (action, onEmpty) =>
+  action === "inbrowser" && RULE_ONEMPTY.includes(onEmpty);
 
 const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
@@ -21,10 +32,28 @@ function status(msg) {
   if (msg) setTimeout(() => (statusEl.textContent = ""), 2500);
 }
 
+// Persist, re-read the normalized form, re-render. Returns true when the save
+// stuck. chrome.storage.sync can reject (quota — 8KB/item — or transient
+// errors); then the in-memory edit is rolled back to what storage actually
+// holds, so the UI never shows state that didn't persist, and callers skip
+// their success status.
 async function commit() {
-  await saveConfig(config);
+  try {
+    await saveConfig(config);
+  } catch (err) {
+    console.warn("[decant] config save failed:", err);
+    try {
+      config = await loadConfig();
+    } catch {
+      // storage unreadable too — keep the in-memory config so the page stays usable
+    }
+    render();
+    status(`Save failed — ${err.message}`);
+    return false;
+  }
   config = await loadConfig(); // re-read normalized form
   render();
+  return true;
 }
 
 function render() {
@@ -84,7 +113,7 @@ async function toggleHost(host, cb) {
 async function removeHost(host) {
   config.activation.rules = config.activation.rules.filter((r) => r.match !== host);
   await chrome.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
-  await commit();
+  if (!(await commit())) return;
   status(`Removed ${host}.`);
 }
 
@@ -104,7 +133,7 @@ async function addHost() {
   const granted = await chrome.permissions.request({ origins: [pattern(host)] });
   config.activation.rules.push({ type: "host", match: host, enabled: granted });
   input.value = "";
-  await commit();
+  if (!(await commit())) return;
   status(
     granted
       ? `Added and enabled ${host}.`
@@ -175,6 +204,9 @@ function renderRules() {
     action.textContent =
       "→ " +
       (ACTION_LABELS[rule.action] || rule.action) +
+      (rule.onEmpty
+        ? ` ⤳ ${ACTION_LABELS[rule.onEmpty] || rule.onEmpty} on empty`
+        : "") +
       (rule.endpoint ? ` · ${rule.endpoint}` : "");
     label.append(cb, what, action);
     if (rule.endpoint && isRemoteEndpoint(rule.endpoint)) {
@@ -201,20 +233,34 @@ async function toggleRule(index, enabled) {
   const rule = config.routing.rules[index];
   if (!rule) return;
   rule.enabled = enabled;
-  await commit();
+  if (!(await commit())) return;
   status(enabled ? "Rule enabled." : "Rule disabled.");
 }
 
 async function removeRule(index) {
   config.routing.rules.splice(index, 1);
-  await commit();
+  if (!(await commit())) return;
   status("Rule removed.");
+}
+
+// Show the endpoint / responseField / onEmpty inputs only when the chosen
+// action (or its onEmpty escalation) actually needs them.
+function syncRuleForm() {
+  const action = document.getElementById("new-action").value;
+  const onEmpty = document.getElementById("new-onempty").value;
+  document.getElementById("onempty-row").hidden = action !== "inbrowser";
+  const needsEndpoint =
+    action === "companion" || action === "http" || escalates(action, onEmpty);
+  document.getElementById("endpoint-row").hidden = !needsEndpoint;
+  document.getElementById("responsefield-row").hidden = !needsEndpoint;
 }
 
 async function addRule() {
   const matchInput = document.getElementById("new-match");
   const action = document.getElementById("new-action").value;
+  const onEmpty = document.getElementById("new-onempty").value; // "", companion, http
   const endpointInput = document.getElementById("new-endpoint");
+  const responseFieldInput = document.getElementById("new-responsefield");
 
   const tokens = matchInput.value.trim().toLowerCase().split(/[,\s]+/).filter(Boolean);
   if (!tokens.length) {
@@ -226,10 +272,15 @@ async function addRule() {
 
   const rule = { match: { mime, ext }, action, enabled: true, onError: "passthrough" };
 
-  if (action === "companion" || action === "http") {
+  // A rule carries an endpoint when the action posts to one, or when an
+  // in-browser rule escalates to one on an empty (scanned) extraction.
+  const escalating = escalates(action, onEmpty);
+  const carriesEndpoint = action === "companion" || action === "http" || escalating;
+
+  if (carriesEndpoint) {
     const endpoint = endpointInput.value.trim();
-    if (!/^https?:\/\//i.test(endpoint)) {
-      status("This action needs an endpoint URL (http:// or https://).");
+    if (!isHttpEndpoint(endpoint)) {
+      status("This needs an endpoint URL (http:// or https://).");
       return;
     }
     if (
@@ -241,7 +292,10 @@ async function addRule() {
       return;
     }
     rule.endpoint = endpoint;
+    const responseField = responseFieldInput.value.trim();
+    if (responseField) rule.responseField = responseField;
   }
+  if (escalating) rule.onEmpty = onEmpty;
 
   const granted = rule.endpoint
     ? await requestEndpointPermission([rule.endpoint])
@@ -250,7 +304,10 @@ async function addRule() {
   config.routing.rules.push(rule);
   matchInput.value = "";
   endpointInput.value = "";
-  await commit();
+  responseFieldInput.value = "";
+  document.getElementById("new-onempty").value = "";
+  syncRuleForm();
+  if (!(await commit())) return;
   status(
     granted
       ? "Rule added."
@@ -293,7 +350,7 @@ async function importJson() {
   );
 
   config = next;
-  await commit();
+  if (!(await commit())) return;
   textarea.value = JSON.stringify(config, null, 2); // show the normalized form
   status(
     "Config applied. Newly enabled hosts still need permission — toggle them to grant." +
@@ -357,7 +414,7 @@ function recordHotkey() {
       meta: e.metaKey,
     };
     cancel();
-    await commit();
+    if (!(await commit())) return;
     status("Hotkey updated.");
   };
   document.addEventListener("keydown", onKey, true);
@@ -366,7 +423,7 @@ function recordHotkey() {
 
 async function reset() {
   config = structuredClone(DEFAULT_CONFIG);
-  await commit();
+  if (!(await commit())) return;
   status("Reset to defaults.");
 }
 
@@ -381,17 +438,15 @@ async function init() {
   document.getElementById("new-match").addEventListener("keydown", (e) => {
     if (e.key === "Enter") addRule();
   });
-  document.getElementById("new-action").addEventListener("change", (e) => {
-    document.getElementById("endpoint-row").hidden = !["companion", "http"].includes(
-      e.target.value
-    );
-  });
+  document.getElementById("new-action").addEventListener("change", syncRuleForm);
+  document.getElementById("new-onempty").addEventListener("change", syncRuleForm);
+  syncRuleForm(); // initial visibility (default action is inbrowser)
   document.getElementById("export-json").addEventListener("click", exportJson);
   document.getElementById("import-json").addEventListener("click", importJson);
   document.getElementById("record-hotkey").addEventListener("click", recordHotkey);
   showSavingsEl.addEventListener("change", async () => {
     config.showSavings = showSavingsEl.checked;
-    await commit();
+    if (!(await commit())) return;
     status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
   });
   document.getElementById("reset").addEventListener("click", reset);

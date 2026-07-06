@@ -18,13 +18,15 @@ many chat backends render every page of a PDF as an image and bill you for it
 alongside the text. Handing the model Markdown instead drops that cost. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
-> **Status: working, M2 complete.** The browser extension converts PDF, Word,
-> Excel, PowerPoint, and HTML to Markdown on `claude.ai`, ChatGPT, and Gemini —
-> through the file picker, drag-and-drop, and paste — recovering native chart
-> data and passing scanned or image-only documents through untouched so it
-> never silently degrades them. It's not yet on the Chrome Web Store, and the
-> higher-fidelity companion tier and additional surfaces below are still
-> planned. The
+> **Status: working, M2 complete, M3 core shipped.** The browser extension
+> converts PDF, Word, Excel, PowerPoint, and HTML to Markdown on `claude.ai`,
+> ChatGPT, and Gemini — through the file picker, drag-and-drop, and paste —
+> recovering native chart data and passing scanned or image-only documents
+> through untouched so it never silently degrades them. The optional
+> **local companion service** adds the higher-fidelity tier: scans escalate to
+> OCR, and ambiguous documents can convert without dropping their visuals.
+> It's not yet on the Chrome Web Store, and additional surfaces below are
+> still planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
 
@@ -201,13 +203,23 @@ on it fall back gracefully (in-browser conversion or passthrough).
   a brief badge shows the **estimated token savings** — the eliminated
   page-image layer that is the whole point, made visible (a labeled estimate;
   PDFs today, where the per-page image cost is what conversion removes).
-- **M3 — Companion tier & the image layer.** Local Python service for OCR /
-  high-fidelity tables, plus **figure descriptions** (Docling/MarkItDown turn
-  charts and images into inline text — the recognition tier the in-browser
-  engines can't provide). Alongside it, **extract-and-reference**: attach the
-  converted Markdown *plus* the document's actual figures as sibling files
-  (free for PPTX/DOCX, whose images are just zip entries), so the model pays
-  image tokens only for figures that matter — likely a third choice on the
+- **M3 — Companion tier & the image layer. 🚧 Core shipped.** The local
+  Python companion service is live (`companion/`): a Flask endpoint speaking
+  the same wire contract as the mock, with **MarkItDown** as the default
+  engine, **Docling** opt-in for the real quality tier (OCR, reconstructed
+  tables), and a zero-dependency `echo` engine for contract smoke tests.
+  Wired into routing two ways: **forward escalation** (`onEmpty`) — an
+  in-browser rule can name a companion endpoint to try only when the browser
+  extracts nothing (a scanned/image-only PDF), so native PDFs stay fast and
+  local while genuine scans reach OCR — and a third **"Convert with
+  companion"** choice on the ambiguous prompt when an endpoint is configured,
+  for keeping the visuals the text-only path drops. Both are opt-in and
+  endpoint-gated; a failed or unreachable companion always falls back without
+  losing the upload. Still open in M3: **figure descriptions** as a
+  first-class output, and **extract-and-reference** — attach the converted
+  Markdown *plus* the document's actual figures as sibling files (free for
+  PPTX/DOCX, whose images are just zip entries), so the model pays image
+  tokens only for figures that matter — likely a fourth choice on the
   ambiguous prompt ("Convert + attach figures").
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file

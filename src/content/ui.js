@@ -1,11 +1,13 @@
 // Decant — in-page prompt for ambiguous documents.
 //
-// promptConvertChoice(results) shows a small panel near the composer asking
-// whether to convert a text-plus-charts document to Markdown or send the
-// original, and resolves to "convert" or "original". The panel lives in a
-// shadow root so the site's CSS can't reach it (and vice-versa). Dismissing it
-// (Escape / click outside / the X) resolves to "original" — the safe default
-// that never drops chart content.
+// promptConvertChoice(results, { companion }) shows a small panel near the
+// composer asking what to do with a text-plus-charts document, and resolves to
+// "convert" (in-browser Markdown, text only), "original", or — when a companion
+// is configured for the type (options.companion) — "companion" (send to the
+// local service, which can keep the visuals the text-only path drops). The
+// panel lives in a shadow root so the site's CSS can't reach it (and
+// vice-versa). Dismissing it (Escape / click outside / the X) resolves to
+// "original" — the safe default that never drops chart content.
 
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
@@ -13,7 +15,8 @@ const FAILURE_ID = "decant-attach-failure";
 const CONVERTING_ID = "decant-converting-badge";
 const SAVINGS_ID = "decant-savings-badge";
 
-export function promptConvertChoice(results) {
+export function promptConvertChoice(results, options = {}) {
+  const companion = !!options.companion;
   return new Promise((resolve) => {
     // Only one prompt at a time — replace any existing one.
     document.getElementById(HOST_ID)?.remove();
@@ -28,15 +31,26 @@ export function promptConvertChoice(results) {
       (n, r) => n + (r.meta?.chartPages ?? r.meta?.images ?? 0),
       0
     );
+    const count = visuals
+      ? `${visuals} visual element${visuals === 1 ? "" : "s"}`
+      : "the visuals";
     const title =
       names.length === 1
         ? `“${names[0]}” looks like text with charts or images`
         : `${names.length} documents look like text with charts or images`;
-    const detail = visuals
-      ? `Converting to Markdown saves tokens but drops ${visuals} visual element${
-          visuals === 1 ? "" : "s"
-        }. Send the original to keep them.`
-      : `Converting to Markdown saves tokens but drops the visuals. Send the original to keep them.`;
+    const detail = companion
+      ? `Converting to text saves tokens but drops ${count}. The local companion can convert it and keep them, or send the original untouched.`
+      : `Converting to Markdown saves tokens but drops ${count}. Send the original to keep them.`;
+
+    // With a companion, the recommended action is the higher-fidelity companion
+    // conversion; the buttons stack for room. Without one, the original 2-button
+    // row is unchanged.
+    const buttons = companion
+      ? `<button class="primary" data-choice="companion">Convert with companion</button>
+         <button class="secondary" data-choice="convert">Convert to Markdown (text only)</button>
+         <button class="secondary" data-choice="original">Send original</button>`
+      : `<button class="primary" data-choice="convert">Convert to Markdown</button>
+         <button class="secondary" data-choice="original">Send original</button>`;
 
     root.innerHTML = `
       <style>
@@ -54,6 +68,7 @@ export function promptConvertChoice(results) {
         .title { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
         .detail { font-size: 12.5px; line-height: 1.45; color: #c8ccd4; margin: 0 0 14px; }
         .row { display: flex; gap: 8px; }
+        .row.stack { flex-direction: column; }
         button { flex: 1; font: inherit; font-size: 13px; font-weight: 600;
           padding: 9px 12px; border-radius: 8px; border: 1px solid transparent;
           cursor: pointer; }
@@ -70,9 +85,8 @@ export function promptConvertChoice(results) {
         <p class="brand">Decant</p>
         <p class="title"></p>
         <p class="detail"></p>
-        <div class="row">
-          <button class="primary" data-choice="convert">Convert to Markdown</button>
-          <button class="secondary" data-choice="original">Send original</button>
+        <div class="row ${companion ? "stack" : ""}">
+          ${buttons}
         </div>
       </div>
     `;

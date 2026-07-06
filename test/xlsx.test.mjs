@@ -7,7 +7,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { analyzeXlsx, rowsToMarkdownTable, MAX_CELLS } from "../src/convert/xlsx.js";
+import {
+  analyzeXlsx,
+  rowsToMarkdownTable,
+  escapeMdInline,
+  MAX_CELLS,
+} from "../src/convert/xlsx.js";
 
 const fixture = async (name) => {
   const buf = await readFile(new URL(`./fixtures/${name}`, import.meta.url));
@@ -59,6 +64,25 @@ test("rowsToMarkdownTable trims trailing empty rows and columns", () => {
 test("rowsToMarkdownTable returns empty string for nothing", () => {
   assert.equal(rowsToMarkdownTable([]), "");
   assert.equal(rowsToMarkdownTable([[""], [""]]), "");
+});
+
+// --- escapeMdInline (headings / bold labels / list items) -------------------
+
+test("escapeMdInline escapes structural characters, backslash first", () => {
+  assert.equal(escapeMdInline("**Q3** [draft]"), "\\*\\*Q3\\*\\* \\[draft\\]");
+  assert.equal(escapeMdInline("a\\*b"), "a\\\\\\*b"); // literal \* stays literal
+  assert.equal(escapeMdInline("snake_case `code`"), "snake\\_case \\`code\\`");
+});
+
+test("escapeMdInline collapses newlines so a title can't leak raw lines", () => {
+  assert.equal(escapeMdInline("Line one\n# not a heading"), "Line one # not a heading");
+  assert.equal(escapeMdInline("a\r\nb"), "a b");
+});
+
+test("escapeMdInline leaves plain punctuation alone and handles nullish", () => {
+  assert.equal(escapeMdInline("Sales, FY-25 (draft). #3"), "Sales, FY-25 (draft). #3");
+  assert.equal(escapeMdInline(null), "");
+  assert.equal(escapeMdInline(undefined), "");
 });
 
 test("tiny.xlsx converts: two sheets, escaped cells, trimmed padding (real SheetJS)", async () => {

@@ -20,6 +20,21 @@ export const CONFIG_VERSION = 5;
 // a rule may fall back to when its engine fails or isn't available.
 export const RULE_ACTIONS = ["inbrowser", "companion", "http", "passthrough"];
 export const RULE_FALLBACKS = ["inbrowser", "passthrough"];
+// Forward-escalation targets (SPEC §3.3): when the in-browser engine extracts
+// nothing from a file — a scanned/image-only PDF — an `inbrowser` rule may
+// escalate to a companion/http endpoint that *can* (OCR). Both need an
+// endpoint, so a browser-only user who configures neither just passes the scan
+// through. The complement of onError (which falls back when an endpoint fails);
+// onEmpty steps forward when the browser comes up empty.
+export const RULE_ONEMPTY = ["companion", "http"];
+
+// Is this a usable companion/http endpoint URL? The single source of truth for
+// endpoint validation — the options form, rule normalization, and the runtime
+// escalation/ambiguous-prompt checks must all agree, or a rule accepted in one
+// place is silently rejected in another.
+export function isHttpEndpoint(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
 
 export const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -199,7 +214,7 @@ function normalizeRule(r) {
   const endpoint = typeof r.endpoint === "string" ? r.endpoint.trim() : "";
   if (
     (r.action === "companion" || r.action === "http") &&
-    !/^https?:\/\//i.test(endpoint)
+    !isHttpEndpoint(endpoint)
   ) {
     return null;
   }
@@ -211,6 +226,17 @@ function normalizeRule(r) {
     onError: RULE_FALLBACKS.includes(r.onError) ? r.onError : "passthrough",
   };
   if (endpoint) rule.endpoint = endpoint;
+  // Forward escalation is an inbrowser-rule concept (SPEC §3.3), opt-in, and
+  // needs a real endpoint to escalate to; a non-inbrowser action, bad target,
+  // or missing endpoint drops it, leaving a rule that passes empty
+  // extractions through.
+  if (
+    r.action === "inbrowser" &&
+    RULE_ONEMPTY.includes(r.onEmpty) &&
+    isHttpEndpoint(endpoint)
+  ) {
+    rule.onEmpty = r.onEmpty;
+  }
   if (r.output && typeof r.output === "object") {
     const output = {};
     if (typeof r.output.ext === "string" && r.output.ext.trim()) {

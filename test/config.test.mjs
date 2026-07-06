@@ -235,6 +235,59 @@ test("normalizeConfig keeps a well-formed http rule, pins routing default", () =
   });
 });
 
+test("normalizeConfig keeps onEmpty escalation only with a valid endpoint + target", () => {
+  const { routing } = normalizeConfig({
+    version: 5,
+    routing: {
+      rules: [
+        {
+          match: { mime: ["application/pdf"], ext: ["pdf"] },
+          action: "inbrowser",
+          onEmpty: "companion",
+          // responseField pairs with /convert (JSON {"text": ...}); /convert-raw
+          // would need it omitted — keep this fixture a copyable, working config.
+          endpoint: "http://127.0.0.1:8765/convert",
+          responseField: "text",
+        },
+      ],
+    },
+  });
+  assert.equal(routing.rules[0].onEmpty, "companion");
+  assert.equal(routing.rules[0].endpoint, "http://127.0.0.1:8765/convert");
+  assert.equal(routing.rules[0].responseField, "text");
+});
+
+test("normalizeConfig drops onEmpty without an endpoint or with a bad target", () => {
+  const { routing } = normalizeConfig({
+    version: 5,
+    routing: {
+      rules: [
+        // opts into escalation but has nowhere to escalate to
+        { match: { ext: ["pdf"] }, action: "inbrowser", onEmpty: "companion" },
+        // valid endpoint but "passthrough" isn't an escalation target
+        {
+          match: { ext: ["png"] },
+          action: "inbrowser",
+          onEmpty: "passthrough",
+          endpoint: "http://127.0.0.1:8765/ocr",
+        },
+        // escalation is an inbrowser concept — a companion rule never comes up
+        // empty in the browser, so a stray onEmpty is stripped
+        {
+          match: { ext: ["csv"] },
+          action: "companion",
+          onEmpty: "http",
+          endpoint: "http://127.0.0.1:8765/convert",
+        },
+      ],
+    },
+  });
+  assert.equal(routing.rules[0].onEmpty, undefined);
+  assert.equal(routing.rules[1].onEmpty, undefined);
+  assert.equal(routing.rules[2].onEmpty, undefined);
+  assert.equal(routing.rules[2].endpoint, "http://127.0.0.1:8765/convert"); // rule itself survives
+});
+
 test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
   const cfg = normalizeConfig({
     hotkey: { code: "KeyP", alt: "yes", ctrl: 1, shift: true, meta: null },
