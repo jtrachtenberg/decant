@@ -305,13 +305,17 @@ async function resolveAndInject(preferredInput, fileArray) {
             } catch (err) {
               console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
             }
+            // Human/model-facing page references use the document's printed
+            // labels when the PDF defines them (matching the "[images
+            // omitted — page N]" markers and the in-page stamps).
+            const labelOf = (n) => r.meta?.pageLabels?.[n - 1] ?? n;
             try {
               const subset = await buildChartPagesPdf(r.file, r.meta, crops);
               if (subset) {
                 attachments.push(subset.file);
                 note =
                   `The figures from this document are attached as "${subset.file.name}" ` +
-                  `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${p}`).join("; ")}).`;
+                  `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
                 console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${crops?.size ?? 0} cropped) for ${r.file.name}`);
               }
             } catch (err) {
@@ -319,7 +323,12 @@ async function resolveAndInject(preferredInput, fileArray) {
               const figs = (await extractPdfFigures(r.file, r.meta)).slice(0, maxImages);
               attachments.push(...figs);
               if (figs.length) {
-                note = `The document's figure pages are attached as images: ${figs.map((f) => `"${f.name}"`).join(", ")} (pN = document page N).`;
+                note = `The document's figure pages are attached as images: ${figs
+                  .map((f) => {
+                    const n = Number(f.name.match(/-p(\d+)\.png$/)?.[1]);
+                    return `"${f.name}" = document page ${labelOf(n)}`;
+                  })
+                  .join(", ")}.`;
               }
             }
           }

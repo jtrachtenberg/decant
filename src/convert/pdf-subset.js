@@ -31,8 +31,8 @@ const STAMP_FONT_PT = 10;
 
 async function stamper(out) {
   const font = await out.embedFont(StandardFonts.Helvetica);
-  return (page, n, { strip }) => {
-    const text = `document page ${n}`;
+  return (page, label, { strip }) => {
+    const text = `document page ${label}`;
     const w = font.widthOfTextAtSize(text, STAMP_FONT_PT);
     const y = page.getHeight() - (strip ? STAMP_STRIP_PT : 18);
     page.drawRectangle({
@@ -77,6 +77,10 @@ export async function buildChartPagesPdf(file, meta, crops = null) {
 
   const out = await PDFDocument.create();
   const stamp = await stamper(out);
+  // Stamps speak the document's printed numbering when the PDF defines page
+  // labels (physical page 17 of the WHO doc is printed "7" — its TOC and
+  // cross-references say "page 7", so the model must too).
+  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
   for (const n of pages) {
     const crop = crops?.get?.(n);
     if (crop) {
@@ -90,12 +94,12 @@ export async function buildChartPagesPdf(file, meta, crops = null) {
         width: crop.widthPt,
         height: crop.heightPt,
       });
-      stamp(page, n, { strip: true });
+      stamp(page, labelOf(n), { strip: true });
     } else {
       // Whole-page copies can't grow, so the label overlays the top margin.
       const [copied] = await out.copyPages(src, [n - 1]);
       const page = out.addPage(copied);
-      stamp(page, n, { strip: false });
+      stamp(page, labelOf(n), { strip: false });
     }
   }
   const bytes = await out.save();
