@@ -37,6 +37,14 @@ test("estimateSavings returns null for non-PDF results (no pageCount)", () => {
   assert.equal(estimateSavings({ action: "converted", meta: { sheets: 1 } }), null);
   assert.equal(estimateSavings({ action: "passthrough", meta: null }), null);
   assert.equal(estimateSavings(undefined), null);
+  // The "Convert + attach figures" choice sends Markdown plus image files —
+  // any claimed savings would have to net out the attached figures' image
+  // cost. Office results (the only figure-eligible type) estimate null, so
+  // the badge stays silent rather than overstating (see savings.js NOTE).
+  assert.equal(
+    estimateSavings({ action: "ambiguous", meta: { images: 6, chars: 9000 } }),
+    null
+  );
 });
 
 test("aggregateSavings sums PDFs and ignores non-estimable results", () => {

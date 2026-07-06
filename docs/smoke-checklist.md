@@ -39,6 +39,14 @@ expected attachment and the service-worker/page console agrees.
 - [ ] **Ambiguous prompt** — a text-with-images/charts doc prompts Convert vs.
       Send original. **Convert** → `.md` (with `[image omitted]` markers);
       **Send original** → the untouched original attaches.
+- [ ] **Convert + attach figures** — an image-bearing PPTX/DOCX offers the
+      figures choice; picking it attaches the `.md` **plus** `<name>-figN.png`
+      siblings (junk-sized media filtered, capped at 8). A doc whose media is
+      all junk degrades to the `.md` alone.
+- [ ] **Figure overflow → contact sheet** — on claude.ai, a doc with more than
+      5 figures attaches ONE `<name>-figures.png` grid instead: every figure
+      tiled with its name captioned under it, borders visible, captions
+      legible. (Verify claude.ai's actual per-message image limit while here.)
 - [ ] **Passthrough** — a scanned / no-text PDF attaches unchanged (no prompt).
 - [ ] **Passthrough hotkey** — press `Alt+Shift+O` (badge appears), then drop a
       convertible file → the **original** attaches, badge clears. Press again /

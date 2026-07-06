@@ -27,6 +27,14 @@ export const IMAGE_TOKENS_PER_PAGE = 500;
 // conversion removes, and their meta carries pageCount. Office/HTML uploads
 // aren't page-rendered the same way, so we don't claim savings there (yet).
 // Returns { savedTokens, markdownTokens, originalTokens }.
+//
+// NOTE for when Office savings land: the ambiguous prompt's "Convert + attach
+// figures" choice (Office-only today) sends the Markdown PLUS the document's
+// images — each attached figure costs real image tokens on the destination
+// model. An Office estimate must net that cost out, or the badge overstates
+// savings exactly when the user chose to pay for images. Today this is moot
+// by construction: figure-choice results are Office results, which return
+// null here, so the badge stays silent rather than wrong.
 export function estimateSavings(result) {
   const meta = result?.meta;
   if (meta?.pageCount == null) return null;
