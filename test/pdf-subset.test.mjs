@@ -15,17 +15,29 @@ async function makePdf(n, name = "report.pdf") {
   return new File([await doc.save()], name, { type: "application/pdf" });
 }
 
-async function pageWidths(file) {
+async function pageSizes(file) {
   const doc = await PDFDocument.load(await file.arrayBuffer());
-  return doc.getPages().map((p) => Math.round(p.getWidth()));
+  return doc.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())]);
 }
+
+// A valid 1×1 PNG, for exercising the crop-embedding path.
+const PNG_1x1 = Uint8Array.from(
+  atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+  ),
+  (c) => c.charCodeAt(0)
+);
 
 test("subsets exactly the chart pages, in order, named <doc>-charts.pdf", async () => {
   const src = await makePdf(5, "who report.pdf");
   const out = await buildChartPagesPdf(src, { chartPageNumbers: [2, 4] });
-  assert.equal(out.name, "who report-charts.pdf");
-  assert.equal(out.type, "application/pdf");
-  assert.deepEqual(await pageWidths(out), [102, 104]); // pages 2 and 4
+  assert.equal(out.file.name, "who report-charts.pdf");
+  assert.equal(out.file.type, "application/pdf");
+  assert.deepEqual(out.pages, [2, 4]); // the association map for the footer
+  assert.deepEqual(await pageSizes(out.file), [
+    [102, 200],
+    [104, 200],
+  ]);
 });
 
 test("null when there are no chart pages to subset", async () => {
@@ -38,7 +50,8 @@ test("null when there are no chart pages to subset", async () => {
 test("out-of-range page numbers (sampled-doc extrapolation) drop out", async () => {
   const src = await makePdf(3);
   const out = await buildChartPagesPdf(src, { chartPageNumbers: [2, 99] });
-  assert.deepEqual(await pageWidths(out), [102]);
+  assert.deepEqual(out.pages, [2]);
+  assert.deepEqual(await pageSizes(out.file), [[102, 200]]);
   // All out of range → nothing to subset.
   assert.equal(await buildChartPagesPdf(src, { chartPageNumbers: [99] }), null);
 });
@@ -48,7 +61,17 @@ test("page cap holds at MAX_SUBSET_PAGES, keeping the first pages", async () => 
   const src = await makePdf(n);
   const all = Array.from({ length: n }, (_, i) => i + 1);
   const out = await buildChartPagesPdf(src, { chartPageNumbers: all });
-  const widths = await pageWidths(out);
-  assert.equal(widths.length, MAX_SUBSET_PAGES);
-  assert.equal(widths[0], 101); // capped from the front
+  assert.equal(out.pages.length, MAX_SUBSET_PAGES);
+  assert.equal(out.pages[0], 1); // capped from the front
+});
+
+test("a cropped page embeds at the crop's size; others copy whole", async () => {
+  const src = await makePdf(5);
+  const crops = new Map([[2, { png: PNG_1x1, widthPt: 300, heightPt: 180 }]]);
+  const out = await buildChartPagesPdf(src, { chartPageNumbers: [2, 4] }, crops);
+  assert.deepEqual(out.pages, [2, 4]);
+  assert.deepEqual(await pageSizes(out.file), [
+    [300, 180], // page 2 → tight figure crop
+    [104, 200], // page 4 → whole-page vector copy
+  ]);
 });
