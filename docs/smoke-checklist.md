@@ -54,11 +54,16 @@ expected attachment and the service-worker/page console agrees.
       does NOT save a default.
 - [ ] **PDF chart pages as figures** — an ambiguous PDF (text + chart pages,
       e.g. the WHO doc) offers the figures choice; picking it attaches the
-      `.md` plus ONE `<name>-charts.pdf` containing just the chart pages
-      (native fidelity; a document attachment, so it doesn't count against the
-      image limit). Open the mini-PDF and confirm the right pages made it.
-      An encrypted PDF falls back to `<name>-pN.png` page renders, sliced to
-      the site's image limit.
+      `.md` plus ONE `<name>-charts.pdf` (a document attachment, so it doesn't
+      count against the image limit). Open the mini-PDF: pages should be
+      **cropped to the figure region** (chart + surrounding labels) where the
+      geometry allows, whole pages otherwise. An encrypted PDF falls back to
+      `<name>-pN.png` page renders, sliced to the site's image limit.
+- [ ] **Figure anchoring** — the `.md`'s omission markers carry page numbers
+      (`[2 images omitted — page 17]`) and it ends with a footer mapping
+      charts.pdf pages to document pages. Probe: ask the model "what does the
+      figure on page 17 show?" — it should describe the right chart from the
+      mini-PDF, not guess.
 - [ ] **Passthrough** — a scanned / no-text PDF attaches unchanged (no prompt).
 - [ ] **Passthrough hotkey** — press `Alt+Shift+O` (badge appears), then drop a
       convertible file → the **original** attaches, badge clears. Press again /

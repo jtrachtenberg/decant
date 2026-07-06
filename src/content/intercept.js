@@ -36,7 +36,11 @@ import {
   combineFiguresToSheet,
   MAX_FIGURES,
 } from "../convert/figures.js";
-import { extractPdfFigures, pdfFiguresAvailable } from "../convert/pdf-figures.js";
+import {
+  extractPdfFigures,
+  extractPdfFigureCrops,
+  pdfFiguresAvailable,
+} from "../convert/pdf-figures.js";
 import { buildChartPagesPdf } from "../convert/pdf-subset.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
@@ -68,6 +72,19 @@ const applyConfig = (c) => {
 // racing ahead with the defaults. A failed load keeps the defaults (as before).
 const configReady = loadConfig().then(applyConfig).catch(() => {});
 onConfigChanged(applyConfig);
+
+// Append the figure-association footer to a converted Markdown File, so the
+// model can connect the text's "[N images omitted — page 17]" markers to the
+// attached figures. A fresh File (same name/type) keeps the original result
+// object untouched.
+async function withFiguresNote(convertedFile, note) {
+  const text = await convertedFile.text();
+  return new File(
+    [`${text.trimEnd()}\n\n---\n\n${note}\n`],
+    convertedFile.name,
+    { type: convertedFile.type }
+  );
+}
 
 function dataTransferWith(files) {
   const dt = new DataTransfer();
@@ -247,7 +264,11 @@ async function resolveAndInject(preferredInput, fileArray) {
       // conversion — the upload itself is never blocked on it.
       const maxImages = adapter.maxImageAttachments ?? MAX_FIGURES;
       for (const r of ambiguous) {
-        chosen.push(r.converted);
+        // Figures are computed first so the Markdown can gain an association
+        // footer naming them; the (possibly annotated) .md still attaches
+        // ahead of its figures.
+        const attachments = [];
+        let note = null;
         try {
           if (figuresSupported(r.file)) {
             // Zip formats (PPTX/DOCX): pull the media entries. Over the
@@ -256,37 +277,57 @@ async function resolveAndInject(preferredInput, fileArray) {
             const figs = await extractFigures(r.file);
             if (figs.length > maxImages) {
               try {
-                chosen.push(await combineFiguresToSheet(figs, r.file.name));
+                const sheet = await combineFiguresToSheet(figs, r.file.name);
+                attachments.push(sheet);
+                note = `The document's ${figs.length} images are attached combined as "${sheet.name}" — a labeled grid; each tile is captioned with its figure name.`;
                 console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
               } catch (err) {
                 console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
-                chosen.push(...figs.slice(0, maxImages));
+                attachments.push(...figs.slice(0, maxImages));
               }
-            } else {
+            } else if (figs.length) {
+              attachments.push(...figs);
               console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
-              chosen.push(...figs);
+            }
+            if (!note && attachments.length) {
+              note = `The document's images are attached as separate files, in document order: ${attachments.map((f) => `"${f.name}"`).join(", ")}.`;
             }
           } else {
             // PDF: one chart-pages-only mini-PDF. A document attachment
             // doesn't count against the image limit, and the platform
-            // renders its pages natively — full fidelity, no tiles. Falls
-            // back to page renders (sliced to the image limit) when pdf-lib
-            // can't rebuild the document (e.g. encrypted).
+            // renders its pages natively. Figure crops (when the page's
+            // image geometry allows) tighten each mini-PDF page to the
+            // figure itself; failures degrade crop → whole pages → PNG
+            // renders, never blocking the upload.
+            let crops = null;
             try {
-              const subset = await buildChartPagesPdf(r.file, r.meta);
+              crops = await extractPdfFigureCrops(r.file, r.meta);
+            } catch (err) {
+              console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
+            }
+            try {
+              const subset = await buildChartPagesPdf(r.file, r.meta, crops);
               if (subset) {
-                console.log(TAG, `attaching chart-pages PDF (${r.meta.chartPageNumbers.length} pages) for ${r.file.name}`);
-                chosen.push(subset);
+                attachments.push(subset.file);
+                note =
+                  `The figures from this document are attached as "${subset.file.name}" ` +
+                  `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${p}`).join("; ")}).`;
+                console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${crops?.size ?? 0} cropped) for ${r.file.name}`);
               }
             } catch (err) {
               console.warn(TAG, `chart-pages PDF failed for ${r.file.name} — rendering pages:`, err);
-              const figs = await extractPdfFigures(r.file, r.meta);
-              chosen.push(...figs.slice(0, maxImages));
+              const figs = (await extractPdfFigures(r.file, r.meta)).slice(0, maxImages);
+              attachments.push(...figs);
+              if (figs.length) {
+                note = `The document's figure pages are attached as images: ${figs.map((f) => `"${f.name}"`).join(", ")} (pN = document page N).`;
+              }
             }
           }
         } catch (err) {
           console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
         }
+        chosen.push(note ? await withFiguresNote(r.converted, note) : r.converted);
+        chosen.push(...attachments);
       }
       converted.push(...ambiguous);
     } else {

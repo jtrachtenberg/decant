@@ -24,23 +24,47 @@ export const MAX_SUBSET_PAGES = 20;
 // Build "<doc>-charts.pdf" from the chart pages, or null when there's nothing
 // to subset. Throws on documents pdf-lib can't load (e.g. encrypted) — the
 // caller falls back to rendered page images.
-export async function buildChartPagesPdf(file, meta) {
-  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
-  if (!pages.length) return null;
+//
+// `crops` (optional, from pdf-figures.js extractPdfFigureCrops) maps a page
+// number to { png, widthPt, heightPt }: that page is embedded as a tight
+// figure crop instead of a whole-page copy, so the model pays for the figure
+// region only. Pages without a crop copy whole (vector, full fidelity).
+//
+// Returns { file, pages } — `pages` is the document page number behind each
+// mini-PDF page, in order, so the caller can write the association footer
+// into the Markdown ("charts.pdf page 1 = document page 17").
+export async function buildChartPagesPdf(file, meta, crops = null) {
+  const wanted = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+  if (!wanted.length) return null;
 
   const src = await PDFDocument.load(await file.arrayBuffer());
   // Extrapolated chart pages on a sampled large doc are estimates; numbers
   // past the real page count just drop out.
-  const indices = pages
-    .map((n) => n - 1)
-    .filter((i) => i >= 0 && i < src.getPageCount());
-  if (!indices.length) return null;
+  const pages = wanted.filter((n) => n >= 1 && n <= src.getPageCount());
+  if (!pages.length) return null;
 
   const out = await PDFDocument.create();
-  const copied = await out.copyPages(src, indices);
-  for (const page of copied) out.addPage(page);
+  for (const n of pages) {
+    const crop = crops?.get?.(n);
+    if (crop) {
+      const img = await out.embedPng(crop.png);
+      const page = out.addPage([crop.widthPt, crop.heightPt]);
+      page.drawImage(img, {
+        x: 0,
+        y: 0,
+        width: crop.widthPt,
+        height: crop.heightPt,
+      });
+    } else {
+      const [copied] = await out.copyPages(src, [n - 1]);
+      out.addPage(copied);
+    }
+  }
   const bytes = await out.save();
 
   const base = file.name.replace(/\.[a-z0-9]+$/i, "");
-  return new File([bytes], `${base}-charts.pdf`, { type: "application/pdf" });
+  return {
+    file: new File([bytes], `${base}-charts.pdf`, { type: "application/pdf" }),
+    pages,
+  };
 }

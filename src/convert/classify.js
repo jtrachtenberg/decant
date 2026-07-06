@@ -964,9 +964,13 @@ function emitLine(line, bodyH) {
 // that visuals were dropped there. Pages whose scans were sampled away
 // (images unknown) get no marker; the classifier's extrapolation covers the
 // decision, but a marker should only assert what was actually seen.
-export function appendOmittedImagesNote(pageMarkdown, images) {
+export function appendOmittedImagesNote(pageMarkdown, images, pageNumber) {
   if (!images) return pageMarkdown;
-  const note = `[${images} image${images === 1 ? "" : "s"} omitted]`;
+  // The page anchor lets a reader — human or model — connect the marker to
+  // an attached figure ("see charts.pdf" footer names document pages) or to
+  // the original document.
+  const where = pageNumber ? ` — page ${pageNumber}` : "";
+  const note = `[${images} image${images === 1 ? "" : "s"} omitted${where}]`;
   return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
 }
 
