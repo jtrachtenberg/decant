@@ -163,6 +163,32 @@ export function scanPageOps(fnArray, argsArray, ops) {
   return scan;
 }
 
+// The XObjects that read as real figures: figure-sized on the page (CTM box)
+// AND, when the op args carry intrinsic dims, actually pixel-bearing with a
+// sane aspect. This is the one definition of "significant figure" — the
+// decode gate builds on it below, and classification uses it to decide
+// whether an image is worth surfacing the ambiguous prompt for
+// (pageHasSignificantImage): a lone logo/strip/icon fails here for the same
+// reasons in both places.
+export function significantRasters(scan) {
+  return scan.xobjects.filter((x) => {
+    if (!figureSized(x.box)) return false;
+    if (x.w != null && x.h != null) {
+      if (Math.min(x.w, x.h) < MIN_INTRINSIC_PX) return false;
+      if (Math.max(x.w, x.h) / Math.min(x.w, x.h) > MAX_INTRINSIC_ASPECT)
+        return false;
+    }
+    return true;
+  });
+}
+
+// Does the page paint at least one image that reads as a real figure (as
+// opposed to decoration)? Figure-sized inline images and masks count too —
+// they're visual content even though they can't be decoded standalone.
+export function pageHasSignificantImage(scan) {
+  return scan.otherFigureImages > 0 || significantRasters(scan).length > 0;
+}
+
 // The single decodable raster the page's figure content amounts to, or null
 // when the page should stay on the crop path. Gates (all must hold):
 //   G1 size:  CTM box figure-sized AND intrinsic dims (when known) real
@@ -177,14 +203,7 @@ export function decodeCandidate(scan) {
   if (scan.repeats > 0) return null;
   if (scan.otherFigureImages > 0) return null;
 
-  const qualifying = scan.xobjects.filter((x) => {
-    if (!x.objId || !figureSized(x.box)) return false;
-    if (x.w != null && x.h != null) {
-      if (Math.min(x.w, x.h) < MIN_INTRINSIC_PX) return false;
-      if (Math.max(x.w, x.h) / Math.min(x.w, x.h) > MAX_INTRINSIC_ASPECT)
-        return false;
-    }
-    return true;
-  });
+  // G1/G2 via the shared significance filter, plus a resolvable object id.
+  const qualifying = significantRasters(scan).filter((x) => x.objId);
   return qualifying.length === MAX_DECODABLE_RASTERS ? qualifying[0] : null;
 }

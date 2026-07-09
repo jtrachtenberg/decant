@@ -79,6 +79,42 @@ test("ambiguous threshold is exactly MIN_CHART_PAGES_FOR_AMBIGUOUS", () => {
   assert.equal(classifyDocument(atThreshold).decision, "ambiguous");
 });
 
+test("a single SIGNIFICANT figure bypasses the page-count threshold", () => {
+  // One chart page whose image is figure-sized and pixel-bearing (a real
+  // chart/photo) → the user decides, even below MIN_CHART_PAGES_FOR_AMBIGUOUS.
+  const res = classifyDocument([{ chars: 500, images: 1, figureImages: 1 }]);
+  assert.equal(res.decision, "ambiguous");
+  assert.equal(res.reason, "text-with-figure"); // distinct: corpus-gradeable
+  assert.equal(res.summary.figurePages, 1);
+});
+
+test("a single insignificant image (logo) still converts", () => {
+  // Scanned page, image present but NOT figure-significant → today's quiet
+  // behavior is preserved: no prompt for letterhead art.
+  const res = classifyDocument([{ chars: 500, images: 1, figureImages: 0 }]);
+  assert.equal(res.decision, "convert");
+  assert.equal(res.reason, "text-incidental-image");
+});
+
+test("perPage without the figureImages field behaves exactly as before", () => {
+  // Back-compat: producers that don't compute significance (older callers,
+  // extrapolated pages from legacy shapes) keep the page-count rule only.
+  const res = classifyDocument([{ chars: 500, images: 1 }]);
+  assert.equal(res.decision, "convert");
+  assert.equal(res.reason, "text-incidental-image");
+});
+
+test("a significant figure on a NO-text page doesn't trigger the prompt", () => {
+  // Image-only page (below the char floor) isn't a chart page — the
+  // passthrough/convert logic owns that case, not the figure trigger.
+  const res = classifyDocument([
+    { chars: 2000, images: 0 },
+    { chars: 10, images: 1, figureImages: 1 },
+  ]);
+  assert.equal(res.decision, "convert");
+  assert.equal(res.reason, "text");
+});
+
 test("sparse text just over the per-page floor still counts as content", () => {
   // 60 non-whitespace chars > 50 floor → a content page, not empty.
   const res = classifyDocument([{ chars: 60, images: 0 }]);
@@ -137,6 +173,15 @@ test("extrapolateImages passes fully-scanned input through unchanged", () => {
     { chars: 100, images: 2 },
   ];
   assert.equal(extrapolateImages(perPage), perPage);
+});
+
+test("extrapolateImages carries figureImages alongside images", () => {
+  const filled = extrapolateImages([
+    { chars: 100, images: 2, figureImages: 1 },
+    { chars: 100, images: null },
+  ]);
+  assert.equal(filled[1].images, 2);
+  assert.equal(filled[1].figureImages, 1); // nearest-fill, same as images
 });
 
 test("extrapolateImages fills unscanned pages from the nearest sample", () => {

@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
 import {
   scanPageOps,
   decodeCandidate,
+  significantRasters,
+  pageHasSignificantImage,
   composeTransform,
   applyTransform,
   VECTOR_PAINT_OP_NAMES,
@@ -186,6 +188,37 @@ test("any image-tiling op (wallpaper/texture) disqualifies the page", () => {
   ]);
   assert.equal(scan.repeats, 1);
   assert.equal(decodeCandidate(scan), null);
+});
+
+test("significance: real figures count, decoration doesn't", () => {
+  // A photo page is significant…
+  const photo = scanOf(placeImage("img_p9_1", 0, 0, 400, 300));
+  assert.equal(significantRasters(photo).length, 1);
+  assert.ok(pageHasSignificantImage(photo));
+  // …an icon or a stretched gradient strip is not…
+  const icon = scanOf(placeImage("img_p9_2", 0, 0, 20, 20));
+  const strip = scanOf(placeImage("img_p9_3", 0, 0, 300, 400, 2, 256));
+  assert.ok(!pageHasSignificantImage(icon));
+  assert.ok(!pageHasSignificantImage(strip));
+  // …and a figure-sized inline image is (visual content, though undecodable).
+  const inline = scanOf([
+    ["save"],
+    ["transform", [300, 0, 0, 200, 0, 0]],
+    ["paintInlineImageXObject", [{}]],
+    ["restore"],
+  ]);
+  assert.ok(pageHasSignificantImage(inline));
+  assert.equal(decodeCandidate(inline), null); // significant ≠ decodable
+});
+
+test("significance is broader than decodability: a two-photo collage counts", () => {
+  const collage = scanOf([
+    ...placeImage("img_pA_1", 0, 0, 200, 150),
+    ...placeImage("img_pA_2", 250, 0, 200, 150),
+  ]);
+  assert.equal(significantRasters(collage).length, 2);
+  assert.ok(pageHasSignificantImage(collage)); // prompts the user
+  assert.equal(decodeCandidate(collage), null); // but stays on the crop path
 });
 
 test("matrix helpers follow PDF's row-vector convention", () => {

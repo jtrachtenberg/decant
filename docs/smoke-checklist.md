@@ -59,6 +59,10 @@ expected attachment and the service-worker/page console agrees.
       **cropped to the figure region** (chart + surrounding labels) where the
       geometry allows, whole pages otherwise. An encrypted PDF falls back to
       `<name>-pN.png` page renders, sliced to the site's image limit.
+- [ ] **Single-figure prompt** — a ONE-page PDF with text plus a real
+      chart/photo image offers the ambiguous prompt (reason: a significant
+      figure bypasses the 2-chart-page threshold); a one-page PDF whose only
+      image is a small logo converts quietly with no prompt.
 - [ ] **Decoded photo figures** — a PDF whose chart page is a single embedded
       photo/diagram (not a vector chart): the mini-PDF page for it should be
       the image at native sharpness (decoded XObject, JPEG-embedded), not a

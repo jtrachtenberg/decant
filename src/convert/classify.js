@@ -22,7 +22,10 @@ export const MIN_TEXT_CHARS_PER_PAGE = 50;
 
 // How many image-bearing text pages a document needs before we treat it as
 // ambiguous (text + meaningful charts) rather than convert. >=2 avoids
-// false-positives from a single incidental logo on a header page.
+// false-positives from a single incidental logo on a header page. A single
+// page whose image is a SIGNIFICANT figure (figureImages — figure-sized and
+// pixel-bearing, raster-gate.js) bypasses this count: significance, not page
+// count, is what the threshold was always approximating.
 export const MIN_CHART_PAGES_FOR_AMBIGUOUS = 2;
 
 // pdf.js OPS names that paint raster images. Callers map these through their
@@ -57,7 +60,8 @@ export function shouldScanImages(n, pageCount) {
 // page's count. Charts cluster in sections, so nearest-neighbour fill
 // extrapolates the local density: a sampled chart page marks its unscanned
 // neighbours chart-like too, keeping chartPages proportionate to what a full
-// scan would find. Fully-scanned input passes through unchanged.
+// scan would find. figureImages (the significance signal) rides along the
+// same way. Fully-scanned input passes through unchanged.
 export function extrapolateImages(perPage) {
   const scanned = [];
   perPage.forEach((p, i) => {
@@ -71,7 +75,9 @@ export function extrapolateImages(perPage) {
       if (nearest === null || Math.abs(s - i) < Math.abs(nearest - i))
         nearest = s;
     }
-    return { ...p, images: nearest === null ? 0 : perPage[nearest].images };
+    if (nearest === null) return { ...p, images: 0 };
+    const src = perPage[nearest];
+    return { ...p, images: src.images, figureImages: src.figureImages };
   });
 }
 
@@ -1129,7 +1135,12 @@ export function appendOmittedImagesNote(pageMarkdown, images, pageNumber) {
 
 // Decide what to do with a document from its per-page signals.
 //
-//   perPage: [{ chars: number, images: number }]
+//   perPage: [{ chars: number, images: number, figureImages?: number }]
+//
+// figureImages (optional) counts the page's images that read as REAL figures
+// — figure-sized on the page, actually pixel-bearing (raster-gate.js's
+// significance predicate) — as opposed to logos/strips/icons. Entries
+// without it behave exactly as before the signal existed.
 //
 // Returns { decision: "convert"|"passthrough"|"ambiguous", reason, summary }.
 //   convert     — text-dominant, no meaningful charts. Swap in Markdown.
@@ -1146,9 +1157,15 @@ export function classifyDocument(perPage) {
   // extraction renders exactly these pages (pdf-figures.js), so the numbers
   // ride along in the summary. chartPages stays the count for display/tests.
   const chartPageNumbers = [];
+  // Chart pages carrying a SIGNIFICANT image (figureImages ≥ 1): even one
+  // such page makes the document worth the ambiguous prompt — the page-count
+  // threshold below exists to suppress incidental-logo noise, and a
+  // figure-sized, pixel-bearing image is by definition not incidental.
+  let figurePages = 0;
   perPage.forEach((p, i) => {
     if (p.chars >= MIN_TEXT_CHARS_PER_PAGE && p.images >= 1) {
       chartPageNumbers.push(i + 1);
+      if ((p.figureImages ?? 0) >= 1) figurePages++;
     }
   });
   const chartPages = chartPageNumbers.length;
@@ -1159,6 +1176,7 @@ export function classifyDocument(perPage) {
     contentPages,
     chartPages,
     chartPageNumbers,
+    figurePages,
     totalChars,
     totalImages,
   };
@@ -1171,6 +1189,11 @@ export function classifyDocument(perPage) {
   }
   if (chartPages >= MIN_CHART_PAGES_FOR_AMBIGUOUS) {
     return { decision: "ambiguous", reason: "text-with-charts", summary };
+  }
+  // Below the page-count threshold, a significant figure still earns the
+  // prompt (distinct reason so corpus QA can grade this trigger separately).
+  if (figurePages >= 1) {
+    return { decision: "ambiguous", reason: "text-with-figure", summary };
   }
   return { decision: "convert", reason: "text-incidental-image", summary };
 }

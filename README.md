@@ -197,7 +197,10 @@ on it fall back gracefully (in-browser conversion or passthrough).
     decoded at native resolution** instead of a page-render crop (gated
     conservatively — ambiguity always falls back to the crop).
   - A **"set as default"** choice on the ambiguous prompt + matching options
-    setting (`ask` by default — automation is opt-in).
+    setting (`ask` by default — automation is opt-in). Even a single-page PDF
+    prompts when its image is a **real figure** (size/pixel significance, not
+    page count — [ADR 0008](./docs/adr/0008-figure-significance-ambiguity.md));
+    lone logos still convert quietly.
   - **Corrupt chart tables gated**: a table cell holding control characters
     (a font with no text mapping — provably garbage) makes the whole table
     emit as `[chart table omitted — unreliable extraction; see attached
