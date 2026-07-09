@@ -9,6 +9,7 @@
 // Registration is kept in sync on install, browser startup, config changes, and
 // permission grants/revocations.
 
+import { browser } from "./browser.js";
 import { loadConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
@@ -29,7 +30,7 @@ async function permittedHosts() {
   const hosts = enabledHosts(await loadConfig());
   const permitted = [];
   for (const host of hosts) {
-    if (await chrome.permissions.contains({ origins: [pattern(host)] })) {
+    if (await browser.permissions.contains({ origins: [pattern(host)] })) {
       permitted.push(host);
     }
   }
@@ -40,14 +41,14 @@ async function syncRegistration() {
   const hosts = await permittedHosts();
   const matches = hosts.map(pattern);
 
-  const existing = await chrome.scripting.getRegisteredContentScripts({
+  const existing = await browser.scripting.getRegisteredContentScripts({
     ids: [SCRIPT_ID],
   });
 
   try {
     if (!matches.length) {
       if (existing.length) {
-        await chrome.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
+        await browser.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
       }
       console.log(TAG, "no enabled+permitted hosts — content script unregistered");
       return;
@@ -63,9 +64,9 @@ async function syncRegistration() {
     };
 
     if (existing.length) {
-      await chrome.scripting.updateContentScripts([spec]);
+      await browser.scripting.updateContentScripts([spec]);
     } else {
-      await chrome.scripting.registerContentScripts([spec]);
+      await browser.scripting.registerContentScripts([spec]);
     }
     console.log(TAG, "registered on:", matches.join(", "));
   } catch (err) {
@@ -73,10 +74,10 @@ async function syncRegistration() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(syncRegistration);
-chrome.runtime.onStartup.addListener(syncRegistration);
-chrome.permissions.onAdded.addListener(syncRegistration);
-chrome.permissions.onRemoved.addListener(syncRegistration);
+browser.runtime.onInstalled.addListener(syncRegistration);
+browser.runtime.onStartup.addListener(syncRegistration);
+browser.permissions.onAdded.addListener(syncRegistration);
+browser.permissions.onRemoved.addListener(syncRegistration);
 onConfigChanged(syncRegistration);
 
 // ------------------------------------------------- http-convert relay ---
@@ -85,7 +86,7 @@ onConfigChanged(syncRegistration);
 // host permissions and ships the converted file back. Errors return as
 // { ok: false } — the content side turns them into the rule's onError
 // fallback, so a dead endpoint can never lose an upload.
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== HTTP_CONVERT_MSG) return;
   (async () => {
     const out = await httpConvert(wireToFile(msg.file), msg.rule);

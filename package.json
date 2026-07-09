@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:firefox": "node build.mjs --firefox",
     "watch": "node build.mjs --watch",
+    "watch:firefox": "node build.mjs --watch --firefox",
     "test": "node --test",
     "mock-endpoint": "node scripts/mock-endpoint.mjs",
     "inspect": "node scripts/inspect-pdf.mjs"
@@ -22,6 +24,7 @@
     "pdfjs-dist": "^6.1.200",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
+    "web-streams-polyfill": "^4.3.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

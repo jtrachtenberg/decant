@@ -3,6 +3,7 @@
 // click gesture); saving the config triggers the background worker to
 // re-register the content script.
 
+import { browser } from "../browser.js";
 import { loadConfig, saveConfig } from "../config/config.js";
 import {
   DEFAULT_CONFIG,
@@ -34,7 +35,7 @@ function status(msg) {
 }
 
 // Persist, re-read the normalized form, re-render. Returns true when the save
-// stuck. chrome.storage.sync can reject (quota — 8KB/item — or transient
+// stuck. storage.sync can reject (quota — 8KB/item — or transient
 // errors); then the in-memory edit is rolled back to what storage actually
 // holds, so the UI never shows state that didn't persist, and callers skip
 // their success status.
@@ -96,7 +97,7 @@ async function toggleHost(host, cb) {
   if (!rule) return;
 
   if (cb.checked) {
-    const granted = await chrome.permissions.request({ origins: [pattern(host)] });
+    const granted = await browser.permissions.request({ origins: [pattern(host)] });
     if (!granted) {
       cb.checked = false;
       status(`Permission for ${host} was declined.`);
@@ -106,7 +107,7 @@ async function toggleHost(host, cb) {
     status(`Decant enabled on ${host}.`);
   } else {
     rule.enabled = false;
-    await chrome.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
+    await browser.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
     status(`Decant disabled on ${host}.`);
   }
   await commit();
@@ -114,7 +115,7 @@ async function toggleHost(host, cb) {
 
 async function removeHost(host) {
   config.activation.rules = config.activation.rules.filter((r) => r.match !== host);
-  await chrome.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
+  await browser.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
   if (!(await commit())) return;
   status(`Removed ${host}.`);
 }
@@ -132,7 +133,7 @@ async function addHost() {
     return;
   }
   // Default to enabled: request permission right away (from this click gesture).
-  const granted = await chrome.permissions.request({ origins: [pattern(host)] });
+  const granted = await browser.permissions.request({ origins: [pattern(host)] });
   config.activation.rules.push({ type: "host", match: host, enabled: granted });
   input.value = "";
   if (!(await commit())) return;
@@ -182,7 +183,7 @@ async function requestEndpointPermission(endpoints) {
   const origins = [...new Set(endpoints.map(originPattern).filter(Boolean))];
   if (!origins.length) return true;
   try {
-    return await chrome.permissions.request({ origins });
+    return await browser.permissions.request({ origins });
   } catch {
     return false;
   }

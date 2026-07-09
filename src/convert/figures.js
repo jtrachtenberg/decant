@@ -10,6 +10,7 @@
 // whole module unit-tests in Node with synthetic zips.
 
 import JSZipNs from "jszip";
+import { fileBytes } from "./read-file.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;
 
@@ -67,7 +68,7 @@ export async function extractFigures(file) {
   const prefix = MEDIA_PREFIX[extOf(file?.name)];
   if (!prefix) return [];
 
-  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const zip = await JSZip.loadAsync(await fileBytes(file));
   const paths = Object.keys(zip.files)
     .filter((p) => p.startsWith(prefix) && !zip.files[p].dir)
     .sort((a, b) => mediaNumber(a) - mediaNumber(b) || a.localeCompare(b));

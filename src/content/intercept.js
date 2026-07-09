@@ -28,6 +28,7 @@
 // armed, the handlers get out of the way and let the native upload proceed, so
 // the original file is sent with no conversion.
 
+import { restrictedSandbox } from "./rs-shim.js"; // must precede the pdf.js import chain
 import { convertFile, convertViaCompanion } from "../convert/index.js";
 import { companionAvailable } from "../convert/result.js";
 import {
@@ -39,6 +40,7 @@ import {
 import {
   extractPdfFigures,
   extractPdfFigureCrops,
+  extractPdfFigureBoxes,
   pdfFiguresAvailable,
 } from "../convert/pdf-figures.js";
 import { buildChartPagesPdf } from "../convert/pdf-subset.js";
@@ -90,6 +92,19 @@ function dataTransferWith(files) {
   const dt = new DataTransfer();
   for (const f of files) dt.items.add(f);
   return dt;
+}
+
+// Bound an async step so a hang can't strand the upload. Firefox's sandbox can
+// make pdf.js operations never settle (see rs-shim.js); racing a timeout turns
+// that into a normal rejection the figures try/catch degrades from. The stranded
+// work keeps running detached but is harmless — its result is just ignored.
+const FIGURE_STEP_TIMEOUT_MS = 20000;
+function withTimeout(promise, label, ms = FIGURE_STEP_TIMEOUT_MS) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // Per-site intercept adapters — the first cut of the M2 adapter tier, moving
@@ -269,6 +284,7 @@ async function resolveAndInject(preferredInput, fileArray) {
         // ahead of its figures.
         const attachments = [];
         let note = null;
+        let mdFile = r.converted; // safe default: attach text-only on any failure
         // Pages whose image layer we reattach (mini-PDF pages / page renders)
         // were NOT saved — the savings estimate nets them out.
         let attachedFigurePages = 0;
@@ -297,34 +313,50 @@ async function resolveAndInject(preferredInput, fileArray) {
             }
           } else {
             // PDF: one chart-pages-only mini-PDF. A document attachment
-            // doesn't count against the image limit, and the platform
-            // renders its pages natively. Figure crops (when the page's
-            // image geometry allows) tighten each mini-PDF page to the
-            // figure itself; failures degrade crop → whole pages → PNG
-            // renders, never blocking the upload.
+            // doesn't count against the image limit, and the platform renders
+            // its pages natively. Each chart page is tightened to its figure
+            // region so the model pays for the figure, not the whole page; a
+            // page with no detectable figure copies whole.
+            //
+            // Two crop strategies by engine: Chrome rasterizes the figure region
+            // to a PNG (extractPdfFigureCrops); Firefox can't run pdf.js canvas
+            // rendering in the content-script sandbox — it hangs (see rs-shim.js)
+            // — so it crops the vector page to the figure box via setCropBox
+            // (extractPdfFigureBoxes), geometry only, no rendering. Either way a
+            // failure just degrades to whole pages / text-only.
             let crops = null;
-            try {
-              crops = await extractPdfFigureCrops(r.file, r.meta);
-            } catch (err) {
-              console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
+            let boxes = null;
+            if (restrictedSandbox) {
+              try {
+                boxes = await withTimeout(extractPdfFigureBoxes(r.file, r.meta), "figure boxes");
+              } catch (err) {
+                console.warn(TAG, `figure boxes failed for ${r.file.name} — using whole pages:`, err);
+              }
+            } else {
+              try {
+                crops = await withTimeout(extractPdfFigureCrops(r.file, r.meta), "figure crops");
+              } catch (err) {
+                console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
+              }
             }
             // Human/model-facing page references use the document's printed
             // labels when the PDF defines them (matching the "[images
             // omitted — page N]" markers and the in-page stamps).
             const labelOf = (n) => r.meta?.pageLabels?.[n - 1] ?? n;
             try {
-              const subset = await buildChartPagesPdf(r.file, r.meta, crops);
+              const subset = await withTimeout(buildChartPagesPdf(r.file, r.meta, crops, boxes), "chart-pages PDF");
               if (subset) {
                 attachments.push(subset.file);
                 attachedFigurePages = subset.pages.length;
                 note =
                   `The figures from this document are attached as "${subset.file.name}" ` +
                   `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
-                console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${crops?.size ?? 0} cropped) for ${r.file.name}`);
+                console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${(crops?.size ?? 0) + (boxes?.size ?? 0)} cropped) for ${r.file.name}`);
               }
             } catch (err) {
-              console.warn(TAG, `chart-pages PDF failed for ${r.file.name} — rendering pages:`, err);
-              const figs = (await extractPdfFigures(r.file, r.meta)).slice(0, maxImages);
+              console.warn(TAG, `chart-pages PDF failed for ${r.file.name}:`, err);
+              if (restrictedSandbox) throw err; // no pdf.js render fallback here — degrade to text-only
+              const figs = (await withTimeout(extractPdfFigures(r.file, r.meta), "figure render")).slice(0, maxImages);
               attachments.push(...figs);
               attachedFigurePages = figs.length;
               if (figs.length) {
@@ -337,10 +369,18 @@ async function resolveAndInject(preferredInput, fileArray) {
               }
             }
           }
+          if (note) mdFile = await withFiguresNote(r.converted, note);
         } catch (err) {
+          // Any failure in the figures path degrades to the plain converted
+          // Markdown — the upload is never lost to figure extraction. (Note the
+          // withFiguresNote call is INSIDE this try: it reads the converted file
+          // and must not be able to escape the guard.)
           console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
+          mdFile = r.converted;
+          attachments.length = 0;
+          attachedFigurePages = 0;
         }
-        chosen.push(note ? await withFiguresNote(r.converted, note) : r.converted);
+        chosen.push(mdFile);
         chosen.push(...attachments);
         // Count toward the savings badge with the reattached pages netted out.
         converted.push(
