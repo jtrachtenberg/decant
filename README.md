@@ -180,7 +180,7 @@ on it fall back gracefully (in-browser conversion or passthrough).
   - Flattened-chart "label soup" caught by a column-convergence check;
     packaging pass, per-site adapters (claude.ai/ChatGPT full, Gemini
     picker-only), and the estimated **token-savings badge**.
-- **M3 — Companion tier & the image layer. 🚧 Core shipped.**
+- **M3 — Companion tier & the image layer. ✅ Complete.**
   - Local **companion service** (`companion/`): Flask, MarkItDown default,
     **Docling** opt-in for OCR/quality, `echo` for contract tests.
   - **Forward escalation** (`onEmpty`): scans the browser can't read escalate
@@ -207,8 +207,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
     figure, document page N]` instead of plausible-looking wrong data, and
     floating legend/axis text boxes beside a chart's grid are kept out of its
     rows instead of shredding into them.
-  - Still open: **figure descriptions** as a first-class output and standalone
-    raster XObject extraction.
+  - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
+    text (describe-in-text via the companion's VLM — the mini-PDF already
+    gives the model the figures themselves); companion quality-gate polish
+    ("companion dropped N figures" badge + Docling chart-extraction enrich);
+    in-place rule editing on the options page; quick-add `responseField`.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,

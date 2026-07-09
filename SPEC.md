@@ -332,8 +332,12 @@ a dumb converter and a single site:
   multi-site support, token-savings estimate display.
 
 **Milestone 3 — Quality tier (shape B) & the image layer**
-- `localhost` Python service (MarkItDown or Docling) behind the same interface
-  — including describe-in-text figure descriptions (ARCHITECTURE §5 strategy 2).
+- `localhost` Python service (MarkItDown or Docling) behind the same interface.
+  (Describe-in-text figure descriptions — ARCHITECTURE §5 strategy 2 — were
+  descoped to a post-M3 nice-to-have: extract-and-reference ships the figures
+  themselves to the destination model, which describes them better than a
+  local VLM would, so inline captions only pay off for vision-less backends
+  or hard token budgets.)
 - Setting to choose engine; graceful fallback to A if the service is down.
 - **Extract-and-reference for chat surfaces** (ARCHITECTURE §5 strategy 1):
   injection already delivers a FileList, so attach the converted `.md` plus
