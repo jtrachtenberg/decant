@@ -182,8 +182,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
     ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)).
   - A **"set as default"** choice on the ambiguous prompt + matching options
     setting (`ask` by default — automation is opt-in).
-  - Still open: **figure descriptions** as a first-class output, standalone
-    raster XObject extraction, and confidence-gating corrupt chart tables.
+  - **Corrupt chart tables gated**: a table cell holding control characters
+    (a font with no text mapping — provably garbage) makes the whole table
+    emit as `[chart table omitted — unreliable extraction; see attached
+    figure, document page N]` instead of plausible-looking wrong data, and
+    floating legend/axis text boxes beside a chart's grid are kept out of its
+    rows instead of shredding into them.
+  - Still open: **figure descriptions** as a first-class output and standalone
+    raster XObject extraction.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,

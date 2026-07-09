@@ -320,12 +320,26 @@ function bandOf(bands, x) {
 // `grid` so linesToMarkdown emits them as one pipe table). Cells keep their
 // text verbatim; glyphs are assigned to bands by x and joined with word
 // spacing, so a column whose text nearly fills its width still splits cleanly.
+//
+// Floating text boxes — a chart legend or axis label sitting beside the grid
+// (WHO-doc p17: "Change in HALE (years)" at x 438 next to a grid whose last
+// band starts at x 285) — share rows with grid content but belong to the
+// figure, not the table. Merged in, they shred fragment-by-fragment into
+// unrelated data rows. Two exclusions keep them out: a box starting left of
+// the first band can't be cell content (every grid row starts a segment at
+// every band, detectGrid guarantees it), and within a band's bucket, content
+// separated from the cell's covered extent by more than COLUMN_GAP — the same
+// gap that would have split it into its own cell in prose reconstruction — is
+// a floating box, not a continuation. Their text is dropped: these labels
+// belong to the attached figure, and shredding them into rows is worse than
+// omitting them.
 function gridLines(grid) {
   return grid.rows
     .map((row) => {
       const buckets = grid.bands.map(() => []);
       for (const b of row.boxes) {
         if (!b.g.str.trim()) continue;
+        if (b.x0 < grid.bands[0] - GRID_X_TOL) continue;
         buckets[bandOf(grid.bands, b.x0)].push(b);
       }
       const cells = buckets.map((rs, i) => {
@@ -333,7 +347,9 @@ function gridLines(grid) {
         let text = "";
         let cover = -Infinity;
         for (const b of rs) {
-          if (text && b.x0 - cover > WORD_GAP * row.h && !/\s$/.test(text)) text += " ";
+          const gap = b.x0 - cover;
+          if (text && gap > COLUMN_GAP * row.h) break;
+          if (text && gap > WORD_GAP * row.h && !/\s$/.test(text)) text += " ";
           text += b.g.str;
           if (b.x1 > cover) cover = b.x1;
         }
@@ -496,6 +512,28 @@ function lowConfidenceMarker() {
   return markerLine(
     "[table extracted with low structural confidence — columns may be misaligned and cell-to-row mapping is unverified]"
   );
+}
+
+// Hard corruption signal (Tier 2, SPEC §3.9): C0 control characters in
+// extracted text are provably wrong — pdf.js emits raw glyph codes when a
+// font has no usable ToUnicode map (WHO-doc p17 put U+001A–U+001F into chart
+// "data" cells). One such cell means the whole table's values can't be
+// trusted, and a confidently-wrong table is worse than an omission: a linear
+// reader can't tell which rows survived. \t/\n/\r never reach cells (line
+// reconstruction collapses them); the range below is the C0 set that can.
+const C0_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+
+function tableHasCorruptCells(rows) {
+  return rows.some((r) => r.cells.some((c) => C0_CONTROL_RE.test(c.text)));
+}
+
+// What replaces a corrupt table. The figures flow attaches the actual chart
+// page, so the marker points there — by the document's printed page label
+// when the caller has one (that's the numbering the attachment's stamps and
+// footers speak).
+function omittedChartTableNote(pageLabel) {
+  const where = pageLabel != null ? `, document page ${pageLabel}` : "";
+  return `[chart table omitted — unreliable extraction; see attached figure${where}]`;
 }
 
 // Tier 2 marker: the page's text never converged into columns, so it's most
@@ -922,7 +960,9 @@ export function linesToText(lines) {
 
 // Render reconstructed lines to Markdown: font-size headings, conservative
 // tables (clear multi-row/multi-column grids), and paragraph breaks.
-export function linesToMarkdown(lines) {
+// `pageLabel` (optional) is the document's printed label for this page; it
+// anchors the corrupt-table omission marker to the attached figure.
+export function linesToMarkdown(lines, pageLabel = null) {
   if (!lines.length) return "";
   const bodyH = modeHeight(lines);
   const tableStarts = tableRuns(lines); // Map<startIndex, endIndex>
@@ -951,7 +991,15 @@ export function linesToMarkdown(lines) {
     if (tableStarts.has(i)) {
       flush();
       const end = tableStarts.get(i);
-      blocks.push(emitTable(lines.slice(i, end)));
+      const rows = lines.slice(i, end);
+      if (tableHasCorruptCells(rows)) {
+        // Adjacent corrupt tables (a figure often flushes as several runs)
+        // collapse into one marker instead of stacking identical notes.
+        const note = omittedChartTableNote(pageLabel);
+        if (blocks[blocks.length - 1] !== note) blocks.push(note);
+      } else {
+        blocks.push(emitTable(rows));
+      }
       i = end;
       continue;
     }
