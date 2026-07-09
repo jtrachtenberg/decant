@@ -59,6 +59,16 @@ expected attachment and the service-worker/page console agrees.
       **cropped to the figure region** (chart + surrounding labels) where the
       geometry allows, whole pages otherwise. An encrypted PDF falls back to
       `<name>-pN.png` page renders, sliced to the site's image limit.
+- [ ] **Decoded photo figures** — a PDF whose chart page is a single embedded
+      photo/diagram (not a vector chart): the mini-PDF page for it should be
+      the image at native sharpness (decoded XObject, JPEG-embedded), not a
+      2× page-render crop — zoom in and compare edges against the original.
+      A vector-chart doc (e.g. WHO) must be unaffected: its pages still crop.
+      Console logs `decoded N raster figure(s)` when the path fires.
+- [ ] **Decoded photo figures (Firefox)** — same document on Firefox: the
+      decode path is render-free and is *tried* there; if the JPEG re-encode
+      fails in the content-script sandbox it must degrade silently to the
+      vector CropBox path (never a hang, never a lost upload).
 - [ ] **Figure anchoring** — the `.md`'s omission markers carry page numbers
       (`[2 images omitted — page 17]`) and it ends with a footer mapping
       charts.pdf pages to document pages. Probe: ask the model "what does the

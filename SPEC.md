@@ -335,8 +335,11 @@ a dumb converter and a single site:
 - **Extract-and-reference for chat surfaces** (ARCHITECTURE §5 strategy 1):
   injection already delivers a FileList, so attach the converted `.md` plus
   the document's actual figures as sibling files. PPTX/DOCX first (images are
-  zip entries, extraction is free via jszip); PDF later (decoding image
-  XObjects out of pdf.js is the hard case). Needs junk filtering (logos,
+  zip entries, extraction is free via jszip); PDF via the chart-pages
+  mini-PDF, upgraded per page: a page whose figure IS a single embedded
+  raster gets its XObject decoded at native resolution (`raster-gate.js`
+  decides, biased hard toward the render-crop path — a false positive would
+  silently drop vector chart content, §6). Needs junk filtering (logos,
   backgrounds), per-site attachment-count limits, and probably lands as a
   third ambiguous-prompt choice: Convert + attach figures.
 - **Evaluated and shelved: Tesseract.js (in-browser WASM OCR).** Feasible,

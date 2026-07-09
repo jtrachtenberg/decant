@@ -64,9 +64,11 @@ async function stamper(out) {
 // to subset. Throws on documents pdf-lib can't load (e.g. encrypted) — the
 // caller falls back to rendered page images.
 //
-// `crops` (optional, from pdf-figures.js extractPdfFigureCrops) maps a page
-// number to { png, widthPt, heightPt }: that page is embedded as a tight raster
-// figure crop instead of a whole-page copy (Chrome). `boxes` (optional, from
+// `crops` (optional, from pdf-figures.js extractPdfFigureCrops or
+// extractPdfRasterFigures) maps a page number to { png | jpg, widthPt,
+// heightPt }: that page is embedded as a tight raster figure instead of a
+// whole-page copy — `png` for rendered crops, `jpg` for decoded photo
+// XObjects (photos as PNG would bloat the mini-PDF for nothing). `boxes` (optional, from
 // extractPdfFigureBoxes) maps a page number to a { x0, y0, x1, y1 } user-space
 // figure box: the whole vector page is copied but its CropBox is set to the box,
 // so the platform shows only the figure — the render-free crop used on Firefox,
@@ -98,7 +100,9 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
     if (crop) {
       // Raster crop: grow a strip above the figure for the stamp, so the label
       // never covers chart content.
-      const img = await out.embedPng(crop.png);
+      const img = crop.jpg
+        ? await out.embedJpg(crop.jpg)
+        : await out.embedPng(crop.png);
       const page = out.addPage([crop.widthPt, crop.heightPt + STAMP_STRIP_PT]);
       page.drawImage(img, {
         x: 0,

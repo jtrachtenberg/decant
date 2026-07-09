@@ -7,9 +7,10 @@
 // can reference them by page. The model sees exactly what the full page-image
 // layer would have shown it, but only for the pages that carry charts.
 //
-// Follow-ups (see extract-and-reference memory/SPEC): crop to the chart's
-// region instead of the whole page, and decode standalone raster XObjects for
-// photo-bearing PDFs.
+// Photo-bearing pages get a further upgrade: when a page's figure content IS
+// a single embedded raster (raster-gate.js decides, conservatively), the
+// XObject's own pixels are decoded and re-encoded (extractPdfRasterFigures)
+// instead of re-rasterizing a 2× page render — native resolution, render-free.
 //
 // Browser-only: pdf.js's module import touches chrome.runtime (like
 // inbrowser.js) and rendering needs OffscreenCanvas, so there are no Node
@@ -22,6 +23,15 @@ import { STANDARD_FONT_DATA_URL } from "./inbrowser.js";
 import { fileBytes } from "./read-file.js";
 import { IMAGE_OP_NAMES } from "./classify.js";
 import { MAX_SUBSET_PAGES } from "./pdf-subset.js";
+import {
+  composeTransform as compose,
+  applyTransform as apply,
+  MIN_IMAGE_EDGE_PT,
+  MIN_INTRINSIC_PX,
+  MAX_INTRINSIC_ASPECT,
+  scanPageOps,
+  decodeCandidate,
+} from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
 
@@ -106,21 +116,11 @@ export async function extractPdfFigures(file, meta) {
 // model pays for the figure region, not the whole page.
 
 const CROP_PAD_PT = 36; // half an inch: axis labels, captions, legends
-const MIN_IMAGE_EDGE_PT = 30; // icons / logos / bullets aren't figures
+// (MIN_IMAGE_EDGE_PT — icons/logos/bullets aren't figures — now lives in
+// raster-gate.js so the crop union and the decode gate agree on figure-sized.)
 // When the padded union effectively IS the page, cropping buys nothing —
 // keep the vector page (it renders sharper than a raster crop anyway).
 const MAX_CROP_PAGE_FRACTION = 0.85;
-
-// 2×3 matrices in PDF's row-vector convention. composed = apply m, then n.
-const compose = (m, n) => [
-  m[0] * n[0] + m[1] * n[2],
-  m[0] * n[1] + m[1] * n[3],
-  m[2] * n[0] + m[3] * n[2],
-  m[2] * n[1] + m[3] * n[3],
-  m[4] * n[0] + m[5] * n[2] + n[4],
-  m[4] * n[1] + m[5] * n[3] + n[5],
-];
-const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
 // Union of the page's raster-image boxes in user space, or null when nothing
 // figure-sized paints. An image op paints the unit square through the CTM.
@@ -192,10 +192,13 @@ async function paddedFigureBox(page) {
 // Crop each chart page's render to its padded figure box. Resolves to a Map
 // of pageNumber → { png, widthPt, heightPt } holding only the pages where a
 // crop is worthwhile — pages without one fall back to whole-page copies in
-// the mini-PDF. Throws on pdf.js/canvas failure (caller degrades to whole
-// pages).
-export async function extractPdfFigureCrops(file, meta) {
-  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+// the mini-PDF. `skipPages` (optional Set) excludes pages another path
+// already handled (decoded raster figures). Throws on pdf.js/canvas failure
+// (caller degrades to whole pages).
+export async function extractPdfFigureCrops(file, meta, skipPages = null) {
+  const pages = (meta?.chartPageNumbers ?? [])
+    .slice(0, MAX_SUBSET_PAGES)
+    .filter((n) => !skipPages?.has(n));
   const crops = new Map();
   if (!pages.length) return crops;
 
@@ -244,8 +247,10 @@ export async function extractPdfFigureCrops(file, meta) {
 // the pages worth cropping. buildChartPagesPdf crops the vector page to the box
 // via setCropBox — no rasterization — so it runs where extractPdfFigureCrops
 // can't. Same figure-box geometry as the crop path, so the two agree on framing.
-export async function extractPdfFigureBoxes(file, meta) {
-  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
+  const pages = (meta?.chartPageNumbers ?? [])
+    .slice(0, MAX_SUBSET_PAGES)
+    .filter((n) => !skipPages?.has(n));
   const boxes = new Map();
   if (!pages.length) return boxes;
 
@@ -265,4 +270,164 @@ export async function extractPdfFigureBoxes(file, meta) {
     await loadingTask.destroy();
   }
   return boxes;
+}
+
+// --- Standalone raster XObjects: decode the figure's own pixels -------------
+//
+// For a page whose figure IS a single embedded raster (a photo, a scanned
+// diagram — raster-gate.js's conservative call), the render-crop path
+// re-rasterizes an already-raster image at page scale. Better: pull the
+// decoded bitmap out of pdf.js's object registry and re-encode it directly —
+// native resolution, no page render at all (getOperatorList only, so it can
+// run even where canvas rendering can't; the JPEG re-encode still needs plain
+// OffscreenCanvas, which is far less than the pdf.js render pipeline).
+//
+// Any caption/axis text drawn AROUND the raster is page text — it's already
+// in the converted Markdown, so decoding only the pixels loses nothing the
+// crop would have kept. (For vector charts the labels are NOT in the raster,
+// which is exactly what the gate's raster-dominance check screens out.)
+
+// Long-edge cap for the re-encode, matching the render path's reasoning: the
+// destination model downscales past ~2048 anyway, and photos re-encoded as
+// JPEG at this size stay small; beyond it they just bloat the mini-PDF.
+const MAX_DECODE_EDGE = MAX_RENDER_EDGE;
+const DECODE_JPEG_QUALITY = 0.9;
+
+// pdf.js ImageKind values (raw-data form of a decoded image).
+const KIND_RGB_24BPP = 2;
+const KIND_RGBA_32BPP = 3;
+
+// Resolve a page-level image object. The callback form never throws on a
+// not-yet-resolved id — it fires when the worker delivers it. A dependency
+// the worker never resolves would hang; the caller's timeout guard covers it.
+const resolveObj = (page, objId) =>
+  new Promise((res) => page.objs.get(objId, res));
+
+// Decoded imgData → white-backed JPEG bytes at capped scale, or null when the
+// shape isn't one we recognize (exotic kind, missing bitmap/data) — the page
+// then falls back to the crop path.
+async function encodeJpegFigure(imgData) {
+  const { width, height } = imgData ?? {};
+  if (!width || !height) return null;
+
+  // Source drawable: modern pdf.js transfers an ImageBitmap; the raw-data
+  // form carries typed-array pixels plus a kind tag.
+  let source = imgData.bitmap instanceof ImageBitmap ? imgData.bitmap : null;
+  let raw = null;
+  if (!source && imgData.data) {
+    if (imgData.kind === KIND_RGBA_32BPP) {
+      // Copy element-wise: the typed array may be a byteOffset view into a
+      // larger transfer buffer, so .buffer alone is not the pixels.
+      raw = new Uint8ClampedArray(imgData.data.length);
+      raw.set(imgData.data);
+    } else if (imgData.kind === KIND_RGB_24BPP) {
+      raw = new Uint8ClampedArray(width * height * 4);
+      const d = imgData.data;
+      for (let i = 0, j = 0; j < raw.length; i += 3, j += 4) {
+        raw[j] = d[i];
+        raw[j + 1] = d[i + 1];
+        raw[j + 2] = d[i + 2];
+        raw[j + 3] = 255;
+      }
+    } else {
+      return null; // 1bpp grayscale etc. — not photo material
+    }
+  }
+  if (!source && !raw) return null;
+
+  if (raw) {
+    const full = new OffscreenCanvas(width, height);
+    full.getContext("2d").putImageData(new ImageData(raw, width, height), 0, 0);
+    source = full;
+  }
+
+  const s = Math.min(1, MAX_DECODE_EDGE / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * s));
+  const h = Math.max(1, Math.round(height * s));
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  // JPEG has no alpha: composite any transparency onto white, matching the
+  // page renders.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(source, 0, 0, w, h);
+  // NOTE: never .close() imgData.bitmap — it belongs to pdf.js's cache.
+
+  const blob = await canvas.convertToBlob({
+    type: "image/jpeg",
+    quality: DECODE_JPEG_QUALITY,
+  });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// Decode each chart page's standalone raster figure, when it has exactly one
+// (raster-gate.js). Resolves to a Map of pageNumber → { jpg, widthPt,
+// heightPt } — the same shape buildChartPagesPdf takes for crops, so decoded
+// pages slot straight into the mini-PDF (jpg instead of png). Pages the gate
+// declines are simply absent; the caller runs the crop/box path for those.
+// Throws on pdf.js failure (caller degrades to crops).
+export async function extractPdfRasterFigures(file, meta) {
+  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+  const out = new Map();
+  if (!pages.length) return out;
+
+  const data = new Uint8Array(await fileBytes(file));
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
+  });
+  const pdf = await loadingTask.promise;
+  try {
+    // First pass: gate each page, resolve + intrinsic-check its candidate.
+    const found = [];
+    const dimsPages = new Map(); // "WxH" → Set of page numbers (fingerprint)
+    for (const n of pages) {
+      if (n < 1 || n > pdf.numPages) continue;
+      const page = await pdf.getPage(n);
+      const ops = await page.getOperatorList();
+      const cand = decodeCandidate(scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS));
+      if (!cand) continue;
+      // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —
+      // letterhead/logo territory, never a figure.
+      if (cand.objId.startsWith("g_")) continue;
+
+      const imgData = await resolveObj(page, cand.objId);
+      const w = imgData?.width;
+      const h = imgData?.height;
+      // Authoritative intrinsic check (op args carry dims in v6 but the
+      // resolved object is the source of truth across builds).
+      if (!w || !h) continue;
+      if (Math.min(w, h) < MIN_INTRINSIC_PX) continue;
+      if (Math.max(w, h) / Math.min(w, h) > MAX_INTRINSIC_ASPECT) continue;
+
+      const fp = `${w}x${h}`;
+      if (!dimsPages.has(fp)) dimsPages.set(fp, new Set());
+      dimsPages.get(fp).add(n);
+      found.push({ n, fp, box: cand.box, imgData });
+    }
+
+    // Second pass: G3b — identical dimensions recurring across pages is
+    // furniture (or two coincidentally same-sized photos; dropping those to
+    // the crop path costs only sharpness — the safe direction).
+    for (const f of found) {
+      if (dimsPages.get(f.fp).size !== 1) continue;
+      // Per-figure guard: one malformed image drops only its own page to the
+      // crop path, not every decode in the document.
+      let jpg = null;
+      try {
+        jpg = await encodeJpegFigure(f.imgData);
+      } catch {
+        continue;
+      }
+      if (!jpg) continue;
+      out.set(f.n, {
+        jpg,
+        widthPt: f.box.x1 - f.box.x0,
+        heightPt: f.box.y1 - f.box.y0,
+      });
+    }
+  } finally {
+    await loadingTask.destroy();
+  }
+  return out;
 }

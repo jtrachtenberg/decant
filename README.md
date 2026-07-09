@@ -192,7 +192,10 @@ on it fall back gracefully (in-browser conversion or passthrough).
     PDF chart pages ship as a **cropped, page-stamped mini-PDF** the model can
     cross-reference by the document's own printed page numbers, with savings
     netted honestly
-    ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)).
+    ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)). Pages
+    whose figure is a single embedded photo/diagram get the **raster XObject
+    decoded at native resolution** instead of a page-render crop (gated
+    conservatively — ambiguity always falls back to the crop).
   - A **"set as default"** choice on the ambiguous prompt + matching options
     setting (`ask` by default — automation is opt-in).
   - **Corrupt chart tables gated**: a table cell holding control characters

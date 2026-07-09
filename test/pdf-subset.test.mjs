@@ -79,3 +79,30 @@ test("a cropped page embeds at the crop's size (plus stamp strip); others copy w
     [104, 200], // whole-page vector copy (stamp overlays, size unchanged)
   ]);
 });
+
+// A valid 1×1 JPEG, for the decoded-raster-figure path (extractPdfRasterFigures
+// returns jpg bytes; photos as PNG would bloat the mini-PDF).
+const JPG_1x1 = Uint8Array.from(
+  atob(
+    "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a" +
+      "HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIy" +
+      "MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIA" +
+      "AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA" +
+      "AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3" +
+      "ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm" +
+      "p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADAMB" +
+      "AAIRAxEAPwD3+iiigD//2Q=="
+  ),
+  (c) => c.charCodeAt(0)
+);
+
+test("a decoded raster figure (jpg) embeds like a crop", async () => {
+  const src = await makePdf(5);
+  const crops = new Map([[3, { jpg: JPG_1x1, widthPt: 240, heightPt: 160 }]]);
+  const out = await buildChartPagesPdf(src, { chartPageNumbers: [3, 5] }, crops);
+  assert.deepEqual(out.pages, [3, 5]);
+  assert.deepEqual(await pageSizes(out.file), [
+    [240, Math.round(160 + STAMP_STRIP_PT)], // decoded photo + stamp strip
+    [105, 200], // whole-page vector copy
+  ]);
+});

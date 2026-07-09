@@ -41,6 +41,7 @@ import {
   extractPdfFigures,
   extractPdfFigureCrops,
   extractPdfFigureBoxes,
+  extractPdfRasterFigures,
   pdfFiguresAvailable,
 } from "../convert/pdf-figures.js";
 import { buildChartPagesPdf } from "../convert/pdf-subset.js";
@@ -324,21 +325,36 @@ async function resolveAndInject(preferredInput, fileArray) {
             // — so it crops the vector page to the figure box via setCropBox
             // (extractPdfFigureBoxes), geometry only, no rendering. Either way a
             // failure just degrades to whole pages / text-only.
+            // Highest-fidelity tier first: pages whose figure IS a single
+            // embedded raster (photo/diagram) get the XObject's own pixels
+            // decoded (render-free — getOperatorList only, so it's tried on
+            // both engines). Pages the gate declines stay on the crop path.
+            let rasters = null;
+            try {
+              rasters = await withTimeout(extractPdfRasterFigures(r.file, r.meta), "raster figures");
+              if (rasters?.size) console.log(TAG, `decoded ${rasters.size} raster figure(s) for ${r.file.name}`);
+            } catch (err) {
+              console.warn(TAG, `raster figure decode failed for ${r.file.name} — using crops:`, err);
+            }
+            const rasterPages = rasters?.size ? new Set(rasters.keys()) : null;
             let crops = null;
             let boxes = null;
             if (restrictedSandbox) {
               try {
-                boxes = await withTimeout(extractPdfFigureBoxes(r.file, r.meta), "figure boxes");
+                boxes = await withTimeout(extractPdfFigureBoxes(r.file, r.meta, rasterPages), "figure boxes");
               } catch (err) {
                 console.warn(TAG, `figure boxes failed for ${r.file.name} — using whole pages:`, err);
               }
             } else {
               try {
-                crops = await withTimeout(extractPdfFigureCrops(r.file, r.meta), "figure crops");
+                crops = await withTimeout(extractPdfFigureCrops(r.file, r.meta, rasterPages), "figure crops");
               } catch (err) {
                 console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
               }
             }
+            // Decoded rasters ride the crops slot of the mini-PDF builder
+            // (same shape; jpg instead of png).
+            if (rasters?.size) crops = new Map([...(crops ?? []), ...rasters]);
             // Human/model-facing page references use the document's printed
             // labels when the PDF defines them (matching the "[images
             // omitted — page N]" markers and the in-page stamps).

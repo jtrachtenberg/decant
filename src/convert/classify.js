@@ -27,9 +27,12 @@ export const MIN_CHART_PAGES_FOR_AMBIGUOUS = 2;
 
 // pdf.js OPS names that paint raster images. Callers map these through their
 // own pdfjsLib.OPS table; kept here so the list is defined once.
+// ("paintInlineImageXObject" is the real OPS name — the earlier
+// "paintInlineImage" resolved to undefined, so inline images were silently
+// uncounted; pinned by a test against the installed build's OPS table.)
 export const IMAGE_OP_NAMES = [
   "paintImageXObject",
-  "paintInlineImage",
+  "paintInlineImageXObject",
   "paintImageMaskXObject",
 ];
 
