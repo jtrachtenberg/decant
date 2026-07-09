@@ -17,6 +17,7 @@
 //
 // The analysis-result → contract mapping lives in result.js (pure, testable).
 
+import { browser } from "../browser.js";
 import { analyzePdf } from "./inbrowser.js";
 import { analyzeDocx } from "./docx.js";
 import { analyzeXlsx } from "./xlsx.js";
@@ -106,7 +107,7 @@ async function convertViaBackground(file, rule) {
   if (file.size > MAX_RELAY_BYTES) {
     throw new Error(`file exceeds relay cap (${file.size} bytes)`);
   }
-  const resp = await chrome.runtime.sendMessage({
+  const resp = await browser.runtime.sendMessage({
     type: HTTP_CONVERT_MSG,
     rule,
     file: await fileToWire(file),

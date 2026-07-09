@@ -27,6 +27,7 @@
 // shape, wrapped by resultFromAnalysis() like every other engine.
 
 import JSZipNs from "jszip";
+import { fileBytes } from "./read-file.js";
 import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
 import { decodeEntities, parseChartXml } from "./chart.js";
 
@@ -130,7 +131,7 @@ function resolveRelTarget(ownerPath, target) {
 }
 
 export async function analyzePptx(file) {
-  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const zip = await JSZip.loadAsync(await fileBytes(file));
   const slidePaths = Object.keys(zip.files)
     .filter((p) => /^ppt\/slides\/slide\d+\.xml$/.test(p))
     .sort((a, b) => Number(a.match(/\d+/g).at(-1)) - Number(b.match(/\d+/g).at(-1)));

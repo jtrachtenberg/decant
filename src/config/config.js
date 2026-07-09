@@ -1,18 +1,20 @@
-// chrome.storage wrapper over the Decant config. Thin on purpose: all the
+// storage.sync wrapper over the Decant config. Thin on purpose: all the
 // shape logic lives in defaults.js (pure, testable); this just persists and
-// notifies. Config lives in storage.sync so it follows the user across Chrome.
+// notifies. Config lives in storage.sync so it follows the user across the
+// browser's synced profile.
 
+import { browser } from "../browser.js";
 import { normalizeConfig } from "./defaults.js";
 
 const KEY = "decantConfig";
 
 export async function loadConfig() {
-  const got = await chrome.storage.sync.get(KEY);
+  const got = await browser.storage.sync.get(KEY);
   return normalizeConfig(got[KEY]);
 }
 
 export async function saveConfig(config) {
-  await chrome.storage.sync.set({ [KEY]: normalizeConfig(config) });
+  await browser.storage.sync.set({ [KEY]: normalizeConfig(config) });
 }
 
 // Subscribe to config changes (e.g. edits from the options page). Returns an
@@ -23,6 +25,6 @@ export function onConfigChanged(callback) {
       callback(normalizeConfig(changes[KEY].newValue));
     }
   };
-  chrome.storage.onChanged.addListener(listener);
-  return () => chrome.storage.onChanged.removeListener(listener);
+  browser.storage.onChanged.addListener(listener);
+  return () => browser.storage.onChanged.removeListener(listener);
 }

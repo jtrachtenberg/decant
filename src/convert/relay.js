@@ -8,6 +8,7 @@
 // these so the two ends can't drift.
 
 import { bufferToBase64, base64ToBuffer } from "./codec.js";
+import { fileBytes } from "./read-file.js";
 
 export const HTTP_CONVERT_MSG = "decant:http-convert";
 
@@ -20,7 +21,7 @@ export async function fileToWire(file) {
   return {
     name: file.name,
     type: file.type || "application/octet-stream",
-    data: bufferToBase64(await file.arrayBuffer()),
+    data: bufferToBase64(await fileBytes(file)),
   };
 }
 

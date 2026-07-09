@@ -25,6 +25,7 @@
 
 import * as mammothNs from "mammoth/mammoth.browser.js";
 import JSZipNs from "jszip";
+import { fileBytes } from "./read-file.js";
 import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
 import { chartTablesFromZip } from "./chart.js";
 
@@ -151,7 +152,7 @@ function fixDelim(line, delim) {
 }
 
 export async function analyzeDocx(file) {
-  const buf = await file.arrayBuffer();
+  const buf = await fileBytes(file);
   const { value } = await mammoth.convertToMarkdown(
     { arrayBuffer: buf },
     { styleMap: STYLE_MAP }

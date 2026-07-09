@@ -14,6 +14,8 @@
 // while text is still extracted from every page.
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
+import { browser } from "../browser.js";
+import { fileBytes } from "./read-file.js";
 import {
   reconstructPage,
   linesToText,
@@ -26,7 +28,7 @@ import {
   IMAGE_OP_NAMES,
 } from "./classify.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.mjs");
+pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
 
 // pdf.js needs the metrics for the 14 standard PDF fonts when a document uses
 // one without embedding it; without this it warns ("Ensure that the
@@ -34,12 +36,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.mjs")
 // pdf.js's own standard_fonts/ (see build.mjs) and point at it via the dynamic
 // extension URL (trailing slash required — pdf.js appends the font filename).
 // Exported for pdf-figures.js, which re-opens the document to render pages.
-export const STANDARD_FONT_DATA_URL = chrome.runtime.getURL("standard_fonts/");
+export const STANDARD_FONT_DATA_URL = browser.runtime.getURL("standard_fonts/");
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
 export async function analyzePdf(file) {
-  const data = new Uint8Array(await file.arrayBuffer());
+  const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({
     data,
     standardFontDataUrl: STANDARD_FONT_DATA_URL,

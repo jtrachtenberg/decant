@@ -23,6 +23,7 @@
 
 import * as XLSXNs from "xlsx";
 import JSZipNs from "jszip";
+import { fileBytes } from "./read-file.js";
 import { chartTablesFromZip } from "./chart.js";
 
 const XLSX = XLSXNs.default ?? XLSXNs;
@@ -76,7 +77,7 @@ export function rowsToMarkdownTable(rows) {
 }
 
 export async function analyzeXlsx(file) {
-  const buf = await file.arrayBuffer();
+  const buf = await fileBytes(file);
   const wb = XLSX.read(buf, { type: "array" });
 
   const sections = [];

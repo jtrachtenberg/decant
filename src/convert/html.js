@@ -21,6 +21,7 @@
 
 import TurndownNs from "turndown";
 import * as gfmNs from "turndown-plugin-gfm";
+import { fileText } from "./read-file.js";
 
 const TurndownService = TurndownNs.default ?? TurndownNs;
 const { gfm } = gfmNs.default ?? gfmNs;
@@ -72,5 +73,5 @@ export function htmlAnalysis(html) {
 }
 
 export async function analyzeHtml(file) {
-  return htmlAnalysis(await file.text());
+  return htmlAnalysis(await fileText(file));
 }

@@ -7,8 +7,9 @@
 Decant converts documents to Markdown directly within the LLM UI but on your local machine, without interrupting your workflow or risking privacy concerns by using online conversion.  
 
 At its core is a surface-agnostic pipeline — `intercept → route → transform → substitute`.
-The first surface implemented is a Chrome extension that catches a PDF or Word
-doc as you attach it to an LLM chat and swaps in the Markdown version in place. 
+The first surface implemented is a browser extension that catches a PDF or Word
+doc as you attach it to an LLM chat and swaps in the Markdown version in place —
+built from one source for **Chromium** (Chrome, Brave, Edge) and **Firefox**.
 Further surfaces (a Claude Desktop MCP server, native
 desktop, mobile) are mapped in [`docs/SURFACES.md`](./docs/SURFACES.md).
 
@@ -25,8 +26,9 @@ not on re-reading pictures of pages.
 > through untouched so it never silently degrades them. The optional
 > **local companion service** adds the higher-fidelity tier: scans escalate to
 > OCR, and ambiguous documents can convert without dropping their visuals.
-> It's not yet on the Chrome Web Store, and additional surfaces below are
-> still planned. The
+> It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
+> single codebase. It's not yet on any extension store, and additional surfaces
+> below are still planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
 
@@ -112,20 +114,31 @@ text dropped into the upload.
 
 ## Install (development)
 
-Decant isn't packaged for the Web Store yet. To run the work-in-progress locally:
+Decant isn't packaged for any extension store yet. To run the work-in-progress
+locally:
 
 ```bash
 git clone https://github.com/jtrachtenberg/decant.git
 cd decant
 npm install
-npm run build      # emits the unpacked extension to dist/
+npm run build            # Chromium (Chrome/Brave/Edge) → dist/
+npm run build:firefox    # Firefox                       → dist-firefox/
 ```
 
-Then load it in Chrome:
+Both builds come from one source; the Firefox build is derived at build time
+(event-page background, gecko id) and a few Firefox-only content-script quirks
+are handled at runtime.
 
-1. Go to `chrome://extensions`
+**Chrome / Brave / Edge** (all load the `dist/` build unmodified):
+
+1. Go to `chrome://extensions` (`brave://extensions`, `edge://extensions`)
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked** and select the `dist/` folder
+
+**Firefox** (temporary add-ons are cleared when Firefox restarts):
+
+1. Go to `about:debugging` → **This Firefox**
+2. Click **Load Temporary Add-on** and select `dist-firefox/manifest.json`
 
 ### Optional: the local companion (recognition tier)
 
