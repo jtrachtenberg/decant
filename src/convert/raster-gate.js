@@ -63,6 +63,14 @@ export const MIN_IMAGE_EDGE_PT = 30;
 export const MIN_INTRINSIC_PX = 128;
 export const MAX_INTRINSIC_ASPECT = 8;
 
+// A significant figure must also occupy a real fraction of the page. This is
+// the gate intrinsic pixels can't provide: modern logo assets ship at retina
+// resolution (a 1601×609px logo painted 118×41pt — 1% of the page — passes
+// every pixel test), but decoration never claims real page area. Field data:
+// logos land at ~1–2% of the page, genuine chart/photo figures at 8%+, so 5%
+// splits them with margin on both sides. Tune against the graded corpus.
+export const MIN_FIGURE_PAGE_FRACTION = 0.05;
+
 // Raster dominance: a true photo page paints at most a handful of vector ops
 // (a border rule, a caption underline); a vector chart paints dozens to
 // hundreds (axes, gridlines, bars). Count-based so it needs no path geometry
@@ -126,7 +134,8 @@ const opSet = (names, ops) =>
 // Returns {
 //   xobjects:       [{ objId, w, h, box }]  — every paintImageXObject, with
 //                   intrinsic dims when the args carry them (else null)
-//   otherFigureImages: count of figure-sized non-decodable raster paints
+//   otherImageBoxes: boxes of non-decodable raster paints (inline/mask)
+//   otherFigureImages: how many of those are figure-sized (decode disqualifier)
 //   repeats:        count of image-tiling ops
 //   vectorPaintOps: count of vector paint ops
 // }
@@ -137,7 +146,13 @@ export function scanPageOps(fnArray, argsArray, ops) {
 
   let ctm = [1, 0, 0, 1, 0, 0];
   const stack = [];
-  const scan = { xobjects: [], otherFigureImages: 0, repeats: 0, vectorPaintOps: 0 };
+  const scan = {
+    xobjects: [],
+    otherImageBoxes: [],
+    otherFigureImages: 0,
+    repeats: 0,
+    vectorPaintOps: 0,
+  };
 
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
@@ -153,7 +168,9 @@ export function scanPageOps(fnArray, argsArray, ops) {
         box: unitSquareBox(ctm),
       });
     } else if (nonDecodable.has(fn)) {
-      if (figureSized(unitSquareBox(ctm))) scan.otherFigureImages++;
+      const box = unitSquareBox(ctm);
+      scan.otherImageBoxes.push(box);
+      if (figureSized(box)) scan.otherFigureImages++;
     } else if (repeatOps.has(fn)) {
       scan.repeats++;
     } else if (vectorOps.has(fn)) {
@@ -163,16 +180,26 @@ export function scanPageOps(fnArray, argsArray, ops) {
   return scan;
 }
 
-// The XObjects that read as real figures: figure-sized on the page (CTM box)
-// AND, when the op args carry intrinsic dims, actually pixel-bearing with a
-// sane aspect. This is the one definition of "significant figure" — the
-// decode gate builds on it below, and classification uses it to decide
-// whether an image is worth surfacing the ambiguous prompt for
-// (pageHasSignificantImage): a lone logo/strip/icon fails here for the same
+const boxArea = (box) => (box.x1 - box.x0) * (box.y1 - box.y0);
+
+// Does a box claim enough of the page to be a figure rather than decoration?
+// pageArea null/absent skips the check (callers without page geometry).
+const claimsPageArea = (box, pageArea) =>
+  pageArea == null || boxArea(box) >= MIN_FIGURE_PAGE_FRACTION * pageArea;
+
+// The XObjects that read as real figures: figure-sized on the page (CTM box),
+// claiming a real fraction of the page (`pageArea`, pt² — pass it whenever
+// page geometry is in hand: retina-resolution logo assets defeat the pixel
+// gates and only footprint separates them), AND, when the op args carry
+// intrinsic dims, actually pixel-bearing with a sane aspect. This is the one
+// definition of "significant figure" — the decode gate builds on it below,
+// and classification uses it to decide whether an image is worth surfacing
+// the ambiguous prompt for: a logo/strip/icon fails here for the same
 // reasons in both places.
-export function significantRasters(scan) {
+export function significantRasters(scan, pageArea = null) {
   return scan.xobjects.filter((x) => {
     if (!figureSized(x.box)) return false;
+    if (!claimsPageArea(x.box, pageArea)) return false;
     if (x.w != null && x.h != null) {
       if (Math.min(x.w, x.h) < MIN_INTRINSIC_PX) return false;
       if (Math.max(x.w, x.h) / Math.min(x.w, x.h) > MAX_INTRINSIC_ASPECT)
@@ -182,11 +209,18 @@ export function significantRasters(scan) {
   });
 }
 
-// Does the page paint at least one image that reads as a real figure (as
-// opposed to decoration)? Figure-sized inline images and masks count too —
-// they're visual content even though they can't be decoded standalone.
-export function pageHasSignificantImage(scan) {
-  return scan.otherFigureImages > 0 || significantRasters(scan).length > 0;
+// How many of the page's images read as real figures (as opposed to
+// decoration)? Figure-sized, page-claiming inline images and masks count too
+// — they're visual content even though they can't be decoded standalone.
+export function countSignificantImages(scan, pageArea = null) {
+  const inlineFigures = scan.otherImageBoxes.filter(
+    (b) => figureSized(b) && claimsPageArea(b, pageArea)
+  ).length;
+  return inlineFigures + significantRasters(scan, pageArea).length;
+}
+
+export function pageHasSignificantImage(scan, pageArea = null) {
+  return countSignificantImages(scan, pageArea) > 0;
 }
 
 // The single decodable raster the page's figure content amounts to, or null
@@ -198,12 +232,13 @@ export function pageHasSignificantImage(scan) {
 // plus disqualifiers: any figure-sized non-decodable raster, any tiling op.
 // (G3, cross-page repetition, needs document scope — the decoder applies it
 // via the g_ global-cache prefix and a dims fingerprint across pages.)
-export function decodeCandidate(scan) {
+export function decodeCandidate(scan, pageArea = null) {
   if (scan.vectorPaintOps > MAX_VECTOR_PAINT_OPS) return null;
   if (scan.repeats > 0) return null;
   if (scan.otherFigureImages > 0) return null;
 
-  // G1/G2 via the shared significance filter, plus a resolvable object id.
-  const qualifying = significantRasters(scan).filter((x) => x.objId);
+  // G1/G2 via the shared significance filter (page-area gate included when
+  // geometry is passed), plus a resolvable object id.
+  const qualifying = significantRasters(scan, pageArea).filter((x) => x.objId);
   return qualifying.length === MAX_DECODABLE_RASTERS ? qualifying[0] : null;
 }

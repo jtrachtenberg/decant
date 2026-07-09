@@ -17,7 +17,9 @@ import {
   scanPageOps,
   decodeCandidate,
   significantRasters,
+  countSignificantImages,
   pageHasSignificantImage,
+  MIN_FIGURE_PAGE_FRACTION,
   composeTransform,
   applyTransform,
   VECTOR_PAINT_OP_NAMES,
@@ -209,6 +211,41 @@ test("significance: real figures count, decoration doesn't", () => {
   ]);
   assert.ok(pageHasSignificantImage(inline));
   assert.equal(decodeCandidate(inline), null); // significant ≠ decodable
+});
+
+test("retina-resolution logo: big pixels, tiny footprint → not significant", () => {
+  // The field case (Gmail payment-confirmation PDF): a 1601×609px logo asset
+  // painted 118×41pt on a US-Letter page — 1% of the page. Every pixel gate
+  // passes; only the page-area fraction separates it from a real figure.
+  const LETTER = 612 * 792;
+  const logo = scanOf(placeImage("img_p0_1", 425, 590, 118, 41, 1601, 609));
+  assert.ok(!pageHasSignificantImage(logo, LETTER));
+  assert.equal(decodeCandidate(logo, LETTER), null);
+  // Without page geometry the area gate is skipped (callers that lack it).
+  assert.ok(pageHasSignificantImage(logo));
+  // A real chart footprint (300×225pt ≈ 14% of Letter) still qualifies.
+  const chart = scanOf(placeImage("img_p0_2", 156, 320, 300, 225));
+  assert.ok(pageHasSignificantImage(chart, LETTER));
+  assert.ok(decodeCandidate(chart, LETTER));
+  // Boundary: a hair over the fraction passes, a hair under fails (sqrt
+  // round-trips aren't float-exact, so probe both sides of the line).
+  const side = Math.sqrt(MIN_FIGURE_PAGE_FRACTION * LETTER);
+  const over = scanOf(placeImage("img_p0_3", 0, 0, side * 1.01, side * 1.01));
+  const under = scanOf(placeImage("img_p0_4", 0, 0, side * 0.99, side * 0.99));
+  assert.ok(pageHasSignificantImage(over, LETTER));
+  assert.ok(!pageHasSignificantImage(under, LETTER));
+});
+
+test("inline images respect the page-area gate too", () => {
+  const LETTER = 612 * 792;
+  const smallInline = scanOf([
+    ["save"],
+    ["transform", [118, 0, 0, 41, 425, 590]], // logo-sized inline paint
+    ["paintInlineImageXObject", [{}]],
+    ["restore"],
+  ]);
+  assert.equal(countSignificantImages(smallInline, LETTER), 0);
+  assert.ok(pageHasSignificantImage(smallInline)); // area check skipped
 });
 
 test("significance is broader than decodability: a two-photo collage counts", () => {

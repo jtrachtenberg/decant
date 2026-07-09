@@ -27,7 +27,7 @@ import {
   appendOmittedImagesNote,
   IMAGE_OP_NAMES,
 } from "./classify.js";
-import { scanPageOps, significantRasters } from "./raster-gate.js";
+import { scanPageOps, countSignificantImages } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
 
@@ -123,8 +123,8 @@ async function countImages(page) {
     let images = 0;
     for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
     const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
-    const figureImages =
-      scan.otherFigureImages + significantRasters(scan).length;
+    const [vx0, vy0, vx1, vy1] = page.view;
+    const figureImages = countSignificantImages(scan, (vx1 - vx0) * (vy1 - vy0));
     return { images, figureImages };
   } catch {
     return { images: 0, figureImages: 0 }; // operator list unavailable

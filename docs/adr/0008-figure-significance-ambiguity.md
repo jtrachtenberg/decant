@@ -24,13 +24,24 @@ extra pure walk over arrays already in hand. Zero new pdf.js calls.
 ## Decision
 
 1. **One definition of "real figure."** The significance predicate
-   (figure-sized CTM box ≥ 30 pt; when intrinsic dims are known, ≥ 128 px
-   short edge and aspect ≤ 8:1) is extracted from the decode gate into
-   `significantRasters` / `pageHasSignificantImage` (raster-gate.js) and
-   shared by both consumers. A logo, gradient strip, or icon fails the
-   ambiguity trigger and the decode gate for the same reasons, tested once.
-   Figure-sized inline images and masks count as significant (visual
+   (figure-sized CTM box ≥ 30 pt; **on-page footprint ≥ 5 % of the page
+   area**; when intrinsic dims are known, ≥ 128 px short edge and aspect
+   ≤ 8:1) is extracted from the decode gate into `significantRasters` /
+   `pageHasSignificantImage` (raster-gate.js) and shared by both consumers.
+   A logo, gradient strip, or icon fails the ambiguity trigger and the
+   decode gate for the same reasons, tested once. Figure-sized,
+   page-claiming inline images and masks count as significant (visual
    content) even though they aren't decodable.
+
+   *The footprint gate was added same-day from a field false-positive*: a
+   Gmail payment-confirmation PDF whose green header logo shipped as a
+   1601×609 px retina asset painted at 118×41 pt. Big real pixels, sane
+   aspect — every pixel gate passes; modern logo assets defeat intrinsic
+   resolution as a decoration signal. What decoration never claims is page
+   area: field logos land at ~1–2 % of the page, genuine chart/photo
+   figures at 8 %+, so `MIN_FIGURE_PAGE_FRACTION = 0.05` splits them with
+   margin on both sides (tunable against the graded corpus). Callers pass
+   the page area from `page.view`; without geometry the gate is skipped.
 
 2. **Additive trigger, not replacement.** `chartPages ≥ 2 → ambiguous`
    stays untouched; new rule: *any chart page with `figureImages ≥ 1` also

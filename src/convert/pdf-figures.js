@@ -385,7 +385,11 @@ export async function extractPdfRasterFigures(file, meta) {
       if (n < 1 || n > pdf.numPages) continue;
       const page = await pdf.getPage(n);
       const ops = await page.getOperatorList();
-      const cand = decodeCandidate(scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS));
+      const [vx0, vy0, vx1, vy1] = page.view;
+      const cand = decodeCandidate(
+        scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
+        (vx1 - vx0) * (vy1 - vy0)
+      );
       if (!cand) continue;
       // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —
       // letterhead/logo territory, never a figure.

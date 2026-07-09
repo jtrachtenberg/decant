@@ -27,7 +27,7 @@ import {
 import {
   scanPageOps,
   decodeCandidate,
-  significantRasters,
+  countSignificantImages,
 } from "../src/convert/raster-gate.js";
 
 // Args: the file path, plus an optional `--page N` that dumps the Markdown
@@ -168,12 +168,14 @@ for (let n = 1; n <= pdf.numPages; n++) {
       const ops = await page.getOperatorList();
       for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
       const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
+      const [vx0, vy0, vx1, vy1] = page.view;
+      const pageArea = (vx1 - vx0) * (vy1 - vy0);
       // Significance (classification's single-figure ambiguity trigger).
-      figureImages = scan.otherFigureImages + significantRasters(scan).length;
+      figureImages = countSignificantImages(scan, pageArea);
       // Raster-decode eligibility (pdf-figures.js extractPdfRasterFigures):
       // geometric gates only — the g_/fingerprint repetition checks need the
       // full decode pass, so a "d" here is necessary-not-sufficient.
-      decodable = !!decodeCandidate(scan);
+      decodable = !!decodeCandidate(scan, pageArea);
     } catch {
       /* ignore */
     }
