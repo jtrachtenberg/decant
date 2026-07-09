@@ -24,6 +24,11 @@ import {
   MAX_ANALYZE_PAGES,
   IMAGE_OP_NAMES,
 } from "../src/convert/classify.js";
+import {
+  scanPageOps,
+  decodeCandidate,
+  countSignificantImages,
+} from "../src/convert/raster-gate.js";
 
 // Args: the file path, plus an optional `--page N` that dumps the Markdown
 // Decant would emit for one page (the Tier 2 QA drill-down) instead of the
@@ -154,17 +159,29 @@ for (let n = 1; n <= pdf.numPages; n++) {
   );
 
   let images = null;
+  let figureImages = null;
+  let decodable = false;
   if (shouldScanImages(n, pdf.numPages)) {
     images = 0;
+    figureImages = 0;
     try {
       const ops = await page.getOperatorList();
       for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
+      const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
+      const [vx0, vy0, vx1, vy1] = page.view;
+      const pageArea = (vx1 - vx0) * (vy1 - vy0);
+      // Significance (classification's single-figure ambiguity trigger).
+      figureImages = countSignificantImages(scan, pageArea);
+      // Raster-decode eligibility (pdf-figures.js extractPdfRasterFigures):
+      // geometric gates only — the g_/fingerprint repetition checks need the
+      // full decode pass, so a "d" here is necessary-not-sufficient.
+      decodable = !!decodeCandidate(scan, pageArea);
     } catch {
       /* ignore */
     }
   }
 
-  perPage.push({ chars, images, conv, marker });
+  perPage.push({ chars, images, figureImages, conv, marker, decodable });
 }
 
 // Text pages scoring below the threshold — the pages the Tier 2 marker would
@@ -186,8 +203,13 @@ filled.forEach(({ chars, images }, i) => {
   const convCol = isText
     ? conv.score.toFixed(2) + (low ? (perPage[i].marker ? " *m" : " *") : "")
     : "—";
+  // Trailing " f" = the page carries a significant figure (the single-page
+  // ambiguity trigger); " d" = its figure is a single decodable raster
+  // XObject (would take the native-pixels path instead of a render crop).
   console.log(
-    pad(i + 1, 5) + pad(chars, 9) + pad(sampled + images, 8) + pad(convCol, 8) + kind
+    pad(i + 1, 5) + pad(chars, 9) + pad(sampled + images, 8) + pad(convCol, 8) +
+      kind + (perPage[i].figureImages ? " f" : "") +
+      (perPage[i].decodable ? " d" : "")
   );
 });
 

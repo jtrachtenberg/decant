@@ -27,6 +27,7 @@ import {
   appendOmittedImagesNote,
   IMAGE_OP_NAMES,
 } from "./classify.js";
+import { scanPageOps, countSignificantImages } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
 
@@ -74,8 +75,13 @@ export async function analyzePdf(file) {
       gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
-      const images = shouldScanImages(n, pageCount) ? await countImages(page) : null;
-      perPage.push({ chars: countChars(linesToText(lines)), images });
+      const scan = shouldScanImages(n, pageCount) ? await countImages(page) : null;
+      const images = scan ? scan.images : null;
+      perPage.push({
+        chars: countChars(linesToText(lines)),
+        images,
+        figureImages: scan ? scan.figureImages : null,
+      });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
       pageMarkdown.push(
@@ -106,14 +112,21 @@ export async function analyzePdf(file) {
   return { decision, reason, summary, markdown };
 }
 
-// Count raster-image paint operations on a page without rasterizing.
+// Count raster-image paint operations on a page without rasterizing, plus
+// how many read as SIGNIFICANT figures (figure-sized on the page, really
+// pixel-bearing — raster-gate.js). Same operator list, one extra pure walk;
+// the significance count is what lets classification prompt on a single real
+// chart while staying quiet for a lone logo.
 async function countImages(page) {
   try {
     const ops = await page.getOperatorList();
     let images = 0;
     for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
-    return images;
+    const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
+    const [vx0, vy0, vx1, vy1] = page.view;
+    const figureImages = countSignificantImages(scan, (vx1 - vx0) * (vy1 - vy0));
+    return { images, figureImages };
   } catch {
-    return 0; // operator list unavailable — treat as no images
+    return { images: 0, figureImages: 0 }; // operator list unavailable
   }
 }

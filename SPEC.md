@@ -206,7 +206,10 @@ section covers only how the **browser surface** realizes them:
 - **Per-file Convert / Send-original toggle.** *(Implemented.)* When an upload is
   classified as *ambiguous*, Decant surfaces the choice in the composer instead
   of guessing — also the manual escape hatch when detection misjudges a clear
-  case.
+  case. Ambiguity triggers on two or more image-bearing text pages, or on even
+  ONE page whose image reads as a *significant figure* (figure-sized and
+  pixel-bearing — ADR 0008): whether a real chart rides along is the user's
+  decision, while a lone letterhead logo still converts without a prompt.
 - **Passthrough hotkey.** *(Implemented; default `Alt+Shift+O`.)* A keyboard
   shortcut that arms a one-shot "send the next upload untouched" state. Pressed
   before attaching a file, it guarantees the original is uploaded with no
@@ -329,14 +332,21 @@ a dumb converter and a single site:
   multi-site support, token-savings estimate display.
 
 **Milestone 3 — Quality tier (shape B) & the image layer**
-- `localhost` Python service (MarkItDown or Docling) behind the same interface
-  — including describe-in-text figure descriptions (ARCHITECTURE §5 strategy 2).
+- `localhost` Python service (MarkItDown or Docling) behind the same interface.
+  (Describe-in-text figure descriptions — ARCHITECTURE §5 strategy 2 — were
+  descoped to a post-M3 nice-to-have: extract-and-reference ships the figures
+  themselves to the destination model, which describes them better than a
+  local VLM would, so inline captions only pay off for vision-less backends
+  or hard token budgets.)
 - Setting to choose engine; graceful fallback to A if the service is down.
 - **Extract-and-reference for chat surfaces** (ARCHITECTURE §5 strategy 1):
   injection already delivers a FileList, so attach the converted `.md` plus
   the document's actual figures as sibling files. PPTX/DOCX first (images are
-  zip entries, extraction is free via jszip); PDF later (decoding image
-  XObjects out of pdf.js is the hard case). Needs junk filtering (logos,
+  zip entries, extraction is free via jszip); PDF via the chart-pages
+  mini-PDF, upgraded per page: a page whose figure IS a single embedded
+  raster gets its XObject decoded at native resolution (`raster-gate.js`
+  decides, biased hard toward the render-crop path — a false positive would
+  silently drop vector chart content, §6). Needs junk filtering (logos,
   backgrounds), per-site attachment-count limits, and probably lands as a
   third ambiguous-prompt choice: Convert + attach figures.
 - **Evaluated and shelved: Tesseract.js (in-browser WASM OCR).** Feasible,

@@ -180,7 +180,7 @@ on it fall back gracefully (in-browser conversion or passthrough).
   - Flattened-chart "label soup" caught by a column-convergence check;
     packaging pass, per-site adapters (claude.ai/ChatGPT full, Gemini
     picker-only), and the estimated **token-savings badge**.
-- **M3 — Companion tier & the image layer. 🚧 Core shipped.**
+- **M3 — Companion tier & the image layer. ✅ Complete.**
   - Local **companion service** (`companion/`): Flask, MarkItDown default,
     **Docling** opt-in for OCR/quality, `echo` for contract tests.
   - **Forward escalation** (`onEmpty`): scans the browser can't read escalate
@@ -192,17 +192,26 @@ on it fall back gracefully (in-browser conversion or passthrough).
     PDF chart pages ship as a **cropped, page-stamped mini-PDF** the model can
     cross-reference by the document's own printed page numbers, with savings
     netted honestly
-    ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)).
+    ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)). Pages
+    whose figure is a single embedded photo/diagram get the **raster XObject
+    decoded at native resolution** instead of a page-render crop (gated
+    conservatively — ambiguity always falls back to the crop).
   - A **"set as default"** choice on the ambiguous prompt + matching options
-    setting (`ask` by default — automation is opt-in).
+    setting (`ask` by default — automation is opt-in). Even a single-page PDF
+    prompts when its image is a **real figure** (size/pixel significance, not
+    page count — [ADR 0008](./docs/adr/0008-figure-significance-ambiguity.md));
+    lone logos still convert quietly.
   - **Corrupt chart tables gated**: a table cell holding control characters
     (a font with no text mapping — provably garbage) makes the whole table
     emit as `[chart table omitted — unreliable extraction; see attached
     figure, document page N]` instead of plausible-looking wrong data, and
     floating legend/axis text boxes beside a chart's grid are kept out of its
     rows instead of shredding into them.
-  - Still open: **figure descriptions** as a first-class output and standalone
-    raster XObject extraction.
+  - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
+    text (describe-in-text via the companion's VLM — the mini-PDF already
+    gives the model the figures themselves); companion quality-gate polish
+    ("companion dropped N figures" badge + Docling chart-extraction enrich);
+    in-place rule editing on the options page; quick-add `responseField`.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
