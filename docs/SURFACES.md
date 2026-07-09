@@ -31,9 +31,18 @@ driver five times"; it's "use each surface's sanctioned intake."
 **Browser extension (current).** Manifest V3 interception. The transparent
 paradigm. Implementation lives in [`SPEC.md`](../SPEC.md).
 
-**Other browsers.** Firefox and Edge are near-identical WebExtensions — most code
-ports directly. Safari requires wrapping as a Safari Web Extension (App Store
-review, more friction). Lowest-effort expansion.
+**Other browsers.** Brave and Edge are Chromium — the existing package loads
+unmodified, no engineering cost beyond a store listing. Firefox is a near-identical
+WebExtension but needs real (small) changes: MV3 background page (`scripts` +
+`type: module` rather than `service_worker`) and the `browser.*` promise-based
+namespace (or a polyfill) in place of `chrome.*`. Safari no longer requires
+owning a Mac to package: as of WWDC 2026, Apple's web-based Safari web extension
+packager takes a ZIP of the same WebExtension source via App Store Connect (any
+browser, Windows/Linux included), converts/signs it, and hands back TestFlight
+links for testing. An Apple Developer Program enrollment and eventual App Store
+review are still required — that cost doesn't go away — but the hardware/Xcode
+barrier does. Lowest-effort expansion group overall; Brave/Edge first, Firefox
+next, Safari no longer blocked on hardware.
 
 **Claude Desktop — MCP server (recommended next surface).** Sanctioned-tool
 paradigm. Claude Desktop (Windows/macOS/Linux) installs MCP servers packaged as
@@ -92,7 +101,9 @@ picker).
 1. Finish the browser surface (current work).
 2. Add the MCP server / `.mcpb` bundle — covers all of Claude Desktop, every OS,
    for minimal effort; reuses the Python companion via a thin Node server.
-3. Trivial Firefox/Edge ports of the browser extension.
+3. Brave/Edge (load as-is), then the small Firefox MV3 port, of the browser
+   extension. Safari packaging via App Store Connect if store distribution is
+   wanted there.
 4. Only if there's demand: native desktop via WinFsp/macFUSE/FUSE, then Android
    (DocumentsProvider/Share) and iOS (Share/File Provider).
 
