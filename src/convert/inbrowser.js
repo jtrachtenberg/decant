@@ -22,6 +22,8 @@ import {
   linesToMarkdown,
   countChars,
   classifyDocument,
+  hasFlattenedFigure,
+  hasOmittedChartTable,
   shouldScanImages,
   extrapolateImages,
   appendOmittedImagesNote,
@@ -92,19 +94,23 @@ export async function analyzePdf(file) {
       // Markdown decoration (headings/tables) added for output.
       const scan = shouldScanImages(n, pageCount) ? await countImages(page) : null;
       const images = scan ? scan.images : null;
+      const pageMd = linesToMarkdown(lines, pageLabels?.[n - 1] ?? n);
       perPage.push({
         chars: countChars(linesToText(lines)),
         images,
         figureImages: scan ? scan.figureImages : null,
+        // The page's text misrepresents a figure — Tier 2 convergence flagged
+        // it as a flattened chart, or a corrupt chart table was omitted with a
+        // "see attached figure" note. Classification routes such pages into
+        // the figures flow even when they paint no raster (a pure vector
+        // chart). Known for every page (text is never sampled), unlike the
+        // image counts above.
+        flattened: hasFlattenedFigure(lines) || hasOmittedChartTable(pageMd),
       });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
       pageMarkdown.push(
-        appendOmittedImagesNote(
-          linesToMarkdown(lines, pageLabels?.[n - 1] ?? n),
-          images ?? 0,
-          pageLabels?.[n - 1] ?? n
-        )
+        appendOmittedImagesNote(pageMd, images ?? 0, pageLabels?.[n - 1] ?? n)
       );
     }
   } finally {

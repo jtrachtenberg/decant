@@ -545,14 +545,39 @@ function omittedChartTableNote(pageLabel) {
   return `[chart table omitted — unreliable extraction; see attached figure${where}]`;
 }
 
+// Does a page's emitted Markdown carry the omitted-chart-table note? The note
+// PROMISES an attached figure, so classification must route the page into the
+// figures flow even when it paints no raster (same invariant as
+// hasFlattenedFigure — emitted during linesToMarkdown, hence tested on the
+// Markdown rather than the lines).
+export function hasOmittedChartTable(markdown) {
+  return typeof markdown === "string" && markdown.includes("[chart table omitted");
+}
+
 // Tier 2 marker: the page's text never converged into columns, so it's most
 // likely a chart/figure whose labels flattened into scattered fragments. Says
 // something different from lowConfidenceMarker (which is about a misaligned
 // *table*) — here the structure isn't tabular at all, it's soup.
 function flattenedFigureMarker() {
-  return markerLine(
-    "[figure or chart on this page was flattened into text — labels may be scrambled and any values here are unreliable]"
-  );
+  // `flattened: true` lets callers see the diagnosis on the page's lines
+  // (hasFlattenedFigure) — the page IS a figure, just one that reached us as
+  // text soup, so classification can route it into the figures flow.
+  return {
+    ...markerLine(
+      "[figure or chart on this page was flattened into text — labels may be scrambled and any values here are unreliable]"
+    ),
+    flattened: true,
+  };
+}
+
+// Did reconstruction flag this page's text as a flattened chart/figure?
+// (columnConvergence below CONVERGENCE_FLAG_THRESHOLD — the fingerprint of a
+// vector chart whose labels flattened into scattered fragments.) Callers feed
+// the answer into classifyDocument as perPage[i].flattened so such pages join
+// the figures flow: their text is by definition unreliable, so the attached
+// figure is the only trustworthy representation.
+export function hasFlattenedFigure(lines) {
+  return (lines || []).some((l) => l && l.flattened === true);
 }
 
 // --- Tier 2: column-clustering convergence (confidence signal, SPEC §3.9) ---
@@ -1161,11 +1186,29 @@ export function classifyDocument(perPage) {
   // such page makes the document worth the ambiguous prompt — the page-count
   // threshold below exists to suppress incidental-logo noise, and a
   // figure-sized, pixel-bearing image is by definition not incidental.
+  // Page classes ride along for the figure paths: when a page cap forces a
+  // choice, flattened pages (the text is unusable — the figure is the only
+  // faithful representation) outrank significant-figure pages outrank
+  // plain image pages (selectChartPages).
+  const flattenedPageNumbers = [];
+  const figurePageNumbers = [];
   let figurePages = 0;
   perPage.forEach((p, i) => {
-    if (p.chars >= MIN_TEXT_CHARS_PER_PAGE && p.images >= 1) {
+    if (p.chars < MIN_TEXT_CHARS_PER_PAGE) return;
+    // A flattened chart/figure page (perPage[i].flattened — Tier 2 column
+    // convergence) is a chart page even with ZERO raster images: a pure
+    // vector chart paints no raster, yet its Markdown carries the
+    // flattened-figure warning — without attaching the page, the model is
+    // told the values are unreliable and given nothing better to read.
+    const flattened = p.flattened === true;
+    if (p.images >= 1 || flattened) {
       chartPageNumbers.push(i + 1);
-      if ((p.figureImages ?? 0) >= 1) figurePages++;
+      if (flattened) flattenedPageNumbers.push(i + 1);
+      else if ((p.figureImages ?? 0) >= 1) figurePageNumbers.push(i + 1);
+      // A flattened page counts as a significant figure for the prompt
+      // trigger: unreliable-text-with-a-real-chart is the exact case the
+      // ambiguous prompt exists for.
+      if ((p.figureImages ?? 0) >= 1 || flattened) figurePages++;
     }
   });
   const chartPages = chartPageNumbers.length;
@@ -1176,6 +1219,8 @@ export function classifyDocument(perPage) {
     contentPages,
     chartPages,
     chartPageNumbers,
+    flattenedPageNumbers,
+    figurePageNumbers,
     figurePages,
     totalChars,
     totalImages,
@@ -1196,4 +1241,30 @@ export function classifyDocument(perPage) {
     return { decision: "ambiguous", reason: "text-with-figure", summary };
   }
   return { decision: "convert", reason: "text-incidental-image", summary };
+}
+
+// The chart pages actually worth attaching, at most `cap` of them. Under the
+// cap this is chartPageNumbers unchanged. Over it, taking the FIRST cap pages
+// is wrong for figure-dense documents (an annual report is photos from page 3
+// on: page-order truncation fills the attachment with front-matter photos and
+// drops the genuine charts at the back of the book), so pages are chosen by
+// figure value instead — flattened chart pages first (their extracted text is
+// unreliable, the attachment is the only faithful copy), then pages with a
+// significant figure, then the rest — while the RETURNED set stays in
+// ascending page order so mini-PDF stamps and the association footer read in
+// document order. Every figure path (mini-PDF, crops, decodes, page renders)
+// selects through here so they agree on the set.
+export function selectChartPages(meta, cap) {
+  const all = meta?.chartPageNumbers ?? [];
+  if (all.length <= cap) return all.slice();
+  const flattened = new Set(meta?.flattenedPageNumbers ?? []);
+  const figures = new Set(meta?.figurePageNumbers ?? []);
+  const rank = (n) => (flattened.has(n) ? 0 : figures.has(n) ? 1 : 2);
+  // Stable sort: equal ranks keep page order, so each tier fills front-first.
+  return all
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i)
+    .slice(0, cap)
+    .map((e) => e.n)
+    .sort((a, b) => a - b);
 }
