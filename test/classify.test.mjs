@@ -11,6 +11,8 @@ import {
   shouldScanImages,
   extrapolateImages,
   appendOmittedImagesNote,
+  hasOmittedChartTable,
+  selectChartPages,
   MIN_CHART_PAGES_FOR_AMBIGUOUS,
   MAX_ANALYZE_PAGES,
   IMAGE_SAMPLE_INTERVAL,
@@ -226,4 +228,84 @@ test("sampled large clean-text doc still classifies convert", () => {
   }
   const res = classifyDocument(extrapolateImages(perPage));
   assert.equal(res.decision, "convert");
+});
+
+// --- Flattened chart pages (Tier 2 convergence → figures flow) --------------
+
+test("a flattened text page with ZERO images is a chart page (vector chart)", () => {
+  // CERN Annual Report profile: the one genuine chart page ("CERN in
+  // figures") is pure vector — no raster paints — but Tier 2 convergence
+  // flags its text as a flattened figure. It must join chartPageNumbers or
+  // the Markdown warns "values unreliable" while attaching nothing.
+  const res = classifyDocument([
+    { chars: 2000, images: 0 },
+    { chars: 978, images: 0, flattened: true },
+  ]);
+  assert.deepEqual(res.summary.chartPageNumbers, [2]);
+  assert.deepEqual(res.summary.flattenedPageNumbers, [2]);
+  // A flattened chart is a significant figure: it earns the prompt alone.
+  assert.equal(res.decision, "ambiguous");
+  assert.equal(res.reason, "text-with-figure");
+  assert.equal(res.summary.figurePages, 1);
+});
+
+test("a flattened NO-text page is not a chart page", () => {
+  const res = classifyDocument([
+    { chars: 2000, images: 0 },
+    { chars: 10, images: 0, flattened: true },
+  ]);
+  assert.deepEqual(res.summary.chartPageNumbers, []);
+  assert.equal(res.decision, "convert");
+});
+
+test("flattened + image page lands in flattenedPageNumbers, not figurePageNumbers", () => {
+  const res = classifyDocument([
+    { chars: 900, images: 2, figureImages: 1, flattened: true },
+    { chars: 900, images: 1, figureImages: 1 },
+    { chars: 900, images: 1, figureImages: 0 },
+  ]);
+  assert.deepEqual(res.summary.chartPageNumbers, [1, 2, 3]);
+  assert.deepEqual(res.summary.flattenedPageNumbers, [1]);
+  assert.deepEqual(res.summary.figurePageNumbers, [2]);
+});
+
+test("hasOmittedChartTable recognizes the omitted-table note", () => {
+  assert.equal(
+    hasOmittedChartTable(
+      "prose\n\n[chart table omitted — unreliable extraction; see attached figure, document page 7]"
+    ),
+    true
+  );
+  assert.equal(hasOmittedChartTable("plain prose"), false);
+  assert.equal(hasOmittedChartTable(null), false);
+});
+
+// --- selectChartPages: value-ranked selection under the page caps -----------
+
+test("selectChartPages: under the cap returns all pages unchanged", () => {
+  const meta = {
+    chartPageNumbers: [3, 5, 9],
+    flattenedPageNumbers: [9],
+    figurePageNumbers: [5],
+  };
+  assert.deepEqual(selectChartPages(meta, 8), [3, 5, 9]);
+});
+
+test("selectChartPages: over the cap, flattened > figure > plain, in page order", () => {
+  // Annual-report profile: photos from page 3 on, the real charts at the
+  // back. Page-order truncation would keep 3..6 and drop the chart page 53.
+  const meta = {
+    chartPageNumbers: [3, 4, 5, 6, 7, 53],
+    flattenedPageNumbers: [53],
+    figurePageNumbers: [5, 7],
+  };
+  // cap 4 → the flattened chart page and both significant figures make it,
+  // the front-matter photo page 3 fills the last slot; ascending page order.
+  assert.deepEqual(selectChartPages(meta, 4), [3, 5, 7, 53]);
+});
+
+test("selectChartPages: missing rank arrays degrade to page-order slice", () => {
+  const meta = { chartPageNumbers: [2, 4, 6, 8] };
+  assert.deepEqual(selectChartPages(meta, 2), [2, 4]);
+  assert.deepEqual(selectChartPages(null, 2), []);
 });

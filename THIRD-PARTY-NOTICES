@@ -16,7 +16,10 @@ PDF.js (pdfjs-dist)
   Homepage:  https://github.com/mozilla/pdf.js
 
   Used in Decant: bundled into `content/intercept.js` and shipped verbatim as
-  `pdf.worker.mjs` (the latter retains its original license header).
+  `pdf.worker.mjs` (the latter retains its original license header). Also
+  shipped verbatim from pdfjs-dist: `wasm/` (OpenJPEG, JBIG2 and qcms image
+  decoders, with their license files `wasm/LICENSE_*`) and `iccs/` (CMYK ICC
+  profile, `iccs/LICENSE`).
 --------------------------------------------------------------------------------
 mammoth.js (mammoth)
   Version:   1.12.0

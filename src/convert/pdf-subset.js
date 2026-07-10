@@ -15,6 +15,7 @@
 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fileBytes } from "./read-file.js";
+import { selectChartPages } from "./classify.js";
 
 // Page cap: each subset page still costs the platform's per-page image render
 // (~hundreds of tokens), so a pathological chart-every-page document
@@ -79,7 +80,7 @@ async function stamper(out) {
 // mini-PDF page, in order, so the caller can write the association footer
 // into the Markdown ("charts.pdf page 1 = document page 17").
 export async function buildChartPagesPdf(file, meta, crops = null, boxes = null) {
-  const wanted = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+  const wanted = selectChartPages(meta, MAX_SUBSET_PAGES);
   if (!wanted.length) return null;
 
   const src = await PDFDocument.load(await fileBytes(file));

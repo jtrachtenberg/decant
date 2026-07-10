@@ -70,6 +70,14 @@ await cp(
   `${outdir}/standard_fonts`,
   { recursive: true }
 );
+// WASM decoders pdf.js fetches at render time from the wasmUrl option
+// (inbrowser.js): openjpeg.wasm (JPXDecode — JPEG2000, the norm in
+// print-production PDFs), jbig2.wasm (JBIG2 scans), qcms_bg.wasm (ICC color
+// management). Without these every JPX image silently fails to decode and
+// photos render as black/blank regions. iccs/ is the CMYK ICC profile the
+// iccUrl option points at, same failure shape for CMYK color conversion.
+await cp("node_modules/pdfjs-dist/wasm", `${outdir}/wasm`, { recursive: true });
+await cp("node_modules/pdfjs-dist/iccs", `${outdir}/iccs`, { recursive: true });
 // Ship the project license and third-party attributions with the extension so
 // the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
 await cp("LICENSE", `${outdir}/LICENSE`);

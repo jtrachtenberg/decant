@@ -19,9 +19,9 @@
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import { browser } from "../browser.js";
-import { STANDARD_FONT_DATA_URL } from "./inbrowser.js";
+import { PDFJS_DOC_OPTIONS } from "./inbrowser.js";
 import { fileBytes } from "./read-file.js";
-import { IMAGE_OP_NAMES } from "./classify.js";
+import { IMAGE_OP_NAMES, selectChartPages } from "./classify.js";
 import { MAX_SUBSET_PAGES } from "./pdf-subset.js";
 import {
   composeTransform as compose,
@@ -78,14 +78,11 @@ async function renderPage(page) {
 // Render the chart pages to PNG Files. Resolves to [] when there's nothing
 // to render; throws on pdf.js/canvas failure (caller falls back).
 export async function extractPdfFigures(file, meta) {
-  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_PDF_FIGURE_PAGES);
+  const pages = selectChartPages(meta, MAX_PDF_FIGURE_PAGES);
   if (!pages.length) return [];
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   const base = file.name.replace(/\.[a-z0-9]+$/i, "");
   const figures = [];
@@ -196,17 +193,14 @@ async function paddedFigureBox(page) {
 // already handled (decoded raster figures). Throws on pdf.js/canvas failure
 // (caller degrades to whole pages).
 export async function extractPdfFigureCrops(file, meta, skipPages = null) {
-  const pages = (meta?.chartPageNumbers ?? [])
-    .slice(0, MAX_SUBSET_PAGES)
-    .filter((n) => !skipPages?.has(n));
+  const pages = selectChartPages(meta, MAX_SUBSET_PAGES).filter(
+    (n) => !skipPages?.has(n)
+  );
   const crops = new Map();
   if (!pages.length) return crops;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     for (const n of pages) {
@@ -248,17 +242,14 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
 // via setCropBox — no rasterization — so it runs where extractPdfFigureCrops
 // can't. Same figure-box geometry as the crop path, so the two agree on framing.
 export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
-  const pages = (meta?.chartPageNumbers ?? [])
-    .slice(0, MAX_SUBSET_PAGES)
-    .filter((n) => !skipPages?.has(n));
+  const pages = selectChartPages(meta, MAX_SUBSET_PAGES).filter(
+    (n) => !skipPages?.has(n)
+  );
   const boxes = new Map();
   if (!pages.length) return boxes;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     for (const n of pages) {
@@ -367,15 +358,12 @@ async function encodeJpegFigure(imgData) {
 // declines are simply absent; the caller runs the crop/box path for those.
 // Throws on pdf.js failure (caller degrades to crops).
 export async function extractPdfRasterFigures(file, meta) {
-  const pages = (meta?.chartPageNumbers ?? []).slice(0, MAX_SUBSET_PAGES);
+  const pages = selectChartPages(meta, MAX_SUBSET_PAGES);
   const out = new Map();
   if (!pages.length) return out;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     // First pass: gate each page, resolve + intrinsic-check its candidate.

@@ -19,6 +19,8 @@ import {
   countChars,
   columnConvergence,
   classifyDocument,
+  hasFlattenedFigure,
+  selectChartPages,
   shouldScanImages,
   extrapolateImages,
   MAX_ANALYZE_PAGES,
@@ -29,6 +31,7 @@ import {
   decodeCandidate,
   countSignificantImages,
 } from "../src/convert/raster-gate.js";
+import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
 // Args: the file path, plus an optional `--page N` that dumps the Markdown
 // Decant would emit for one page (the Tier 2 QA drill-down) instead of the
@@ -181,7 +184,18 @@ for (let n = 1; n <= pdf.numPages; n++) {
     }
   }
 
-  perPage.push({ chars, images, figureImages, conv, marker, decodable });
+  // flattened mirrors the extension's perPage signal (analyzePdf): the
+  // flattened-figure marker routes the page into the figures flow even with
+  // zero raster images (a pure vector chart).
+  perPage.push({
+    chars,
+    images,
+    figureImages,
+    conv,
+    marker,
+    decodable,
+    flattened: hasFlattenedFigure(lines),
+  });
 }
 
 // Text pages scoring below the threshold — the pages the Tier 2 marker would
@@ -221,6 +235,21 @@ console.log(
     `${summary.totalImages} images`
 );
 console.log(`Decision: ${decision.toUpperCase()} (${reason})`);
+
+// What the figures flow would actually attach: the capped, value-ranked page
+// selection every figure path shares (selectChartPages) — flattened chart
+// pages first, then significant-figure pages, then the rest.
+if (summary.chartPageNumbers.length) {
+  const attached = selectChartPages(summary, MAX_SUBSET_PAGES);
+  console.log(
+    `Attached (cap ${MAX_SUBSET_PAGES}): ${attached.length} of ` +
+      `${summary.chartPageNumbers.length} figure pages → ${attached.join(", ")}` +
+      (summary.flattenedPageNumbers.length
+        ? `
+  flattened chart pages (priority): ${summary.flattenedPageNumbers.join(", ")}`
+        : "")
+  );
+}
 
 // Tier 2 convergence readout: which text pages fall below the threshold (the
 // ones the marker would flag). On a clean prose/table document this list
