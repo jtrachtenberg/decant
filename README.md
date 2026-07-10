@@ -195,7 +195,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
     ([ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)). Pages
     whose figure is a single embedded photo/diagram get the **raster XObject
     decoded at native resolution** instead of a page-render crop (gated
-    conservatively — ambiguity always falls back to the crop).
+    conservatively — ambiguity always falls back to the crop). JPEG2000 /
+    JBIG2 images decode correctly (pdf.js's WASM decoders + CMYK ICC profile
+    ship with the extension); **pure vector chart pages** — which paint no
+    raster at all — join the attachment via the flattened-figure signal, and
+    when a document has more figure pages than the attachment cap, pages are
+    kept by **figure value** (flattened charts first, then significant
+    figures) instead of page order.
   - A **"set as default"** choice on the ambiguous prompt + matching options
     setting (`ask` by default — automation is opt-in). Even a single-page PDF
     prompts when its image is a **real figure** (size/pixel significance, not
