@@ -19,7 +19,7 @@
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import { browser } from "../browser.js";
-import { STANDARD_FONT_DATA_URL } from "./inbrowser.js";
+import { PDFJS_DOC_OPTIONS } from "./inbrowser.js";
 import { fileBytes } from "./read-file.js";
 import { IMAGE_OP_NAMES } from "./classify.js";
 import { MAX_SUBSET_PAGES } from "./pdf-subset.js";
@@ -82,10 +82,7 @@ export async function extractPdfFigures(file, meta) {
   if (!pages.length) return [];
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   const base = file.name.replace(/\.[a-z0-9]+$/i, "");
   const figures = [];
@@ -203,10 +200,7 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
   if (!pages.length) return crops;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     for (const n of pages) {
@@ -255,10 +249,7 @@ export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
   if (!pages.length) return boxes;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     for (const n of pages) {
@@ -372,10 +363,7 @@ export async function extractPdfRasterFigures(file, meta) {
   if (!pages.length) return out;
 
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   try {
     // First pass: gate each page, resolve + intrinsic-check its candidate.

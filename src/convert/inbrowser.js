@@ -39,14 +39,29 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs"
 // Exported for pdf-figures.js, which re-opens the document to render pages.
 export const STANDARD_FONT_DATA_URL = browser.runtime.getURL("standard_fonts/");
 
+// pdf.js decodes JPXDecode (JPEG2000) images with an OpenJPEG WASM module it
+// fetches from wasmUrl at render time — without it every JPX image throws
+// JpxError and is silently skipped, so photos come out black/blank in page
+// renders (print-production PDFs are routinely all-JPX). The same directory
+// serves jbig2.wasm (scanned docs) and qcms_bg.wasm (ICC color management);
+// iccUrl adds the CMYK ICC profile. Shipped by build.mjs like standard_fonts/.
+// Trailing slashes required — pdf.js appends the filename.
+export const WASM_URL = browser.runtime.getURL("wasm/");
+export const ICC_URL = browser.runtime.getURL("iccs/");
+
+// The document-open options every getDocument() call here and in
+// pdf-figures.js shares, so no path drifts to an asset-less pdf.js.
+export const PDFJS_DOC_OPTIONS = {
+  standardFontDataUrl: STANDARD_FONT_DATA_URL,
+  wasmUrl: WASM_URL,
+  iccUrl: ICC_URL,
+};
+
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
 export async function analyzePdf(file) {
   const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    standardFontDataUrl: STANDARD_FONT_DATA_URL,
-  });
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
   const pageCount = pdf.numPages;
 
