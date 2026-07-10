@@ -7,8 +7,9 @@
 Decant converts documents to Markdown directly within the LLM UI but on your local machine, without interrupting your workflow or risking privacy concerns by using online conversion.  
 
 At its core is a surface-agnostic pipeline — `intercept → route → transform → substitute`.
-The first surface implemented is a browser extension that catches a PDF or Word
-doc as you attach it to an LLM chat and swaps in the Markdown version in place —
+The first surface implemented is a browser extension that catches an upload in a
+supported file format as you attach it to an LLM chat and swaps in the Markdown
+version in place —
 built from one source for **Chromium** (Chrome, Brave, Edge) and **Firefox**.
 Further surfaces (a Claude Desktop MCP server, native
 desktop, mobile) are mapped in [`docs/SURFACES.md`](./docs/SURFACES.md).
@@ -19,11 +20,12 @@ many chat backends render every page of a PDF as an image and bill you for it
 alongside the text. Handing the model Markdown instead drops that cost. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
-> **Status: working, M2 complete, M3 core shipped.** The browser extension
-> converts PDF, Word, Excel, PowerPoint, and HTML to Markdown on `claude.ai`,
-> ChatGPT, and Gemini — through the file picker, drag-and-drop, and paste —
-> recovering native chart data and passing scanned or image-only documents
-> through untouched so it never silently degrades them. The optional
+> **Status: working, M3 complete.** The browser extension
+> converts PDF, Word, Excel, PowerPoint, and HTML to Markdown on `claude.ai`
+> and ChatGPT — through the file picker, drag-and-drop, and paste — and on
+> Gemini through the file picker — recovering native chart data and passing
+> scanned or image-only documents through untouched so it never silently
+> degrades them. The optional
 > **local companion service** adds the higher-fidelity tier: scans escalate to
 > OCR, and ambiguous documents can convert without dropping their visuals.
 > It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
@@ -50,6 +52,55 @@ The catch Decant respects: the image layer isn't pure waste. It's what lets a
 model read charts, scans, and complex tables. So Decant **never converts
 blindly** — visually-heavy documents can pass through untouched, and you stay in
 control of what gets transformed.
+
+---
+
+## Benchmarks
+
+Six real PDFs from the [decantCC](https://github.com/jtrachtenberg/decantCC)
+evaluation corpus, converted by Decant's in-browser pipeline (the same code the
+extension runs). File sizes are measured. Token figures use the same
+conservative model as the extension's savings badge: text at ~4 characters per
+token, plus **500 tokens per page** for the image layer chat backends render
+alongside a raw PDF — the low end of the observed 400–700/page range. Actual
+billing varies by model and backend, so treat the token columns as estimates;
+the size columns are exact.
+
+| Document | Pages | PDF → Markdown | Est. tokens as PDF | As Markdown | Saved |
+|---|---:|---:|---:|---:|---:|
+| CERN annual report (charts on most pages) | 56 | 15.6 MB → 140 KB | ~64k | ~36k | ~44% |
+| Guide to reading financial statements (clean prose) | 47 | 265 KB → 106 KB | ~51k | ~27k | ~46% |
+| Housing tax-credit FAQ (prose, a few figures) | 42 | 839 KB → 62 KB | ~37k | ~16k | ~57% |
+| Municipal program report (dense multi-column) | 98 | 4.5 MB → 172 KB | ~93k | ~44k | ~53% |
+| Asset-manager climate report (photo-heavy) | 29 | 14.9 MB → 95 KB | ~39k | ~24k | ~37% |
+| Corporate sustainability data supplement (dense tables) | 36 | 15.0 MB → 152 KB | ~57k | ~39k | ~32% |
+
+What the numbers say:
+
+- **Estimated token cost drops ~32–57%**, with the biggest wins where prose
+  dominates and the smallest where figures carry more of the meaning — exactly
+  the trade-off Decant is built around.
+- **Size on disk drops 60–99%.** The three print-production PDFs (~15 MB each)
+  convert to under 160 KB of Markdown — the upload stops being a large-file
+  problem entirely.
+- **Conversion is fast**: every document above converted in under ~3 seconds
+  (0.2 s for the smallest, 3.1 s for the 627-image data supplement) — no
+  noticeable pause between attaching a file and the swap.
+- **Five of the six carry real figures**, so Decant classified them *ambiguous*
+  and would prompt instead of converting silently. Choosing **Convert + attach
+  figures** keeps the charts as a cropped mini-PDF and honestly nets each
+  attached page back out of the claimed savings.
+
+Whether the *meaning* survives conversion is the question being answered by the
+[decantCC](https://github.com/jtrachtenberg/decantCC) project, which scores
+conversions by asking an LLM questions whose gold answers come from the source
+document.
+
+To benchmark your own documents:
+
+```bash
+node scripts/bench-pdf.mjs "<file.pdf>"
+```
 
 ---
 
@@ -83,8 +134,10 @@ Two independent layers, both **default-off**:
 
 ### Activation — where Decant runs
 Decant does nothing on any page unless its host is explicitly whitelisted. It
-ships with `claude.ai`, `chatgpt.com`, `gemini.google.com`, and
-`www.perplexity.ai` enabled (with other common LLM hosts pre-listed but off).
+ships with [claude.ai](https://claude.ai), [chatgpt.com](https://chatgpt.com),
+[gemini.google.com](https://gemini.google.com), and
+[www.perplexity.ai](https://www.perplexity.ai) enabled (with other common LLM
+hosts pre-listed but off).
 claude.ai, ChatGPT, and Perplexity get the full treatment — picker,
 drag-and-drop, and paste all substitute the converted file. Gemini converts
 through the file picker only; its uploader rejects synthetic drops, so on
