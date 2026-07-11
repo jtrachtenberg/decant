@@ -501,7 +501,13 @@ document.addEventListener(
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
 
-    resolveAndInject(target, originals);
+    // Fire-and-forget, but never silently: the native event is already blocked,
+    // so any unexpected throw must surface as an attach-failure notice rather
+    // than a swallowed upload.
+    resolveAndInject(target, originals).catch((err) => {
+      console.warn(TAG, "resolveAndInject failed (change):", err);
+      showAttachFailureNotice(originals.map((f) => f.name));
+    });
   },
   true
 );
@@ -579,7 +585,10 @@ document.addEventListener(
 
     // (a) Convert, then inject through the hidden input. The input is resolved
     // at injection time (see injectViaInput), after the async conversion.
-    resolveAndInject(null, originals);
+    resolveAndInject(null, originals).catch((err) => {
+      console.warn(TAG, "resolveAndInject failed (drop):", err);
+      showAttachFailureNotice(originals.map((f) => f.name));
+    });
   },
   true
 );
@@ -626,7 +635,10 @@ document.addEventListener(
     ev.stopImmediatePropagation();
 
     // Input resolved at injection time (see injectViaInput).
-    resolveAndInject(null, originals);
+    resolveAndInject(null, originals).catch((err) => {
+      console.warn(TAG, "resolveAndInject failed (paste):", err);
+      showAttachFailureNotice(originals.map((f) => f.name));
+    });
   },
   true
 );

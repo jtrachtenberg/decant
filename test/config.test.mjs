@@ -44,6 +44,23 @@ test("normalizeConfig keeps and cleans host rules", () => {
   ]);
 });
 
+test("an explicitly-empty activation list stays empty (default-deny)", () => {
+  // Removing every host must keep Decant off everywhere — resurrecting the
+  // enabled defaults here would silently turn it back on (SPEC §3.1, ADR-0003).
+  const cfg = normalizeConfig({ activation: { rules: [] } });
+  assert.deepEqual(cfg.activation.rules, []);
+  assert.deepEqual(enabledHosts(cfg), []);
+});
+
+test("an absent activation block still falls back to the enabled defaults", () => {
+  // Distinct from the empty case above: nothing was said, so ship the defaults.
+  assert.deepEqual(
+    normalizeConfig({ routing: DEFAULT_CONFIG.routing }).activation.rules,
+    DEFAULT_CONFIG.activation.rules
+  );
+  assert.deepEqual(normalizeConfig({}).activation.rules, DEFAULT_CONFIG.activation.rules);
+});
+
 test("enabledHosts excludes disabled rules and de-dupes", () => {
   const cfg = normalizeConfig({
     activation: {

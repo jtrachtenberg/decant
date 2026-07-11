@@ -82,6 +82,18 @@ test("a period escaped after leading digits stays escaped (list guard)", () => {
   assert.equal(res.markdown, "1\\. not a list\n\nSee item 2. it follows\n");
 });
 
+test("unescaping a large document stays linear, not quadratic", () => {
+  // mammoth escapes every period; the old prefix-slice-per-match was O(n²) and
+  // froze the tab for tens of seconds on a thesis-sized doc. A ~1 MB body must
+  // finish comfortably under a second.
+  const body = ("Sentence one\\. Sentence two\\. Sentence three\\. ".repeat(20000)).trim();
+  const t0 = Date.now();
+  const res = docxAnalysis(body);
+  assert.ok(Date.now() - t0 < 2000, "unescape must not be quadratic");
+  assert.ok(res.markdown.startsWith("Sentence one. Sentence two."));
+  assert.ok(!res.markdown.includes("\\.")); // every mid-line period unescaped
+});
+
 test("whitespace inside emphasis markers moves outside (CommonMark closes the span)", () => {
   assert.equal(
     docxAnalysis("*‘tab *Zawarkand and __student work __folder").markdown,

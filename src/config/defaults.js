@@ -158,22 +158,26 @@ export function normalizeConfig(stored) {
   if (!stored || typeof stored !== "object") {
     return structuredClone(DEFAULT_CONFIG);
   }
-  const rules = Array.isArray(stored.activation?.rules)
-    ? stored.activation.rules.filter(
-        (r) => r && r.type === "host" && typeof r.match === "string"
-      )
-    : [];
+  // An *absent* activation block falls back to the shipped defaults; an
+  // explicitly-present list (even empty) is honoured verbatim. Default-deny
+  // means "off unless whitelisted", so a user who removes every host must stay
+  // off everywhere — resurrecting the enabled defaults here would silently turn
+  // Decant back on (SPEC §3.1, ADR-0003). Mirrors normalizeRouting below.
+  const hasRules = Array.isArray(stored.activation?.rules);
+  const rules = hasRules
+    ? stored.activation.rules
+        .filter((r) => r && r.type === "host" && typeof r.match === "string")
+        .map((r) => ({
+          type: "host",
+          match: r.match.trim().toLowerCase(),
+          enabled: r.enabled !== false,
+        }))
+    : structuredClone(DEFAULT_CONFIG.activation.rules);
   return {
     version: CONFIG_VERSION,
     activation: {
       default: "off",
-      rules: rules.length
-        ? rules.map((r) => ({
-            type: "host",
-            match: r.match.trim().toLowerCase(),
-            enabled: r.enabled !== false,
-          }))
-        : structuredClone(DEFAULT_CONFIG.activation.rules),
+      rules,
     },
     routing: normalizeRouting(stored.routing, stored.version),
     hotkey: normalizeHotkey(stored.hotkey),

@@ -69,10 +69,35 @@ function stripBookmarkAnchors(markdown) {
 // bullet). Parens can't accidentally form links because brackets remain
 // escaped. Emphasis/bracket/hash escapes are left alone entirely.
 function unescapePunctuation(markdown) {
+  // The two load-bearing cases are decided by what precedes the escape on its
+  // own line. Scanning backward to the line start is O(line length); slicing
+  // `s.slice(0, offset)` per match instead is O(offset), which is quadratic on
+  // a large document (mammoth escapes every period) and freezes the tab.
+  const digitsLed = (s, end) => {
+    // matches /(^|\n)\s*\d+$/ over s[0..end)
+    let j = end - 1;
+    let sawDigit = false;
+    while (j >= 0 && s[j] >= "0" && s[j] <= "9") {
+      j--;
+      sawDigit = true;
+    }
+    if (!sawDigit) return false;
+    let sawNewline = false;
+    while (j >= 0 && /\s/.test(s[j])) {
+      if (s[j] === "\n") sawNewline = true;
+      j--;
+    }
+    return j < 0 || sawNewline || s[j] === "\n";
+  };
+  const blankLed = (s, end) => {
+    // matches /(^|\n)[ \t]*$/ over s[0..end)
+    let j = end - 1;
+    while (j >= 0 && (s[j] === " " || s[j] === "\t")) j--;
+    return j < 0 || s[j] === "\n";
+  };
   return markdown.replace(/\\([.!,?;:'"()-])/g, (whole, ch, offset, s) => {
-    const lineStart = (re) => re.test(s.slice(0, offset));
-    if (ch === "." && lineStart(/(^|\n)\s*\d+$/)) return whole;
-    if (ch === "-" && lineStart(/(^|\n)[ \t]*$/)) return whole;
+    if (ch === "." && digitsLed(s, offset)) return whole;
+    if (ch === "-" && blankLed(s, offset)) return whole;
     return ch;
   });
 }
