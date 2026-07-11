@@ -601,8 +601,16 @@ export function hasFlattenedFigure(lines) {
 // decision — see SPEC §3.9 Tier 2).
 //
 // Below this many content cells there isn't enough signal to judge; report
-// full confidence rather than warn on a sparse fragment.
-export const CONVERGENCE_MIN_CELLS = 6;
+// full confidence rather than warn on a sparse fragment. Sized to clear title
+// and divider pages, not just near-empty ones: a stack of centered headings
+// has non-recurring starts by design (each line begins where its own width
+// dictates), so a low floor lets a six-line title page score 0.00 and get
+// attached as a flattened chart (the clean-text page-34 regression). Real
+// label soup is dozens of scattered fragments — a page with fewer than a
+// dozen cells loses almost nothing in text form and isn't worth a page
+// attachment, so the floor errs toward NOT flagging (same direction as the
+// threshold below).
+export const CONVERGENCE_MIN_CELLS = 12;
 // A text page scoring below this is treated as a flattened chart/figure and
 // gets the flattened-figure marker (wired into reconstructPage). Calibrated on
 // a WHO statistics report: confirmed chart-soup pages scored ≤0.49 (including a
@@ -1186,10 +1194,11 @@ export function classifyDocument(perPage) {
   // such page makes the document worth the ambiguous prompt — the page-count
   // threshold below exists to suppress incidental-logo noise, and a
   // figure-sized, pixel-bearing image is by definition not incidental.
-  // Page classes ride along for the figure paths: when a page cap forces a
-  // choice, flattened pages (the text is unusable — the figure is the only
-  // faithful representation) outrank significant-figure pages outrank
-  // plain image pages (selectChartPages).
+  // Page classes ride along for the figure paths (selectChartPages): when
+  // any page carries a flattened chart or a significant figure, only those
+  // pages attach — plain image pages are logo/decoration territory — and
+  // when a page cap forces a choice, flattened pages (the text is unusable —
+  // the figure is the only faithful representation) outrank the rest.
   const flattenedPageNumbers = [];
   const figurePageNumbers = [];
   let figurePages = 0;
@@ -1243,25 +1252,37 @@ export function classifyDocument(perPage) {
   return { decision: "convert", reason: "text-incidental-image", summary };
 }
 
-// The chart pages actually worth attaching, at most `cap` of them. Under the
-// cap this is chartPageNumbers unchanged. Over it, taking the FIRST cap pages
-// is wrong for figure-dense documents (an annual report is photos from page 3
-// on: page-order truncation fills the attachment with front-matter photos and
-// drops the genuine charts at the back of the book), so pages are chosen by
-// figure value instead — flattened chart pages first (their extracted text is
-// unreliable, the attachment is the only faithful copy), then pages with a
-// significant figure, then the rest — while the RETURNED set stays in
-// ascending page order so mini-PDF stamps and the association footer read in
-// document order. Every figure path (mini-PDF, crops, decodes, page renders)
-// selects through here so they agree on the set.
+// The chart pages actually worth attaching, at most `cap` of them.
+//
+// Membership first: when the document has pages with a flattened chart or a
+// significant figure, ONLY those attach — they are what made the document
+// worth the figures flow. The remaining chartPageNumbers entries are pages
+// whose images the significance gate already judged non-figures (a letterhead
+// logo, a decorative rule); attaching them buys the model nothing and dilutes
+// the real figures. Only when NO page carries stronger evidence (the
+// volume-triggered ambiguous case, or callers without the significance
+// signal) do plain image pages attach as before — there they are the only
+// candidates for whatever the gate may have missed.
+//
+// Then the cap: taking the FIRST cap pages is wrong for figure-dense
+// documents (an annual report is photos from page 3 on: page-order truncation
+// fills the attachment with front-matter photos and drops the genuine charts
+// at the back of the book), so pages are chosen by figure value instead —
+// flattened chart pages first (their extracted text is unreliable, the
+// attachment is the only faithful copy), then significant figures — while the
+// RETURNED set stays in ascending page order so mini-PDF stamps and the
+// association footer read in document order. Every figure path (mini-PDF,
+// crops, decodes, page renders) selects through here so they agree on the set.
 export function selectChartPages(meta, cap) {
   const all = meta?.chartPageNumbers ?? [];
-  if (all.length <= cap) return all.slice();
   const flattened = new Set(meta?.flattenedPageNumbers ?? []);
   const figures = new Set(meta?.figurePageNumbers ?? []);
+  const strong = all.filter((n) => flattened.has(n) || figures.has(n));
+  const pool = strong.length ? strong : all;
+  if (pool.length <= cap) return pool.slice();
   const rank = (n) => (flattened.has(n) ? 0 : figures.has(n) ? 1 : 2);
   // Stable sort: equal ranks keep page order, so each tier fills front-first.
-  return all
+  return pool
     .map((n, i) => ({ n, i }))
     .sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i)
     .slice(0, cap)
