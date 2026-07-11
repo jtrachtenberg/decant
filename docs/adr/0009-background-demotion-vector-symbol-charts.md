@@ -59,6 +59,23 @@ Both misses are operator-list-visible; neither needs rendering or decoding.
    note (`appendVectorChartNote`) promising the attached figure — same
    invariant as the omitted-chart-table marker.
 
+3. **Crop the attachment to the chart band** (`vectorChartBox`). These pages
+   are mostly prose with the chart in one region; attaching the whole page
+   pays for the text twice. The v4+ `constructPath` op packs its paint verb
+   and path bounds into its args, so every chromatic fill's user-space box is
+   already in the scan for free. The fills are clustered vertically (72 pt
+   gap); a single cluster that independently passes the same multi-hue gate
+   IS the chart, and the crop is that band at **full page width** (row
+   labels, column headers and legend text sit outside the fills' bounds but
+   never outside the margins), padded 48 pt vertically for the header rows.
+   Any doubt — no path geometry (older builds), no qualifying cluster, two
+   qualifying clusters (a two-chart page), band > 85 % of the page — returns
+   null and the page attaches whole, the pre-crop baseline. Both crop paths
+   (Chrome render-crop, Firefox CropBox) share the box via
+   `paddedFigureBox`. Field result: the climate report's two chart pages
+   shrink to 20 % and 34 % bands; a heatmap spanning its whole page and an
+   infographic at 92 % correctly decline.
+
 ## Consequences
 
 - The climate report now attaches exactly its two symbol-chart pages instead

@@ -268,8 +268,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
     no longer count as figures, while charts that encode values as colored
     vector symbols (risk matrices, heatmap grids — invisible to both the
     raster and convergence signals) are detected from their multi-hue fill
-    pattern, attached as flattened chart pages, and flagged in the Markdown
-    so the model knows the rows are missing their values.
+    pattern, attached as flattened chart pages **cropped to the chart's own
+    band** (whole page whenever the band isn't confident), and flagged in
+    the Markdown so the model knows the rows are missing their values.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

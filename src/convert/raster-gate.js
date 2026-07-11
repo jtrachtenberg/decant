@@ -132,8 +132,8 @@ export const HUE_BUCKETS = 6;
 // Vector ops that FILL (paint area with the current fill color). A subset of
 // VECTOR_PAINT_OP_NAMES: stroke-only ops don't apply the fill color, and
 // shadingFill uses its own pattern. constructPath is included because v4+
-// packs the paint verb inside it — over-counting a stroke-only or clip-only
-// path only inflates counts on pages that are already vector-heavy.
+// packs the paint verb inside its args — the scan reads that verb (args[0])
+// and counts the path only when it's one of the bare fill verbs below.
 export const FILL_PAINT_OP_NAMES = [
   "constructPath",
   "fill",
@@ -143,6 +143,12 @@ export const FILL_PAINT_OP_NAMES = [
   "closeFillStroke",
   "closeEOFillStroke",
 ];
+
+// Vertical clustering distance for the chart-band box (vectorChartBox): two
+// colored fills whose boxes are within this gap belong to the same figure.
+// One inch separates a chart's rows/legend (a few pt apart) from stray brand
+// accents elsewhere on the page (headers, sidebars — hundreds of pt away).
+export const VECTOR_CHART_CLUSTER_GAP_PT = 72;
 
 // setFillRGBColor arg → [r,g,b] 0–255, or null when unparseable. pdf.js v6
 // passes a CSS hex string ("#199050"); older builds pass component numbers.
@@ -237,10 +243,18 @@ const opSet = (names, ops) =>
 //   vectorPaintOps: count of vector paint ops
 //   coloredFills:   fill-paint ops executed under a chromatic fill color
 //   coloredFillHues: per-hue-bucket counts of those fills (HUE_BUCKETS long)
+//   coloredFillBoxes: [{ hue, box }] user-space boxes of those fills, when
+//                   the op carries path bounds (v4+ constructPath minMax —
+//                   bare fill verbs have no geometry and record no box)
 // }
 export function scanPageOps(fnArray, argsArray, ops) {
   const vectorOps = opSet(VECTOR_PAINT_OP_NAMES, ops);
-  const fillOps = opSet(FILL_PAINT_OP_NAMES, ops);
+  // Bare fill verbs (constructPath handled separately — its args[0] carries
+  // the packed paint verb, matched against this same set).
+  const fillVerbs = opSet(
+    FILL_PAINT_OP_NAMES.filter((n) => n !== "constructPath"),
+    ops
+  );
   const nonDecodable = opSet(NON_DECODABLE_IMAGE_OP_NAMES, ops);
   const repeatOps = opSet(REPEAT_IMAGE_OP_NAMES, ops);
 
@@ -257,6 +271,7 @@ export function scanPageOps(fnArray, argsArray, ops) {
     vectorPaintOps: 0,
     coloredFills: 0,
     coloredFillHues: new Array(HUE_BUCKETS).fill(0),
+    coloredFillBoxes: [],
   };
 
   for (let i = 0; i < fnArray.length; i++) {
@@ -283,13 +298,50 @@ export function scanPageOps(fnArray, argsArray, ops) {
       scan.repeats++;
     } else if (vectorOps.has(fn)) {
       scan.vectorPaintOps++;
-      if (fillOps.has(fn) && fillHue != null) {
+      if (fillHue == null) continue;
+      if (fn === ops.constructPath) {
+        // v4+ packed path: args = [paintVerb, pathData, minMax]. Count only
+        // fill verbs (a stroked grid under a lingering fill color is not a
+        // symbol), and keep the path bounds through the CTM for the chart
+        // band box.
+        const a = argsArray[i] ?? [];
+        if (!fillVerbs.has(a[0])) continue;
+        scan.coloredFills++;
+        scan.coloredFillHues[fillHue]++;
+        const mm = a[2];
+        if (mm && mm.length === 4) {
+          scan.coloredFillBoxes.push({
+            hue: fillHue,
+            box: minMaxBoxThroughCtm(mm, ctm),
+          });
+        }
+      } else if (fillVerbs.has(fn)) {
+        // Bare fill verb (older builds): counts, but carries no geometry.
         scan.coloredFills++;
         scan.coloredFillHues[fillHue]++;
       }
     }
   }
   return scan;
+}
+
+// Axis-aligned user-space box of a [minX, minY, maxX, maxY] bound through a
+// CTM (transform all four corners; rotation-safe).
+function minMaxBoxThroughCtm(mm, ctm) {
+  const corners = [
+    applyTransform(ctm, mm[0], mm[1]),
+    applyTransform(ctm, mm[2], mm[1]),
+    applyTransform(ctm, mm[0], mm[3]),
+    applyTransform(ctm, mm[2], mm[3]),
+  ];
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  return {
+    x0: Math.min(...xs),
+    y0: Math.min(...ys),
+    x1: Math.max(...xs),
+    y1: Math.max(...ys),
+  };
 }
 
 // Does the page's vector paint read as a symbol/heatmap chart — the flattened
@@ -305,6 +357,58 @@ export function hasVectorChartFills(scan) {
     (c) => c >= VECTOR_CHART_MIN_FILLS_PER_HUE
   ).length;
   return hues >= VECTOR_CHART_MIN_HUES;
+}
+
+// The multi-hue test hasVectorChartFills applies to the page, applied to one
+// cluster's per-hue counts.
+function huesQualify(hueCounts, fills) {
+  if (fills < VECTOR_CHART_MIN_COLORED_FILLS) return false;
+  return (
+    hueCounts.filter((c) => c >= VECTOR_CHART_MIN_FILLS_PER_HUE).length >=
+    VECTOR_CHART_MIN_HUES
+  );
+}
+
+// User-space box of the page's vector symbol chart, or null when there isn't
+// one the scan can point at confidently. The chart's symbols and legend
+// swatches cluster tightly in y; stray chromatic accents (a colored header
+// bar, sidebar icons) sit far away. Cluster the colored-fill boxes
+// vertically, then require a single cluster to pass the SAME multi-hue gate
+// the page did — only then is the box trustworthy enough to crop to. Any
+// doubt (no geometry from older builds, accents diluting every cluster,
+// a multi-chart page splitting the fills) returns null and the caller keeps
+// the whole page — the correctness baseline, exactly as before this box
+// existed. Callers should pad the result and widen it to the full page width:
+// row labels, column headers and legend text sit left of / above the symbols,
+// outside the fills' own bounds.
+export function vectorChartBox(scan) {
+  if (!hasVectorChartFills(scan)) return null;
+  const boxes = scan.coloredFillBoxes ?? [];
+  // Geometry must cover (essentially) all counted fills — a partial picture
+  // could crop away the uncovered part of the chart.
+  if (boxes.length < scan.coloredFills) return null;
+
+  const sorted = [...boxes].sort((a, b) => a.box.y0 - b.box.y0);
+  const clusters = [];
+  for (const { hue, box } of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (last && box.y0 - last.y1 <= VECTOR_CHART_CLUSTER_GAP_PT) {
+      last.x0 = Math.min(last.x0, box.x0);
+      last.y0 = Math.min(last.y0, box.y0);
+      last.x1 = Math.max(last.x1, box.x1);
+      last.y1 = Math.max(last.y1, box.y1);
+      last.fills++;
+      last.hueCounts[hue]++;
+    } else {
+      const hueCounts = new Array(HUE_BUCKETS).fill(0);
+      hueCounts[hue]++;
+      clusters.push({ ...box, fills: 1, hueCounts });
+    }
+  }
+  const qualifying = clusters.filter((c) => huesQualify(c.hueCounts, c.fills));
+  if (qualifying.length !== 1) return null; // none, or ambiguous (two charts)
+  const c = qualifying[0];
+  return { x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1 };
 }
 
 const boxArea = (box) => (box.x1 - box.x0) * (box.y1 - box.y0);

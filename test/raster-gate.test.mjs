@@ -33,6 +33,7 @@ import {
   parseFillRGB,
   hueBucket,
   hasVectorChartFills,
+  vectorChartBox,
   isBackgroundImage,
   bleedEdgeCount,
   VECTOR_CHART_MIN_COLORED_FILLS,
@@ -410,6 +411,83 @@ test("a sparse multicolor page (cover art, a few icons) stays quiet", () => {
     ...coloredFills("#f0c319", 1), // below the per-hue floor
   ]);
   assert.ok(!hasVectorChartFills(twoHue));
+});
+
+// A v4+ packed path: constructPath carrying its paint verb and bounds.
+const packedPath = (verb, x0, y0, x1, y1) => [
+  ["constructPath", [OPS[verb], [new Float32Array(0)], new Float32Array([x0, y0, x1, y1])]],
+];
+// A w×h chromatic symbol at (x, y).
+const symbol = (hex, x, y, w = 10, h = 10) => [
+  ["setFillRGBColor", [hex]],
+  ...packedPath("fill", x, y, x + w, y + h),
+];
+
+test("constructPath counts by its packed verb; fills record CTM'd boxes", () => {
+  // A stroked grid under a lingering chromatic fill color is not a symbol.
+  const strokes = scanOf([
+    ["setFillRGBColor", ["#199050"]],
+    ...packedPath("stroke", 0, 0, 500, 0),
+    ...packedPath("stroke", 0, 20, 500, 20),
+  ]);
+  assert.equal(strokes.coloredFills, 0);
+  // A fill verb counts and carries its bounds — through the CTM in force.
+  const scan = scanOf([
+    ["save"],
+    ["transform", [2, 0, 0, 2, 10, 10]],
+    ...symbol("#199050", 5, 5),
+    ["restore"],
+  ]);
+  assert.equal(scan.coloredFills, 1);
+  assert.deepEqual(scan.coloredFillBoxes[0].box, { x0: 20, y0: 20, x1: 40, y1: 40 });
+});
+
+test("vectorChartBox finds the symbol cluster, ignores far accents", () => {
+  // The MSIM page-12 shape: a compact symbol grid + legend low on the page,
+  // a few chromatic brand accents far above. The box is the grid's, not the
+  // union's.
+  const grid = [];
+  const palette = ["#199050", "#f0c319", "#a61e22"];
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 6; col++) {
+      grid.push(...symbol(palette[(row + col) % 3], 150 + col * 70, 80 + row * 25));
+    }
+  }
+  const scan = scanOf([
+    ...symbol("#005c90", 40, 780, 200, 20), // header accent, far away
+    ...grid,
+  ]);
+  assert.ok(hasVectorChartFills(scan));
+  const box = vectorChartBox(scan);
+  assert.ok(box);
+  assert.ok(box.y1 <= 80 + 4 * 25 && box.y0 >= 80, `band ${box.y0}–${box.y1}`);
+  assert.ok(box.y1 < 700, "accent excluded");
+});
+
+test("vectorChartBox declines when it can't point at ONE confident cluster", () => {
+  // Bare fill verbs (older builds): the gate fires but there's no geometry.
+  const bare = scanOf([
+    ...coloredFills("#199050", 6),
+    ...coloredFills("#f0c319", 6),
+    ...coloredFills("#a61e22", 6),
+  ]);
+  assert.ok(hasVectorChartFills(bare));
+  assert.equal(vectorChartBox(bare), null);
+  // Two qualifying clusters (a two-chart page): ambiguous, whole page.
+  const chartAt = (yBase) => {
+    const fills = [];
+    for (let i = 0; i < 12; i++) {
+      fills.push(
+        ...symbol(["#199050", "#f0c319", "#a61e22"][i % 3], 100 + i * 12, yBase + (i % 4) * 20)
+      );
+    }
+    return fills;
+  };
+  const twoCharts = scanOf([...chartAt(100), ...chartAt(600)]);
+  assert.ok(hasVectorChartFills(twoCharts));
+  assert.equal(vectorChartBox(twoCharts), null);
+  // Not a chart page at all: no box either.
+  assert.equal(vectorChartBox(scanOf(symbol("#199050", 0, 0))), null);
 });
 
 test("fill color rides save/restore and stroke ops don't count as fills", () => {

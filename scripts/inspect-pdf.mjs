@@ -32,6 +32,7 @@ import {
   decodeCandidate,
   countSignificantImages,
   hasVectorChartFills,
+  vectorChartBox,
 } from "../src/convert/raster-gate.js";
 import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
@@ -161,6 +162,9 @@ if (pdf.numPages > MAX_ANALYZE_PAGES) {
 }
 
 const perPage = [];
+// Vector-symbol-chart crop bands (QA readout): what pdf-figures.js would
+// crop each "v" page to, or whole-page when the box isn't confident.
+const chartBands = [];
 for (let n = 1; n <= pdf.numPages; n++) {
   const page = await pdf.getPage(n);
   const lines = reconstructLines((await page.getTextContent()).items);
@@ -206,6 +210,26 @@ for (let n = 1; n <= pdf.numPages; n++) {
       decodable = !!decodeCandidate(scan, pageArea, opts);
       // Vector symbol chart (colored categorical fills, values not in text).
       vectorChart = hasVectorChartFills(scan);
+      // The crop band the figures flow would use (pdf-figures.js
+      // paddedFigureBox: full page width, the fills' y-range + 48pt pads,
+      // skipped past 85% of the page). Recorded for the QA readout below.
+      if (vectorChart) {
+        const band = vectorChartBox(scan);
+        if (band) {
+          const y0 = Math.max(vy0, band.y0 - 48);
+          const y1 = Math.min(vy1, band.y1 + 48);
+          const frac = (y1 - y0) / (vy1 - vy0);
+          chartBands.push({
+            page: n,
+            y0,
+            y1,
+            frac,
+            crops: frac <= 0.85,
+          });
+        } else {
+          chartBands.push({ page: n, y0: null, y1: null, frac: 1, crops: false });
+        }
+      }
     } catch {
       /* ignore */
     }
@@ -280,6 +304,14 @@ if (summary.chartPageNumbers.length) {
   flattened chart pages (priority): ${summary.flattenedPageNumbers.join(", ")}`
         : "")
   );
+  for (const b of chartBands) {
+    console.log(
+      `  vector-chart crop p${b.page}: ` +
+        (b.crops
+          ? `y ${b.y0.toFixed(0)}–${b.y1.toFixed(0)} (${(b.frac * 100).toFixed(0)}% of page, full width)`
+          : `whole page (${b.y0 == null ? "no confident band" : `band ${(b.frac * 100).toFixed(0)}% > 85%`})`)
+    );
+  }
 }
 
 // Tier 2 convergence readout: which text pages fall below the threshold (the

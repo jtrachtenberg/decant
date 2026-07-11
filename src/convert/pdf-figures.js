@@ -31,6 +31,7 @@ import {
   MAX_INTRINSIC_ASPECT,
   scanPageOps,
   decodeCandidate,
+  vectorChartBox,
 } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
@@ -118,6 +119,12 @@ const CROP_PAD_PT = 36; // half an inch: axis labels, captions, legends
 // When the padded union effectively IS the page, cropping buys nothing —
 // keep the vector page (it renders sharper than a raster crop anyway).
 const MAX_CROP_PAGE_FRACTION = 0.85;
+// Vertical padding for a vector-symbol-chart band (vectorChartBox): the box
+// bounds only the colored fills, so the column-header rows above the top
+// symbol row and any caption under the legend need headroom. Wider than
+// CROP_PAD_PT because two stacked header lines (group + column names) are
+// the norm for matrix charts.
+const VECTOR_CHART_PAD_PT = 48;
 
 // Union of the page's raster-image boxes in user space, or null when nothing
 // figure-sized paints. An image op paints the unit square through the CTM.
@@ -163,21 +170,45 @@ async function figureBoxUserSpace(page) {
   return box;
 }
 
-// The worthwhile, padded figure box for a page in user space, or null when no
-// figure-sized image paints or the crop would barely beat a whole-page copy.
-// Shared by the raster crop (Chrome) and the vector box crop (Firefox) so both
-// agree on what and when to crop. Render-free — getOperatorList geometry only.
+// The worthwhile, padded figure box for a page in user space, or null when
+// nothing boxable paints or the crop would barely beat a whole-page copy.
+// Two sources, raster first: the union of figure-sized image paints, else the
+// vector-symbol-chart band (vectorChartBox — the flattened chart pages that
+// paint no raster at all, previously always whole-page copies). Shared by the
+// raster crop (Chrome) and the vector box crop (Firefox) so both agree on
+// what and when to crop. Render-free — getOperatorList geometry only.
 async function paddedFigureBox(page) {
-  const box = await figureBoxUserSpace(page);
-  if (!box) return null;
-  // Pad for surrounding labels, clamp to the page box.
   const [vx0, vy0, vx1, vy1] = page.view;
-  const padded = {
-    x0: Math.max(vx0, box.x0 - CROP_PAD_PT),
-    y0: Math.max(vy0, box.y0 - CROP_PAD_PT),
-    x1: Math.min(vx1, box.x1 + CROP_PAD_PT),
-    y1: Math.min(vy1, box.y1 + CROP_PAD_PT),
-  };
+  const box = await figureBoxUserSpace(page);
+  let padded = null;
+  if (box) {
+    // Pad for surrounding labels, clamp to the page box.
+    padded = {
+      x0: Math.max(vx0, box.x0 - CROP_PAD_PT),
+      y0: Math.max(vy0, box.y0 - CROP_PAD_PT),
+      x1: Math.min(vx1, box.x1 + CROP_PAD_PT),
+      y1: Math.min(vy1, box.y1 + CROP_PAD_PT),
+    };
+  } else {
+    // No raster figure — a symbol chart's colored fills, when the scan can
+    // point at exactly one confident cluster. Full page width (row labels,
+    // column headers and legend text sit outside the fills' own bounds, but
+    // never outside the page margins); generous vertical pad for the header
+    // rows. Any doubt → null → whole-page copy, the pre-crop baseline.
+    const ops = await page.getOperatorList();
+    const band = vectorChartBox(
+      scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS)
+    );
+    if (band) {
+      padded = {
+        x0: vx0,
+        x1: vx1,
+        y0: Math.max(vy0, band.y0 - VECTOR_CHART_PAD_PT),
+        y1: Math.min(vy1, band.y1 + VECTOR_CHART_PAD_PT),
+      };
+    }
+  }
+  if (!padded) return null;
   const cropArea = (padded.x1 - padded.x0) * (padded.y1 - padded.y0);
   const pageArea = (vx1 - vx0) * (vy1 - vy0);
   if (!(cropArea > 0) || cropArea / pageArea > MAX_CROP_PAGE_FRACTION) {
