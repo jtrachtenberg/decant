@@ -82,6 +82,103 @@ export const MAX_VECTOR_PAINT_OPS = 8;
 // correctly; decode handles only the single-figure page (v1).
 export const MAX_DECODABLE_RASTERS = 1;
 
+// --- Background/decoration demotion (the MSIM-report false positives) -------
+// A raster that reaches within this many pt of a page edge "bleeds" that
+// edge. Design software places full-bleed art exactly on (or 1pt past) the
+// trim box, so a small tolerance absorbs the jitter without ever reaching a
+// margin (real report margins are 20pt+).
+export const BLEED_EDGE_TOL_PT = 6;
+// Bleeding this many page edges marks the image as a design element — banner
+// photos, section-divider art, full-page covers. Content figures live inside
+// the margins (axis labels, captions and body text need the room), so they
+// bleed 0 edges; a generous hero image may bleed 2 (top + one side). Field
+// data (MSIM climate report): every decorative photo bled 3–4 edges, every
+// genuine corpus figure (WHO charts, scanned figures, invoice logos) bled ≤2.
+export const BACKGROUND_MIN_BLEED_EDGES = 3;
+// Text-under-image demotion: when at least this fraction of the page's
+// text-layer characters sit INSIDE the image's box, the image is a backdrop
+// the text is printed over (cover pages, section dividers), not a figure. A
+// real raster figure carries its labels as pixels — the text layer around it
+// stays outside the box save for a stray caption.
+export const BACKGROUND_TEXT_FRACTION = 0.85;
+// Below this many text chars the overlap fraction is noise (a bare page
+// number centered on a full-page photo shouldn't demote it — the bleed gate
+// judges those). Matches classify.js's MIN_TEXT_CHARS_PER_PAGE.
+export const BACKGROUND_MIN_TEXT_CHARS = 50;
+
+// --- Vector-chart fill signal (the MSIM risk-matrix false negative) ---------
+// A chart that encodes its values as colored symbols (risk matrices, heatmap
+// grids, harvey balls) reaches the text layer as headers and row labels with
+// EMPTY data cells — nothing convergence or the raster gates can see. What
+// the operator list does see: many small vector fills in several distinct
+// hues (the categorical palette). Decoration never looks like this — brand
+// accents recolor rules and bands in ONE hue family, and covers use a few
+// large blocks. Field calibration (7-doc corpus): symbol charts scored 24–92
+// colored fills across 3–4 hue buckets; the busiest non-chart page scored 163
+// fills in ONE hue bucket, and no non-chart page reached 3 buckets with ≥2
+// fills each. The hue-diversity requirement, not the count, carries the gate.
+export const VECTOR_CHART_MIN_COLORED_FILLS = 12;
+export const VECTOR_CHART_MIN_HUES = 3;
+export const VECTOR_CHART_MIN_FILLS_PER_HUE = 2;
+// A fill color is "categorical" (chart-palette material) only when clearly
+// chromatic: max(r,g,b) − min(r,g,b) above this keeps black text, gray rules
+// and near-white bands out of the hue counts.
+export const MIN_CHROMA = 40;
+// Hue circle is split into this many buckets (60° each) — coarse enough that
+// jittered shades of one brand color share a bucket, fine enough that a
+// green/yellow/red palette lands in three.
+export const HUE_BUCKETS = 6;
+
+// Vector ops that FILL (paint area with the current fill color). A subset of
+// VECTOR_PAINT_OP_NAMES: stroke-only ops don't apply the fill color, and
+// shadingFill uses its own pattern. constructPath is included because v4+
+// packs the paint verb inside it — over-counting a stroke-only or clip-only
+// path only inflates counts on pages that are already vector-heavy.
+export const FILL_PAINT_OP_NAMES = [
+  "constructPath",
+  "fill",
+  "eoFill",
+  "fillStroke",
+  "eoFillStroke",
+  "closeFillStroke",
+  "closeEOFillStroke",
+];
+
+// setFillRGBColor arg → [r,g,b] 0–255, or null when unparseable. pdf.js v6
+// passes a CSS hex string ("#199050"); older builds pass component numbers.
+export function parseFillRGB(args) {
+  const a = args ?? [];
+  if (typeof a[0] === "string") {
+    const m = /^#([0-9a-f]{6})$/i.exec(a[0]);
+    if (!m) return null;
+    const v = parseInt(m[1], 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  }
+  if (a.length >= 3 && a.every((x) => typeof x === "number")) {
+    // Components either 0–1 floats or 0–255 ints; a max ≤ 1 says floats.
+    const scale = Math.max(a[0], a[1], a[2]) <= 1 ? 255 : 1;
+    return [a[0] * scale, a[1] * scale, a[2] * scale].map((x) =>
+      Math.max(0, Math.min(255, Math.round(x)))
+    );
+  }
+  return null;
+}
+
+// Hue bucket (0..HUE_BUCKETS-1) of a chromatic color, or null for
+// black/gray/white/near-neutral (chroma below MIN_CHROMA).
+export function hueBucket(rgb) {
+  if (!rgb) return null;
+  const [r, g, b] = rgb;
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  if (mx - mn < MIN_CHROMA) return null;
+  let h;
+  if (mx === r) h = ((g - b) / (mx - mn)) % 6;
+  else if (mx === g) h = (b - r) / (mx - mn) + 2;
+  else h = (r - g) / (mx - mn) + 4;
+  return Math.floor(((h * 60 + 360) % 360) / (360 / HUE_BUCKETS));
+}
+
 // --- 2×3 matrix helpers (PDF's row-vector convention) ------------------------
 // composed = apply m, then n. Shared with pdf-figures.js's CTM replay.
 export const composeTransform = (m, n) => [
@@ -138,13 +235,19 @@ const opSet = (names, ops) =>
 //   otherFigureImages: how many of those are figure-sized (decode disqualifier)
 //   repeats:        count of image-tiling ops
 //   vectorPaintOps: count of vector paint ops
+//   coloredFills:   fill-paint ops executed under a chromatic fill color
+//   coloredFillHues: per-hue-bucket counts of those fills (HUE_BUCKETS long)
 // }
 export function scanPageOps(fnArray, argsArray, ops) {
   const vectorOps = opSet(VECTOR_PAINT_OP_NAMES, ops);
+  const fillOps = opSet(FILL_PAINT_OP_NAMES, ops);
   const nonDecodable = opSet(NON_DECODABLE_IMAGE_OP_NAMES, ops);
   const repeatOps = opSet(REPEAT_IMAGE_OP_NAMES, ops);
 
   let ctm = [1, 0, 0, 1, 0, 0];
+  // Fill color rides the graphics state alongside the CTM, so save/restore
+  // stacks both together.
+  let fillHue = null;
   const stack = [];
   const scan = {
     xobjects: [],
@@ -152,13 +255,18 @@ export function scanPageOps(fnArray, argsArray, ops) {
     otherFigureImages: 0,
     repeats: 0,
     vectorPaintOps: 0,
+    coloredFills: 0,
+    coloredFillHues: new Array(HUE_BUCKETS).fill(0),
   };
 
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
-    if (fn === ops.save) stack.push(ctm);
-    else if (fn === ops.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
+    if (fn === ops.save) stack.push([ctm, fillHue]);
+    else if (fn === ops.restore)
+      [ctm, fillHue] = stack.pop() ?? [[1, 0, 0, 1, 0, 0], null];
     else if (fn === ops.transform) ctm = composeTransform(argsArray[i], ctm);
+    else if (fn === ops.setFillRGBColor)
+      fillHue = hueBucket(parseFillRGB(argsArray[i]));
     else if (fn === ops.paintImageXObject) {
       const args = argsArray[i] ?? [];
       scan.xobjects.push({
@@ -175,9 +283,28 @@ export function scanPageOps(fnArray, argsArray, ops) {
       scan.repeats++;
     } else if (vectorOps.has(fn)) {
       scan.vectorPaintOps++;
+      if (fillOps.has(fn) && fillHue != null) {
+        scan.coloredFills++;
+        scan.coloredFillHues[fillHue]++;
+      }
     }
   }
   return scan;
+}
+
+// Does the page's vector paint read as a symbol/heatmap chart — the flattened
+// figure whose data cells never reach the text layer? Many chromatic fills
+// across several distinct hues is the fingerprint of a categorical palette;
+// see the constants above for the calibration. Pages passing this join the
+// figures flow as flattened charts (the attachment is the only faithful copy
+// of their values).
+export function hasVectorChartFills(scan) {
+  if (!scan || (scan.coloredFills ?? 0) < VECTOR_CHART_MIN_COLORED_FILLS)
+    return false;
+  const hues = (scan.coloredFillHues ?? []).filter(
+    (c) => c >= VECTOR_CHART_MIN_FILLS_PER_HUE
+  ).length;
+  return hues >= VECTOR_CHART_MIN_HUES;
 }
 
 const boxArea = (box) => (box.x1 - box.x0) * (box.y1 - box.y0);
@@ -186,6 +313,50 @@ const boxArea = (box) => (box.x1 - box.x0) * (box.y1 - box.y0);
 // pageArea null/absent skips the check (callers without page geometry).
 const claimsPageArea = (box, pageArea) =>
   pageArea == null || boxArea(box) >= MIN_FIGURE_PAGE_FRACTION * pageArea;
+
+// How many page edges the box bleeds (reaches within BLEED_EDGE_TOL_PT of).
+// `view` is the page's [x0, y0, x1, y1] box (pdf.js page.view).
+export function bleedEdgeCount(box, view) {
+  const [vx0, vy0, vx1, vy1] = view;
+  let edges = 0;
+  if (box.x0 <= vx0 + BLEED_EDGE_TOL_PT) edges++;
+  if (box.x1 >= vx1 - BLEED_EDGE_TOL_PT) edges++;
+  if (box.y0 <= vy0 + BLEED_EDGE_TOL_PT) edges++;
+  if (box.y1 >= vy1 - BLEED_EDGE_TOL_PT) edges++;
+  return edges;
+}
+
+// Does the box read as a background/decoration rather than a figure?
+//   view       (optional [x0,y0,x1,y1]) — full-bleed design elements demote
+//   textPoints (optional [{x, y, chars}]) — one entry per text item, at its
+//              anchor point with its non-whitespace char count. An image that
+//              CONTAINS (almost all of) the page's text is a backdrop the
+//              text is printed over, never a figure — a real raster figure
+//              carries its labels as pixels, not as a text layer on top.
+// Both signals are per-box and callers may pass either, both, or neither
+// (absent inputs skip their check — old behavior).
+export function isBackgroundImage(box, { view = null, textPoints = null } = {}) {
+  if (view && bleedEdgeCount(box, view) >= BACKGROUND_MIN_BLEED_EDGES) {
+    return true;
+  }
+  if (textPoints && textPoints.length) {
+    let total = 0;
+    let inBox = 0;
+    for (const p of textPoints) {
+      total += p.chars;
+      if (p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) {
+        inBox += p.chars;
+      }
+    }
+    if (
+      total >= BACKGROUND_MIN_TEXT_CHARS &&
+      inBox / total >= BACKGROUND_TEXT_FRACTION
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // The XObjects that read as real figures: figure-sized on the page (CTM box),
 // claiming a real fraction of the page (`pageArea`, pt² — pass it whenever
@@ -196,10 +367,16 @@ const claimsPageArea = (box, pageArea) =>
 // and classification uses it to decide whether an image is worth surfacing
 // the ambiguous prompt for: a logo/strip/icon fails here for the same
 // reasons in both places.
-export function significantRasters(scan, pageArea = null) {
+//
+// `opts` ({ view, textPoints }, both optional) enables the background
+// demotion: full-bleed design art and under-text backdrops are decoration no
+// matter how big they are (the MSIM-report stock photos passed every size
+// gate). Callers without the geometry omit it — old behavior.
+export function significantRasters(scan, pageArea = null, opts = {}) {
   return scan.xobjects.filter((x) => {
     if (!figureSized(x.box)) return false;
     if (!claimsPageArea(x.box, pageArea)) return false;
+    if (isBackgroundImage(x.box, opts)) return false;
     if (x.w != null && x.h != null) {
       if (Math.min(x.w, x.h) < MIN_INTRINSIC_PX) return false;
       if (Math.max(x.w, x.h) / Math.min(x.w, x.h) > MAX_INTRINSIC_ASPECT)
@@ -212,15 +389,16 @@ export function significantRasters(scan, pageArea = null) {
 // How many of the page's images read as real figures (as opposed to
 // decoration)? Figure-sized, page-claiming inline images and masks count too
 // — they're visual content even though they can't be decoded standalone.
-export function countSignificantImages(scan, pageArea = null) {
+export function countSignificantImages(scan, pageArea = null, opts = {}) {
   const inlineFigures = scan.otherImageBoxes.filter(
-    (b) => figureSized(b) && claimsPageArea(b, pageArea)
+    (b) =>
+      figureSized(b) && claimsPageArea(b, pageArea) && !isBackgroundImage(b, opts)
   ).length;
-  return inlineFigures + significantRasters(scan, pageArea).length;
+  return inlineFigures + significantRasters(scan, pageArea, opts).length;
 }
 
-export function pageHasSignificantImage(scan, pageArea = null) {
-  return countSignificantImages(scan, pageArea) > 0;
+export function pageHasSignificantImage(scan, pageArea = null, opts = {}) {
+  return countSignificantImages(scan, pageArea, opts) > 0;
 }
 
 // The single decodable raster the page's figure content amounts to, or null
@@ -232,13 +410,16 @@ export function pageHasSignificantImage(scan, pageArea = null) {
 // plus disqualifiers: any figure-sized non-decodable raster, any tiling op.
 // (G3, cross-page repetition, needs document scope — the decoder applies it
 // via the g_ global-cache prefix and a dims fingerprint across pages.)
-export function decodeCandidate(scan, pageArea = null) {
+export function decodeCandidate(scan, pageArea = null, opts = {}) {
   if (scan.vectorPaintOps > MAX_VECTOR_PAINT_OPS) return null;
   if (scan.repeats > 0) return null;
   if (scan.otherFigureImages > 0) return null;
 
   // G1/G2 via the shared significance filter (page-area gate included when
-  // geometry is passed), plus a resolvable object id.
-  const qualifying = significantRasters(scan, pageArea).filter((x) => x.objId);
+  // geometry is passed, background demotion when `opts` carries view/text
+  // geometry), plus a resolvable object id.
+  const qualifying = significantRasters(scan, pageArea, opts).filter(
+    (x) => x.objId
+  );
   return qualifying.length === MAX_DECODABLE_RASTERS ? qualifying[0] : null;
 }

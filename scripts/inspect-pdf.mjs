@@ -16,6 +16,7 @@ import {
   linesToText,
   linesToMarkdown,
   appendOmittedImagesNote,
+  appendVectorChartNote,
   countChars,
   columnConvergence,
   classifyDocument,
@@ -30,6 +31,7 @@ import {
   scanPageOps,
   decodeCandidate,
   countSignificantImages,
+  hasVectorChartFills,
 } from "../src/convert/raster-gate.js";
 import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
@@ -100,15 +102,26 @@ if (pageArg != null) {
   }
   const conv = columnConvergence(lines);
   const chars = countChars(linesToText(lines));
-  const images = await countImages(await pdf.getPage(pageArg));
+  const page = await pdf.getPage(pageArg);
+  const images = await countImages(page);
+  // Vector-chart note parity with analyzePdf: the drill-down should show the
+  // exact Markdown the extension emits, symbol-chart marker included.
+  let vectorChart = false;
+  try {
+    const ops = await page.getOperatorList();
+    vectorChart = hasVectorChartFills(
+      scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS)
+    );
+  } catch {
+    /* ignore */
+  }
   // Match the extension: markers speak the document's printed page labels
   // when the PDF defines them, physical index otherwise.
   const labels = await pdf.getPageLabels().catch(() => null);
-  const md = appendOmittedImagesNote(
-    linesToMarkdown(lines, labels?.[pageArg - 1] ?? pageArg),
-    images,
-    labels?.[pageArg - 1] ?? pageArg
-  );
+  const label = labels?.[pageArg - 1] ?? pageArg;
+  let md = linesToMarkdown(lines, label);
+  if (vectorChart) md = appendVectorChartNote(md, label);
+  md = appendOmittedImagesNote(md, images, label);
   const low = chars >= 50 && conv.score < CONV_THRESHOLD;
 
   console.log(`\nFile:  ${path}`);
@@ -164,6 +177,7 @@ for (let n = 1; n <= pdf.numPages; n++) {
   let images = null;
   let figureImages = null;
   let decodable = false;
+  let vectorChart = false;
   if (shouldScanImages(n, pdf.numPages)) {
     images = 0;
     figureImages = 0;
@@ -173,20 +187,33 @@ for (let n = 1; n <= pdf.numPages; n++) {
       const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
       const [vx0, vy0, vx1, vy1] = page.view;
       const pageArea = (vx1 - vx0) * (vy1 - vy0);
+      // Geometry for the background demotion, mirroring analyzePdf: page view
+      // for the full-bleed check, text anchor points for the under-text check.
+      const content = await page.getTextContent();
+      const opts = {
+        view: page.view,
+        textPoints: content.items.map((it) => ({
+          x: it.transform[4],
+          y: it.transform[5],
+          chars: (it.str?.match(/\S/g) ?? []).length,
+        })),
+      };
       // Significance (classification's single-figure ambiguity trigger).
-      figureImages = countSignificantImages(scan, pageArea);
+      figureImages = countSignificantImages(scan, pageArea, opts);
       // Raster-decode eligibility (pdf-figures.js extractPdfRasterFigures):
       // geometric gates only — the g_/fingerprint repetition checks need the
       // full decode pass, so a "d" here is necessary-not-sufficient.
-      decodable = !!decodeCandidate(scan, pageArea);
+      decodable = !!decodeCandidate(scan, pageArea, opts);
+      // Vector symbol chart (colored categorical fills, values not in text).
+      vectorChart = hasVectorChartFills(scan);
     } catch {
       /* ignore */
     }
   }
 
   // flattened mirrors the extension's perPage signal (analyzePdf): the
-  // flattened-figure marker routes the page into the figures flow even with
-  // zero raster images (a pure vector chart).
+  // flattened-figure marker (or the vector-chart fill signal) routes the page
+  // into the figures flow even with zero raster images (a pure vector chart).
   perPage.push({
     chars,
     images,
@@ -194,7 +221,8 @@ for (let n = 1; n <= pdf.numPages; n++) {
     conv,
     marker,
     decodable,
-    flattened: hasFlattenedFigure(lines),
+    vectorChart,
+    flattened: hasFlattenedFigure(lines) || vectorChart,
   });
 }
 
@@ -219,11 +247,14 @@ filled.forEach(({ chars, images }, i) => {
     : "—";
   // Trailing " f" = the page carries a significant figure (the single-page
   // ambiguity trigger); " d" = its figure is a single decodable raster
-  // XObject (would take the native-pixels path instead of a render crop).
+  // XObject (would take the native-pixels path instead of a render crop);
+  // " v" = the colored-fill scan reads the page as a vector symbol chart
+  // (joins the figures flow as a flattened page).
   console.log(
     pad(i + 1, 5) + pad(chars, 9) + pad(sampled + images, 8) + pad(convCol, 8) +
       kind + (perPage[i].figureImages ? " f" : "") +
-      (perPage[i].decodable ? " d" : "")
+      (perPage[i].decodable ? " d" : "") +
+      (perPage[i].vectorChart ? " v" : "")
   );
 });
 
