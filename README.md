@@ -278,7 +278,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
     ([ADR 0010](./docs/adr/0010-tiled-art-reassembly.md)); nav rails and
     running headers repeated at the same position across pages are stripped
     as furniture before reconstruction, ending the column interleave they
-    caused ([ADR 0011](./docs/adr/0011-repeated-text-furniture.md)).
+    caused ([ADR 0011](./docs/adr/0011-repeated-text-furniture.md)); and
+    column detection generalizes past a single gutter — 3–4-column pages
+    reflow stream-by-stream via recursive splits that must each earn
+    acceptance (convergence, interleave, and glue evidence; symbol rails like
+    R/S commitment letters stay row-paired with their entries), with aligned
+    prose columns no longer formalized into fake pipe tables
+    ([ADR 0012](./docs/adr/0012-n-column-guarded-recursion.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
