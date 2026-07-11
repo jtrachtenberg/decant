@@ -82,6 +82,91 @@ export const MAX_VECTOR_PAINT_OPS = 8;
 // correctly; decode handles only the single-figure page (v1).
 export const MAX_DECODABLE_RASTERS = 1;
 
+// --- Tiled/full-bleed art reassembly (the Discovery-report false positives) --
+// Design tools export large placed art as SEVERAL abutting raster tiles, often
+// hanging past the page edges (the crop box clips them). Judged one tile at a
+// time, every gate below misreads the artwork: each tile bleeds only 1–2 edges
+// (the demotion needs 3), claims a plausible page fraction, and carries enough
+// pixels to pass the intrinsic tests — so a decorative backdrop sliced into a
+// 2×2 grid scores as four significant figures. The fix is geometric: clamp
+// each box to the page view (off-page paint is invisible, and a clamped edge
+// IS a bleeding edge), then merge boxes that abut or overlap into one
+// component and judge the component. Two abutting boxes merge only when
+// NEITHER contains the other: tiles partition their artwork, while a genuine
+// figure painted ON TOP of full-bleed background art sits inside the
+// background's box — merging that pair would demote the figure along with its
+// backdrop (the "quietly make answers worse" direction).
+export const FIGURE_TILE_GAP_PT = 3;
+
+// Box clamped to the page view, or null when nothing of it is on-page.
+export function clampBoxToView(box, view) {
+  if (!view) return box;
+  const [vx0, vy0, vx1, vy1] = view;
+  const c = {
+    x0: Math.max(box.x0, vx0),
+    y0: Math.max(box.y0, vy0),
+    x1: Math.min(box.x1, vx1),
+    y1: Math.min(box.y1, vy1),
+  };
+  return c.x1 > c.x0 && c.y1 > c.y0 ? c : null;
+}
+
+const boxesTouch = (a, b) =>
+  a.x0 <= b.x1 + FIGURE_TILE_GAP_PT &&
+  b.x0 <= a.x1 + FIGURE_TILE_GAP_PT &&
+  a.y0 <= b.y1 + FIGURE_TILE_GAP_PT &&
+  b.y0 <= a.y1 + FIGURE_TILE_GAP_PT;
+
+const boxContains = (a, b) =>
+  a.x0 <= b.x0 + FIGURE_TILE_GAP_PT &&
+  a.y0 <= b.y0 + FIGURE_TILE_GAP_PT &&
+  a.x1 >= b.x1 - FIGURE_TILE_GAP_PT &&
+  a.y1 >= b.y1 - FIGURE_TILE_GAP_PT;
+
+const shouldMerge = (a, b) =>
+  boxesTouch(a, b) && !boxContains(a, b) && !boxContains(b, a);
+
+// Merge view-clamped raster boxes into connected components. `members` are
+// [{ box, xobject|null }] — xobject carries the scan entry (objId, intrinsic
+// dims) so decode gating can still reason per-XObject. Merging goes by the
+// MEMBER boxes (not the growing union), so a component can't leak across a
+// gap via its own bounding box.
+export function figureComponents(scan, view = null) {
+  const members = [];
+  for (const x of scan.xobjects) {
+    const box = clampBoxToView(x.box, view);
+    if (box) members.push({ box, xobject: x });
+  }
+  for (const b of scan.otherImageBoxes) {
+    const box = clampBoxToView(b, view);
+    if (box) members.push({ box, xobject: null });
+  }
+
+  const comps = [];
+  for (const m of members) {
+    const homes = comps.filter((c) =>
+      c.members.some((o) => shouldMerge(o.box, m.box))
+    );
+    if (!homes.length) {
+      comps.push({ members: [m] });
+      continue;
+    }
+    const [home, ...rest] = homes;
+    home.members.push(m);
+    for (const r of rest) {
+      home.members.push(...r.members);
+      comps.splice(comps.indexOf(r), 1);
+    }
+  }
+  return comps.map((c) => ({
+    x0: Math.min(...c.members.map((m) => m.box.x0)),
+    y0: Math.min(...c.members.map((m) => m.box.y0)),
+    x1: Math.max(...c.members.map((m) => m.box.x1)),
+    y1: Math.max(...c.members.map((m) => m.box.y1)),
+    members: c.members,
+  }));
+}
+
 // --- Background/decoration demotion (the MSIM-report false positives) -------
 // A raster that reaches within this many pt of a page edge "bleeds" that
 // edge. Design software places full-bleed art exactly on (or 1pt past) the
@@ -149,6 +234,18 @@ export const FILL_PAINT_OP_NAMES = [
 // One inch separates a chart's rows/legend (a few pt apart) from stray brand
 // accents elsewhere on the page (headers, sidebars — hundreds of pt away).
 export const VECTOR_CHART_CLUSTER_GAP_PT = 72;
+
+// getTextContent items → the { x, y, chars } anchor points the background
+// demotion consumes (isBackgroundImage textPoints). One definition so every
+// caller (classification, crop framing, decode gating, the Node inspector)
+// judges text-over-image identically.
+export function textPointsFromItems(items) {
+  return (items ?? []).map((it) => ({
+    x: it.transform[4],
+    y: it.transform[5],
+    chars: (it.str?.match(/\S/g) ?? []).length,
+  }));
+}
 
 // setFillRGBColor arg → [r,g,b] 0–255, or null when unparseable. pdf.js v6
 // passes a CSS hex string ("#199050"); older builds pass component numbers.
@@ -462,43 +559,45 @@ export function isBackgroundImage(box, { view = null, textPoints = null } = {}) 
   return false;
 }
 
-// The XObjects that read as real figures: figure-sized on the page (CTM box),
+// The raster components that read as real figures: figure-sized on the page,
 // claiming a real fraction of the page (`pageArea`, pt² — pass it whenever
 // page geometry is in hand: retina-resolution logo assets defeat the pixel
-// gates and only footprint separates them), AND, when the op args carry
-// intrinsic dims, actually pixel-bearing with a sane aspect. This is the one
+// gates and only footprint separates them), not demoted as background art,
+// AND — for a component that is a single XObject with intrinsic dims in its
+// args — actually pixel-bearing with a sane aspect. (A multi-tile component
+// skips the intrinsic tests: each tile is a fragment of the placed artwork,
+// so its own pixel dims say nothing about the whole.) This is the one
 // definition of "significant figure" — the decode gate builds on it below,
 // and classification uses it to decide whether an image is worth surfacing
 // the ambiguous prompt for: a logo/strip/icon fails here for the same
 // reasons in both places.
 //
-// `opts` ({ view, textPoints }, both optional) enables the background
-// demotion: full-bleed design art and under-text backdrops are decoration no
-// matter how big they are (the MSIM-report stock photos passed every size
-// gate). Callers without the geometry omit it — old behavior.
-export function significantRasters(scan, pageArea = null, opts = {}) {
-  return scan.xobjects.filter((x) => {
-    if (!figureSized(x.box)) return false;
-    if (!claimsPageArea(x.box, pageArea)) return false;
-    if (isBackgroundImage(x.box, opts)) return false;
-    if (x.w != null && x.h != null) {
-      if (Math.min(x.w, x.h) < MIN_INTRINSIC_PX) return false;
-      if (Math.max(x.w, x.h) / Math.min(x.w, x.h) > MAX_INTRINSIC_ASPECT)
+// `opts` ({ view, textPoints }, both optional) enables the view clamp and the
+// background demotion: full-bleed design art and under-text backdrops are
+// decoration no matter how big they are (the MSIM-report stock photos passed
+// every size gate). Callers without the geometry omit it — no clamping, and
+// only the size gates apply.
+export function significantFigureComponents(scan, pageArea = null, opts = {}) {
+  return figureComponents(scan, opts.view ?? null).filter((c) => {
+    if (!figureSized(c)) return false;
+    if (!claimsPageArea(c, pageArea)) return false;
+    if (isBackgroundImage(c, opts)) return false;
+    const only = c.members.length === 1 ? c.members[0].xobject : null;
+    if (only && only.w != null && only.h != null) {
+      if (Math.min(only.w, only.h) < MIN_INTRINSIC_PX) return false;
+      if (Math.max(only.w, only.h) / Math.min(only.w, only.h) >
+          MAX_INTRINSIC_ASPECT)
         return false;
     }
     return true;
   });
 }
 
-// How many of the page's images read as real figures (as opposed to
-// decoration)? Figure-sized, page-claiming inline images and masks count too
-// — they're visual content even though they can't be decoded standalone.
+// How many of the page's raster components read as real figures (as opposed
+// to decoration)? Inline images and masks count too — they're visual content
+// even though they can't be decoded standalone.
 export function countSignificantImages(scan, pageArea = null, opts = {}) {
-  const inlineFigures = scan.otherImageBoxes.filter(
-    (b) =>
-      figureSized(b) && claimsPageArea(b, pageArea) && !isBackgroundImage(b, opts)
-  ).length;
-  return inlineFigures + significantRasters(scan, pageArea, opts).length;
+  return significantFigureComponents(scan, pageArea, opts).length;
 }
 
 export function pageHasSignificantImage(scan, pageArea = null, opts = {}) {
@@ -510,7 +609,8 @@ export function pageHasSignificantImage(scan, pageArea = null, opts = {}) {
 //   G1 size:  CTM box figure-sized AND intrinsic dims (when known) real
 //   G2 shape: intrinsic aspect sane (no banners/strips)
 //   G4 raster dominance: negligible vector paint on the page
-//   G5 single figure: exactly one qualifying raster
+//   G5 single figure: exactly one significant component, and it IS one
+//      XObject (a multi-tile component has no single object to decode)
 // plus disqualifiers: any figure-sized non-decodable raster, any tiling op.
 // (G3, cross-page repetition, needs document scope — the decoder applies it
 // via the g_ global-cache prefix and a dims fingerprint across pages.)
@@ -519,11 +619,12 @@ export function decodeCandidate(scan, pageArea = null, opts = {}) {
   if (scan.repeats > 0) return null;
   if (scan.otherFigureImages > 0) return null;
 
-  // G1/G2 via the shared significance filter (page-area gate included when
-  // geometry is passed, background demotion when `opts` carries view/text
-  // geometry), plus a resolvable object id.
-  const qualifying = significantRasters(scan, pageArea, opts).filter(
-    (x) => x.objId
-  );
-  return qualifying.length === MAX_DECODABLE_RASTERS ? qualifying[0] : null;
+  // G1/G2 via the shared significance filter (view clamp and background
+  // demotion included when `opts` carries the geometry), plus a resolvable
+  // object id. The returned box is the XObject's own unclamped paint box —
+  // the decode path re-encodes the object's pixels, not a page region.
+  const comps = significantFigureComponents(scan, pageArea, opts);
+  if (comps.length !== MAX_DECODABLE_RASTERS) return null;
+  const only = comps[0].members.length === 1 ? comps[0].members[0].xobject : null;
+  return only?.objId ? only : null;
 }

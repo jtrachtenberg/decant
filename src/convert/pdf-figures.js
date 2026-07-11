@@ -21,22 +21,19 @@ import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import { browser } from "../browser.js";
 import { PDFJS_DOC_OPTIONS } from "./inbrowser.js";
 import { fileBytes } from "./read-file.js";
-import { IMAGE_OP_NAMES, selectChartPages } from "./classify.js";
+import { selectChartPages } from "./classify.js";
 import { MAX_SUBSET_PAGES } from "./pdf-subset.js";
 import {
-  composeTransform as compose,
-  applyTransform as apply,
-  MIN_IMAGE_EDGE_PT,
   MIN_INTRINSIC_PX,
   MAX_INTRINSIC_ASPECT,
   scanPageOps,
+  significantFigureComponents,
   decodeCandidate,
   vectorChartBox,
+  textPointsFromItems,
 } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
-
-const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
 // Same page cap as the zip extractor's MAX_FIGURES: past the site's own
 // attachment limit the caller slices — page renders don't contact-sheet well
@@ -105,17 +102,17 @@ export async function extractPdfFigures(file, meta) {
 
 // --- Figure crops: tighten chart pages to the figures themselves ------------
 //
-// The operator list carries each raster image's transform, so its placement
-// on the page is essentially free: replay save/restore/transform to know the
-// CTM at each paint op, take the union of the image boxes (charts often paint
-// as several tiles), pad it to catch the axis labels / captions / legends
-// drawn as text around the raster, and crop the page render to that box. The
-// crops become the pages of the chart-pages mini-PDF (pdf-subset.js), so the
-// model pays for the figure region, not the whole page.
+// The operator list carries each raster image's placement, so the figure
+// region is essentially free: take the union of the page's SIGNIFICANT figure
+// components (significantFigureComponents — the same clamp/merge/demotion
+// call that made the page attach, so the crop frames what qualified it, never
+// the background art or nav furniture around it), pad it to catch the axis
+// labels / captions / legends drawn as text around the raster, and crop the
+// page render to that box. The crops become the pages of the chart-pages
+// mini-PDF (pdf-subset.js), so the model pays for the figure region, not the
+// whole page.
 
 const CROP_PAD_PT = 36; // half an inch: axis labels, captions, legends
-// (MIN_IMAGE_EDGE_PT — icons/logos/bullets aren't figures — now lives in
-// raster-gate.js so the crop union and the decode gate agree on figure-sized.)
 // When the padded union effectively IS the page, cropping buys nothing —
 // keep the vector page (it renders sharper than a raster crop anyway).
 const MAX_CROP_PAGE_FRACTION = 0.85;
@@ -126,60 +123,37 @@ const MAX_CROP_PAGE_FRACTION = 0.85;
 // the norm for matrix charts.
 const VECTOR_CHART_PAD_PT = 48;
 
-// Union of the page's raster-image boxes in user space, or null when nothing
-// figure-sized paints. An image op paints the unit square through the CTM.
-async function figureBoxUserSpace(page) {
-  const ops = await page.getOperatorList();
-  const { OPS } = pdfjsLib;
-  let ctm = [1, 0, 0, 1, 0, 0];
-  const stack = [];
-  let box = null;
-  for (let i = 0; i < ops.fnArray.length; i++) {
-    const fn = ops.fnArray[i];
-    if (fn === OPS.save) stack.push(ctm);
-    else if (fn === OPS.restore) ctm = stack.pop() ?? [1, 0, 0, 1, 0, 0];
-    else if (fn === OPS.transform) ctm = compose(ops.argsArray[i], ctm);
-    else if (IMAGE_OPS.has(fn)) {
-      const corners = [
-        apply(ctm, 0, 0),
-        apply(ctm, 1, 0),
-        apply(ctm, 0, 1),
-        apply(ctm, 1, 1),
-      ];
-      const xs = corners.map((c) => c[0]);
-      const ys = corners.map((c) => c[1]);
-      const b = {
-        x0: Math.min(...xs),
-        y0: Math.min(...ys),
-        x1: Math.max(...xs),
-        y1: Math.max(...ys),
-      };
-      if (b.x1 - b.x0 < MIN_IMAGE_EDGE_PT || b.y1 - b.y0 < MIN_IMAGE_EDGE_PT) {
-        continue;
-      }
-      box = box
-        ? {
-            x0: Math.min(box.x0, b.x0),
-            y0: Math.min(box.y0, b.y0),
-            x1: Math.max(box.x1, b.x1),
-            y1: Math.max(box.y1, b.y1),
-          }
-        : b;
-    }
-  }
-  return box;
+// Union of the page's significant figure components in user space, or null
+// when none qualify. The components are already view-clamped; the union is
+// what the page attached FOR, so it's what the crop should frame.
+async function figureBoxUserSpace(page, scan) {
+  const [vx0, vy0, vx1, vy1] = page.view;
+  const content = await page.getTextContent();
+  const comps = significantFigureComponents(scan, (vx1 - vx0) * (vy1 - vy0), {
+    view: page.view,
+    textPoints: textPointsFromItems(content.items),
+  });
+  if (!comps.length) return null;
+  return {
+    x0: Math.min(...comps.map((c) => c.x0)),
+    y0: Math.min(...comps.map((c) => c.y0)),
+    x1: Math.max(...comps.map((c) => c.x1)),
+    y1: Math.max(...comps.map((c) => c.y1)),
+  };
 }
 
 // The worthwhile, padded figure box for a page in user space, or null when
 // nothing boxable paints or the crop would barely beat a whole-page copy.
-// Two sources, raster first: the union of figure-sized image paints, else the
-// vector-symbol-chart band (vectorChartBox — the flattened chart pages that
-// paint no raster at all, previously always whole-page copies). Shared by the
-// raster crop (Chrome) and the vector box crop (Firefox) so both agree on
+// Two sources, raster first: the union of significant figure components, else
+// the vector-symbol-chart band (vectorChartBox — the flattened chart pages
+// that paint no raster at all, previously always whole-page copies). Shared by
+// the raster crop (Chrome) and the vector box crop (Firefox) so both agree on
 // what and when to crop. Render-free — getOperatorList geometry only.
 async function paddedFigureBox(page) {
   const [vx0, vy0, vx1, vy1] = page.view;
-  const box = await figureBoxUserSpace(page);
+  const ops = await page.getOperatorList();
+  const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
+  const box = await figureBoxUserSpace(page, scan);
   let padded = null;
   if (box) {
     // Pad for surrounding labels, clamp to the page box.
@@ -195,10 +169,7 @@ async function paddedFigureBox(page) {
     // column headers and legend text sit outside the fills' own bounds, but
     // never outside the page margins); generous vertical pad for the header
     // rows. Any doubt → null → whole-page copy, the pre-crop baseline.
-    const ops = await page.getOperatorList();
-    const band = vectorChartBox(
-      scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS)
-    );
+    const band = vectorChartBox(scan);
     if (band) {
       padded = {
         x0: vx0,
@@ -405,9 +376,13 @@ export async function extractPdfRasterFigures(file, meta) {
       const page = await pdf.getPage(n);
       const ops = await page.getOperatorList();
       const [vx0, vy0, vx1, vy1] = page.view;
+      // Same geometry the significance call sees (view clamp + background
+      // demotion), so decode never upgrades a page classification demoted.
+      const content = await page.getTextContent();
       const cand = decodeCandidate(
         scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
-        (vx1 - vx0) * (vy1 - vy0)
+        (vx1 - vx0) * (vy1 - vy0),
+        { view: page.view, textPoints: textPointsFromItems(content.items) }
       );
       if (!cand) continue;
       // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —

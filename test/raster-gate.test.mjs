@@ -16,7 +16,9 @@ import assert from "node:assert/strict";
 import {
   scanPageOps,
   decodeCandidate,
-  significantRasters,
+  significantFigureComponents,
+  figureComponents,
+  clampBoxToView,
   countSignificantImages,
   pageHasSignificantImage,
   MIN_FIGURE_PAGE_FRACTION,
@@ -210,7 +212,7 @@ test("any image-tiling op (wallpaper/texture) disqualifies the page", () => {
 test("significance: real figures count, decoration doesn't", () => {
   // A photo page is significant…
   const photo = scanOf(placeImage("img_p9_1", 0, 0, 400, 300));
-  assert.equal(significantRasters(photo).length, 1);
+  assert.equal(significantFigureComponents(photo).length, 1);
   assert.ok(pageHasSignificantImage(photo));
   // …an icon or a stretched gradient strip is not…
   const icon = scanOf(placeImage("img_p9_2", 0, 0, 20, 20));
@@ -268,7 +270,7 @@ test("significance is broader than decodability: a two-photo collage counts", ()
     ...placeImage("img_pA_1", 0, 0, 200, 150),
     ...placeImage("img_pA_2", 250, 0, 200, 150),
   ]);
-  assert.equal(significantRasters(collage).length, 2);
+  assert.equal(significantFigureComponents(collage).length, 2);
   assert.ok(pageHasSignificantImage(collage)); // prompts the user
   assert.equal(decodeCandidate(collage), null); // but stays on the crop path
 });
@@ -328,8 +330,8 @@ test("background demotion flows through significance and decode", () => {
     ["paintImageXObject", ["img_p5_1", 2412, 2107]],
     ["restore"],
   ]);
-  assert.equal(significantRasters(scan, AREA).length, 1); // no view: old behavior
-  assert.equal(significantRasters(scan, AREA, { view: A4 }).length, 0);
+  assert.equal(significantFigureComponents(scan, AREA).length, 1); // no view: old behavior
+  assert.equal(significantFigureComponents(scan, AREA, { view: A4 }).length, 0);
   assert.ok(!pageHasSignificantImage(scan, AREA, { view: A4 }));
   assert.equal(decodeCandidate(scan, AREA, { view: A4 }), null);
   // Inline images respect the demotion too.
@@ -341,6 +343,81 @@ test("background demotion flows through significance and decode", () => {
   ]);
   assert.equal(countSignificantImages(inline, AREA, { view: A4 }), 0);
   assert.equal(countSignificantImages(inline, AREA), 1);
+});
+
+// --- Tiled/full-bleed art reassembly -----------------------------------------
+
+test("clampBoxToView trims off-page paint; fully off-page → null", () => {
+  const A4 = [0, 0, 595, 842];
+  assert.deepEqual(
+    clampBoxToView({ x0: -100, y0: 700, x1: 300, y1: 900 }, A4),
+    { x0: 0, y0: 700, x1: 300, y1: 842 }
+  );
+  assert.equal(clampBoxToView({ x0: -400, y0: 0, x1: -10, y1: 500 }, A4), null);
+  const inside = { x0: 50, y0: 50, x1: 100, y1: 100 };
+  assert.deepEqual(clampBoxToView(inside, A4), inside);
+});
+
+test("abutting tiles merge into one component; a gap keeps them apart", () => {
+  const twoTiles = scanOf([
+    ...placeImage("img_p0_1", 0, 0, 200, 300),
+    ...placeImage("img_p0_2", 201, 0, 200, 300), // 1pt gap: same artwork
+  ]);
+  assert.equal(figureComponents(twoTiles).length, 1);
+  const apart = scanOf([
+    ...placeImage("img_p0_3", 0, 0, 200, 300),
+    ...placeImage("img_p0_4", 250, 0, 200, 300), // 50pt gutter: two figures
+  ]);
+  assert.equal(figureComponents(apart).length, 2);
+});
+
+test("the Discovery field case: 2×2 background tiles overhanging the page", () => {
+  // Each tile bleeds ≤2 edges (the demotion needs 3) and passes every size
+  // gate — judged alone, four significant figures. Clamped and merged, the
+  // component bleeds left+top+bottom and demotes as full-bleed art.
+  const VIEW = [0, 0, 1054, 595];
+  const AREA = 1054 * 595;
+  const tiles = scanOf([
+    ...placeImage("img_p2_3", -314, 168, 479, 442, 953, 878),
+    ...placeImage("img_p2_4", 163, 95, 406, 515, 806, 1024),
+    ...placeImage("img_p2_5", -314, -15, 479, 185, 953, 368),
+    ...placeImage("img_p2_6", 163, -15, 406, 112, 806, 222),
+  ]);
+  const comps = figureComponents(tiles, VIEW);
+  assert.equal(comps.length, 1);
+  assert.equal(comps[0].members.length, 4);
+  assert.ok(bleedEdgeCount(comps[0], VIEW) >= BACKGROUND_MIN_BLEED_EDGES);
+  assert.equal(countSignificantImages(tiles, AREA, { view: VIEW }), 0);
+  assert.equal(decodeCandidate(tiles, AREA, { view: VIEW }), null);
+});
+
+test("a figure painted ON full-bleed art is not swallowed by the merge", () => {
+  // Containment blocks the merge: the backdrop demotes alone (4 edges), the
+  // chart inside it survives as its own significant, decodable component.
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  const scan = scanOf([
+    ...placeImage("img_p1_1", -5, -5, 605, 852), // full-page backdrop
+    ...placeImage("img_p1_2", 100, 300, 350, 300), // chart on top
+  ]);
+  const comps = significantFigureComponents(scan, AREA, { view: A4 });
+  assert.equal(comps.length, 1);
+  assert.equal(comps[0].members[0].xobject.objId, "img_p1_2");
+  assert.equal(decodeCandidate(scan, AREA, { view: A4 })?.objId, "img_p1_2");
+});
+
+test("a merged multi-tile component is significant but never decodable", () => {
+  // Two abutting tiles well inside the margins: real figure content (a
+  // panorama placed as two slices) — attach and crop, but there is no single
+  // XObject to decode.
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  const scan = scanOf([
+    ...placeImage("img_p3_1", 100, 300, 200, 250),
+    ...placeImage("img_p3_2", 301, 300, 200, 250),
+  ]);
+  assert.equal(countSignificantImages(scan, AREA, { view: A4 }), 1);
+  assert.equal(decodeCandidate(scan, AREA, { view: A4 }), null);
 });
 
 // --- Vector-chart fill signal -------------------------------------------------
