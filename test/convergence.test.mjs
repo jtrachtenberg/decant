@@ -20,7 +20,7 @@ const line = (h, ...xs) => ({ h, cells: xs.map((x) => ({ x, text: "c" })) });
 
 test("left-aligned prose converges (all starts share the left margin)", () => {
   const lines = [];
-  for (let i = 0; i < 10; i++) lines.push(line(10, i % 2)); // x ≈ 0, tiny jitter
+  for (let i = 0; i < 15; i++) lines.push(line(10, i % 2)); // x ≈ 0, tiny jitter
   const { score, columns } = columnConvergence(lines);
   assert.equal(columns, 1);
   assert.ok(score >= 0.9, `prose should converge, got ${score}`);
@@ -57,12 +57,25 @@ test("scattered chart labels do not converge", () => {
   assert.ok(score <= 0.4, `chart-label soup should score low, got ${score}`);
 });
 
+test("a title page of stacked centered headings is not judged (sparse guard)", () => {
+  // The clean-text page-34 regression: a divider page of a handful of
+  // centered headings. Each line starts where its own width dictates, so no
+  // start band ever recurs — starts-only scoring gave this 0.00 and attached
+  // the page as a flattened chart. Sparse pages carry too few cells to be
+  // label soup (and lose almost nothing as text), so the min-cells floor
+  // clears them instead of the metric judging them.
+  const xs = [275, 238, 192, 258, 145, 215, 170, 229];
+  const { score } = columnConvergence(xs.map((x) => line(14, x)));
+  assert.equal(score, 1);
+  assert.ok(xs.length < CONVERGENCE_MIN_CELLS);
+});
+
 test("prose clearly outscores chart-label soup (the signal is separable)", () => {
   const prose = [];
-  for (let i = 0; i < 10; i++) prose.push(line(10, i % 3));
-  const soup = [10, 55, 92, 140, 188, 231, 279, 330, 372, 419].map((x) =>
-    line(10, x)
-  );
+  for (let i = 0; i < 14; i++) prose.push(line(10, i % 3));
+  const soup = [
+    10, 55, 92, 140, 188, 231, 279, 330, 372, 419, 463, 508, 551, 598,
+  ].map((x) => line(10, x));
   assert.ok(columnConvergence(prose).score - columnConvergence(soup).score >= 0.4);
 });
 

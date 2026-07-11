@@ -282,26 +282,42 @@ test("hasOmittedChartTable recognizes the omitted-table note", () => {
 
 // --- selectChartPages: value-ranked selection under the page caps -----------
 
-test("selectChartPages: under the cap returns all pages unchanged", () => {
+test("selectChartPages: plain image pages don't attach when real figures exist", () => {
+  // The clean-text regression: one genuine chart page plus text pages whose
+  // only image is a letterhead logo. The logo pages made chartPageNumbers,
+  // but the significance gate judged their images non-figures — attaching
+  // them dilutes the real figure.
   const meta = {
     chartPageNumbers: [3, 5, 9],
     flattenedPageNumbers: [9],
     figurePageNumbers: [5],
   };
-  assert.deepEqual(selectChartPages(meta, 8), [3, 5, 9]);
+  assert.deepEqual(selectChartPages(meta, 8), [5, 9]);
 });
 
-test("selectChartPages: over the cap, flattened > figure > plain, in page order", () => {
-  // Annual-report profile: photos from page 3 on, the real charts at the
-  // back. Page-order truncation would keep 3..6 and drop the chart page 53.
+test("selectChartPages: over the cap, flattened outrank figures, in page order", () => {
+  // Annual-report profile: significant photos from page 3 on, the real chart
+  // at the back. Page-order truncation would keep 3..6 and drop page 53.
   const meta = {
     chartPageNumbers: [3, 4, 5, 6, 7, 53],
     flattenedPageNumbers: [53],
-    figurePageNumbers: [5, 7],
+    figurePageNumbers: [3, 4, 5, 6, 7],
   };
-  // cap 4 → the flattened chart page and both significant figures make it,
-  // the front-matter photo page 3 fills the last slot; ascending page order.
-  assert.deepEqual(selectChartPages(meta, 4), [3, 5, 7, 53]);
+  // cap 4 → the flattened chart page makes it first, figures fill the rest
+  // front-first; ascending page order.
+  assert.deepEqual(selectChartPages(meta, 4), [3, 4, 5, 53]);
+});
+
+test("selectChartPages: no stronger evidence → all image pages attach (volume fallback)", () => {
+  // Volume-triggered ambiguity: several image-bearing pages, none flagged
+  // significant or flattened. The image pages are the only candidates for
+  // whatever the significance gate missed, so they attach as before.
+  const meta = {
+    chartPageNumbers: [2, 4, 6],
+    flattenedPageNumbers: [],
+    figurePageNumbers: [],
+  };
+  assert.deepEqual(selectChartPages(meta, 8), [2, 4, 6]);
 });
 
 test("selectChartPages: missing rank arrays degrade to page-order slice", () => {
