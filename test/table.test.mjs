@@ -326,3 +326,51 @@ test("a table header row keeps its last column (marginalia must not strip table 
   assert.match(md, /SECTOR\/.*HOT|HOT.*HOUSE/s);
   assert.doesNotMatch(md, /WORLD \|\s*$/m);
 });
+
+// --- Tag rails (Discovery p9 phased-disclosure matrix, ADR 0014) ------------
+// Items tagged with 1-2-letter pillar chips (G/RM/S/MT) in a rail a few
+// points left of the item text. The binding must survive linearization: one
+// row per item, chips in the first cell, wrapped label joined in the second.
+
+function railItems() {
+  const items = [];
+  // Four items, each 2-3 wrapped lines at x=510, chip at x=488 vertically
+  // centered on its item (real Discovery geometry: ~10pt line advance within
+  // an item, ~14pt between items, chip-text corridor ~16pt).
+  const blocks = [
+    { tag: "G", lines: ["How the Board considers", "climate-related issues in", "reviewing capital expenditure"] },
+    { tag: "S", lines: ["Material climate-related", "issues by sector and geography"] },
+    { tag: "S", lines: ["How these issues affected", "the business and strategy"] },
+    { tag: "MT", lines: ["Key metrics used to measure", "and manage climate-related issues"] },
+  ];
+  let y = 400;
+  for (const b of blocks) {
+    const top = y;
+    b.lines.forEach((t, i) => items.push(item(t, 510, top - i * 10, { w: 120, h: 8 })));
+    // chip level with the block's middle line, 1pt below its baseline
+    items.push(item(b.tag, 488, top - 10 + 1, { w: 9, h: 8 }));
+    y = top - b.lines.length * 10 - 4;
+  }
+  return items;
+}
+
+test("a left tag rail rebuilds as one row per item with the chip bound to it", () => {
+  const md = linesToMarkdown(reconstructPage(railItems()).lines);
+  assert.match(md, /\| G \| How the Board considers climate-related issues in reviewing capital expenditure \|/);
+  assert.match(md, /\| S \| Material climate-related issues by sector and geography \|/);
+  assert.match(md, /\| MT \| Key metrics used to measure and manage climate-related issues \|/);
+  // No chip may splice into label text.
+  assert.doesNotMatch(md, /issues in G reviewing/);
+});
+
+test("two adjacent chip columns alone never read as a rail table", () => {
+  // An R-rail beside an S-rail (a split that isolated a symbol rail): calling
+  // this a table would set sawTable and bypass the rail-split veto.
+  const items = [];
+  for (let i = 0; i < 5; i++) {
+    items.push(item("R", 689, 300 - i * 20, { w: 10, h: 8 }));
+    items.push(item("S", 709, 300 - i * 20, { w: 10, h: 8 }));
+  }
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /\|/);
+});

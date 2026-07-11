@@ -290,7 +290,11 @@ on it fall back gracefully (in-browser conversion or passthrough).
     spliced subscripts (tCO2e, Nb3Sn), display headings interleaved into
     side legends, symbol letters emitting as fake headings, and hanging
     panel headers gluing two streams into one line
-    ([ADR 0013](./docs/adr/0013-display-band-reconstruction.md)).
+    ([ADR 0013](./docs/adr/0013-display-band-reconstruction.md)); and
+    letter-chip tag rails (G/RM/S/MT pillar tags beside disclosure items)
+    bind to their items as one table row per item, validated end-to-end by
+    an LLM Q&A that previously failed on the converted output
+    ([ADR 0014](./docs/adr/0014-tag-rail-row-binding.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
