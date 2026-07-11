@@ -28,12 +28,16 @@ import {
   extrapolateImages,
   appendOmittedImagesNote,
   appendVectorChartNote,
+  createFurnitureDetector,
+  stripFurniture,
   IMAGE_OP_NAMES,
+  MAX_ANALYZE_PAGES,
 } from "./classify.js";
 import {
   scanPageOps,
   countSignificantImages,
   hasVectorChartFills,
+  textPointsFromItems,
 } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
@@ -90,15 +94,33 @@ export async function analyzePdf(file) {
   // for detection on its own) still reflows column-first.
   let gutter = null;
   try {
+    // Furniture pass: find the text repeated at the same position across many
+    // pages (running headers, nav rails) so reconstruction below can drop it.
+    // Item arrays are cached for the second pass on ordinarily-sized docs;
+    // past the analysis ceiling only the counts are kept (memory stays flat)
+    // and the text is re-extracted below.
+    const furniture = createFurnitureDetector();
+    const cache = pageCount <= MAX_ANALYZE_PAGES ? [] : null;
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
-      const content = await page.getTextContent();
-      const { lines, gutter: pageGutter } = reconstructPage(content.items, gutter);
+      const { items } = await page.getTextContent();
+      furniture.addPage(items);
+      cache?.push(items);
+    }
+    const furnitureKeys = furniture.keys();
+
+    for (let n = 1; n <= pageCount; n++) {
+      const page = await pdf.getPage(n);
+      const rawItems = cache
+        ? cache[n - 1]
+        : (await page.getTextContent()).items;
+      const items = stripFurniture(rawItems, furnitureKeys);
+      const { lines, gutter: pageGutter } = reconstructPage(items, gutter);
       gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
       const scan = shouldScanImages(n, pageCount)
-        ? await countImages(page, content.items)
+        ? await countImages(page, items)
         : null;
       const images = scan ? scan.images : null;
       const label = pageLabels?.[n - 1] ?? n;
@@ -164,11 +186,7 @@ async function countImages(page, textItems = null) {
     for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
     const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
     const [vx0, vy0, vx1, vy1] = page.view;
-    const textPoints = (textItems ?? []).map((it) => ({
-      x: it.transform[4],
-      y: it.transform[5],
-      chars: (it.str?.match(/\S/g) ?? []).length,
-    }));
+    const textPoints = textPointsFromItems(textItems);
     const figureImages = countSignificantImages(
       scan,
       (vx1 - vx0) * (vy1 - vy0),

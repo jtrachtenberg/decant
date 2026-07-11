@@ -24,6 +24,8 @@ import {
   selectChartPages,
   shouldScanImages,
   extrapolateImages,
+  createFurnitureDetector,
+  stripFurniture,
   MAX_ANALYZE_PAGES,
   IMAGE_OP_NAMES,
 } from "../src/convert/classify.js";
@@ -33,6 +35,7 @@ import {
   countSignificantImages,
   hasVectorChartFills,
   vectorChartBox,
+  textPointsFromItems,
 } from "../src/convert/raster-gate.js";
 import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
@@ -70,6 +73,21 @@ const pdf = await pdfjs.getDocument({
   verbosity: 0,
 }).promise;
 
+// Furniture pass, mirroring analyzePdf: running headers / nav rails repeated
+// at the same position across many pages are stripped before reconstruction.
+const furnitureDetector = createFurnitureDetector();
+for (let n = 1; n <= pdf.numPages; n++) {
+  furnitureDetector.addPage(
+    (await (await pdf.getPage(n)).getTextContent()).items
+  );
+}
+const furnitureKeys = furnitureDetector.keys();
+const pageItems = async (n) =>
+  stripFurniture(
+    (await (await pdf.getPage(n)).getTextContent()).items,
+    furnitureKeys
+  );
+
 // --- `--page N`: show the exact Markdown Decant would emit for one page -----
 // The Tier 2 QA drill-down. A flagged page that dumps as garbled label
 // fragments is a true positive (the marker belongs); one that dumps as a
@@ -96,8 +114,7 @@ if (pageArg != null) {
   let gutter = null;
   let lines = [];
   for (let n = 1; n <= pageArg; n++) {
-    const content = await (await pdf.getPage(n)).getTextContent();
-    const res = reconstructPage(content.items, gutter);
+    const res = reconstructPage(await pageItems(n), gutter);
     gutter = res.gutter;
     lines = res.lines;
   }
@@ -167,7 +184,8 @@ const perPage = [];
 const chartBands = [];
 for (let n = 1; n <= pdf.numPages; n++) {
   const page = await pdf.getPage(n);
-  const lines = reconstructLines((await page.getTextContent()).items);
+  const items = await pageItems(n);
+  const lines = reconstructLines(items);
   const chars = countChars(linesToText(lines));
   const conv = columnConvergence(lines);
   // Does the page carry the pre-existing *table* low-confidence marker (the
@@ -192,16 +210,9 @@ for (let n = 1; n <= pdf.numPages; n++) {
       const [vx0, vy0, vx1, vy1] = page.view;
       const pageArea = (vx1 - vx0) * (vy1 - vy0);
       // Geometry for the background demotion, mirroring analyzePdf: page view
-      // for the full-bleed check, text anchor points for the under-text check.
-      const content = await page.getTextContent();
-      const opts = {
-        view: page.view,
-        textPoints: content.items.map((it) => ({
-          x: it.transform[4],
-          y: it.transform[5],
-          chars: (it.str?.match(/\S/g) ?? []).length,
-        })),
-      };
+      // for the full-bleed check, text anchor points (furniture stripped, as
+      // in the extension) for the under-text check.
+      const opts = { view: page.view, textPoints: textPointsFromItems(items) };
       // Significance (classification's single-figure ambiguity trigger).
       figureImages = countSignificantImages(scan, pageArea, opts);
       // Raster-decode eligibility (pdf-figures.js extractPdfRasterFigures):

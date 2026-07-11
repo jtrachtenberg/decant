@@ -14,6 +14,10 @@ import {
   appendVectorChartNote,
   hasOmittedChartTable,
   selectChartPages,
+  createFurnitureDetector,
+  stripFurniture,
+  FURNITURE_MIN_PAGES,
+  FURNITURE_PAGE_FRACTION,
   MIN_CHART_PAGES_FOR_AMBIGUOUS,
   MAX_ANALYZE_PAGES,
   IMAGE_SAMPLE_INTERVAL,
@@ -336,4 +340,86 @@ test("selectChartPages: missing rank arrays degrade to page-order slice", () => 
   const meta = { chartPageNumbers: [2, 4, 6, 8] };
   assert.deepEqual(selectChartPages(meta, 2), [2, 4]);
   assert.deepEqual(selectChartPages(null, 2), []);
+});
+
+// --- Repeated text furniture (running headers, nav rails) --------------------
+
+// A getTextContent-shaped item at (x, y).
+const itemAt = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+
+test("furniture: a nav rail repeated across pages is stripped, content kept", () => {
+  // The Discovery-report shape: 12 section labels at identical positions on
+  // every page, plus a running header; body text differs per page.
+  const rail = [
+    itemAt("About this report", 966, 498),
+    itemAt("Leadership message", 966, 458),
+    itemAt("DISCOVERY", 48, 570),
+  ];
+  const det = createFurnitureDetector();
+  const pages = [];
+  for (let p = 0; p < 10; p++) {
+    const items = [...rail, itemAt(`body text of page ${p}`, 100, 300)];
+    det.addPage(items);
+    pages.push(items);
+  }
+  const keys = det.keys();
+  const stripped = stripFurniture(pages[4], keys);
+  assert.deepEqual(
+    stripped.map((it) => it.str),
+    ["body text of page 4"]
+  );
+});
+
+test("furniture: same text at a DIFFERENT position is not furniture", () => {
+  const det = createFurnitureDetector();
+  for (let p = 0; p < 10; p++) {
+    // "Summary" recurs as a heading but lands at a new y every time.
+    det.addPage([itemAt("Summary", 60, 700 - p * 37)]);
+  }
+  assert.equal(det.keys().size, 0);
+});
+
+test("furniture: page numbers survive (text changes per page)", () => {
+  const det = createFurnitureDetector();
+  const pages = [];
+  for (let p = 1; p <= 12; p++) {
+    const items = [itemAt(String(p), 990, 575)];
+    det.addPage(items);
+    pages.push(items);
+  }
+  const keys = det.keys();
+  assert.equal(stripFurniture(pages[3], keys).length, 1);
+});
+
+test("furniture: sub-point jitter buckets together; repeats within a page count once", () => {
+  const det = createFurnitureDetector();
+  const mk = (jitter) => [
+    itemAt("Running header", 48.3 + jitter, 570.1 - jitter),
+    itemAt("Running header", 48.3 + jitter, 570.1 - jitter), // dup on-page
+  ];
+  for (let p = 0; p < FURNITURE_MIN_PAGES; p++) det.addPage(mk(p * 0.2));
+  assert.equal(det.keys().size, 1);
+});
+
+test("furniture: short documents never qualify; threshold scales with pages", () => {
+  // 2 pages: nothing can reach the 3-page floor.
+  const short = createFurnitureDetector();
+  short.addPage([itemAt("Legal disclaimer", 50, 50)]);
+  short.addPage([itemAt("Legal disclaimer", 50, 50)]);
+  assert.equal(short.keys().size, 0);
+  // 40 pages: 3 repeats are incidental (< 30% of the document), not furniture.
+  const long = createFurnitureDetector();
+  for (let p = 0; p < 40; p++) {
+    long.addPage(
+      p < FURNITURE_MIN_PAGES ? [itemAt("Chapter recap", 50, 50)] : [itemAt(`p${p}`, 9, 9)]
+    );
+  }
+  assert.equal(long.keys().size, 0);
+  assert.ok(FURNITURE_PAGE_FRACTION * 40 > FURNITURE_MIN_PAGES);
+});
+
+test("stripFurniture: empty key set is a no-op passthrough", () => {
+  const items = [itemAt("x", 1, 2)];
+  assert.equal(stripFurniture(items, new Set()), items);
+  assert.equal(stripFurniture(items, null), items);
 });

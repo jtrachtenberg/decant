@@ -279,129 +279,140 @@ async function resolveAndInject(preferredInput, fileArray) {
       // finding nothing (all media junk-filtered) degrades to the text-only
       // conversion — the upload itself is never blocked on it.
       const maxImages = adapter.maxImageAttachments ?? MAX_FIGURES;
-      for (const r of ambiguous) {
-        // Figures are computed first so the Markdown can gain an association
-        // footer naming them; the (possibly annotated) .md still attaches
-        // ahead of its figures.
-        const attachments = [];
-        let note = null;
-        let mdFile = r.converted; // safe default: attach text-only on any failure
-        // Pages whose image layer we reattach (mini-PDF pages / page renders)
-        // were NOT saved — the savings estimate nets them out.
-        let attachedFigurePages = 0;
-        try {
-          if (figuresSupported(r.file)) {
-            // Zip formats (PPTX/DOCX): pull the media entries. Over the
-            // site's per-message image limit they combine into one labeled
-            // contact sheet; if compositing fails, attach what fits.
-            const figs = await extractFigures(r.file);
-            if (figs.length > maxImages) {
-              try {
-                const sheet = await combineFiguresToSheet(figs, r.file.name);
-                attachments.push(sheet);
-                note = `The document's ${figs.length} images are attached combined as "${sheet.name}" — a labeled grid; each tile is captioned with its figure name.`;
-                console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
-              } catch (err) {
-                console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
-                attachments.push(...figs.slice(0, maxImages));
+      // Progress badge, as on the companion path: rendering chart pages and
+      // building the mini-PDF takes seconds on a figure-heavy document, and
+      // the prompt has already closed — without it the wait after clicking
+      // “Convert + attach figures” looks like a swallowed upload.
+      let figBadge = null;
+      try {
+        for (const r of ambiguous) {
+          figBadge?.remove();
+          figBadge = showConvertingBadge(r.file.name, "extracting figures from");
+          // Figures are computed first so the Markdown can gain an association
+          // footer naming them; the (possibly annotated) .md still attaches
+          // ahead of its figures.
+          const attachments = [];
+          let note = null;
+          let mdFile = r.converted; // safe default: attach text-only on any failure
+          // Pages whose image layer we reattach (mini-PDF pages / page renders)
+          // were NOT saved — the savings estimate nets them out.
+          let attachedFigurePages = 0;
+          try {
+            if (figuresSupported(r.file)) {
+              // Zip formats (PPTX/DOCX): pull the media entries. Over the
+              // site's per-message image limit they combine into one labeled
+              // contact sheet; if compositing fails, attach what fits.
+              const figs = await extractFigures(r.file);
+              if (figs.length > maxImages) {
+                try {
+                  const sheet = await combineFiguresToSheet(figs, r.file.name);
+                  attachments.push(sheet);
+                  note = `The document's ${figs.length} images are attached combined as "${sheet.name}" — a labeled grid; each tile is captioned with its figure name.`;
+                  console.log(TAG, `attached ${figs.length} figures as one sheet for ${r.file.name}`);
+                } catch (err) {
+                  console.warn(TAG, `figure sheet failed for ${r.file.name} — attaching first ${maxImages}:`, err);
+                  attachments.push(...figs.slice(0, maxImages));
+                }
+              } else if (figs.length) {
+                attachments.push(...figs);
+                console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
               }
-            } else if (figs.length) {
-              attachments.push(...figs);
-              console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
-            }
-            if (!note && attachments.length) {
-              note = `The document's images are attached as separate files, in document order: ${attachments.map((f) => `"${f.name}"`).join(", ")}.`;
-            }
-          } else {
-            // PDF: one chart-pages-only mini-PDF. A document attachment
-            // doesn't count against the image limit, and the platform renders
-            // its pages natively. Each chart page is tightened to its figure
-            // region so the model pays for the figure, not the whole page; a
-            // page with no detectable figure copies whole.
-            //
-            // Two crop strategies by engine: Chrome rasterizes the figure region
-            // to a PNG (extractPdfFigureCrops); Firefox can't run pdf.js canvas
-            // rendering in the content-script sandbox — it hangs (see rs-shim.js)
-            // — so it crops the vector page to the figure box via setCropBox
-            // (extractPdfFigureBoxes), geometry only, no rendering. Either way a
-            // failure just degrades to whole pages / text-only.
-            // Highest-fidelity tier first: pages whose figure IS a single
-            // embedded raster (photo/diagram) get the XObject's own pixels
-            // decoded (render-free — getOperatorList only, so it's tried on
-            // both engines). Pages the gate declines stay on the crop path.
-            let rasters = null;
-            try {
-              rasters = await withTimeout(extractPdfRasterFigures(r.file, r.meta), "raster figures");
-              if (rasters?.size) console.log(TAG, `decoded ${rasters.size} raster figure(s) for ${r.file.name}`);
-            } catch (err) {
-              console.warn(TAG, `raster figure decode failed for ${r.file.name} — using crops:`, err);
-            }
-            const rasterPages = rasters?.size ? new Set(rasters.keys()) : null;
-            let crops = null;
-            let boxes = null;
-            if (restrictedSandbox) {
-              try {
-                boxes = await withTimeout(extractPdfFigureBoxes(r.file, r.meta, rasterPages), "figure boxes");
-              } catch (err) {
-                console.warn(TAG, `figure boxes failed for ${r.file.name} — using whole pages:`, err);
+              if (!note && attachments.length) {
+                note = `The document's images are attached as separate files, in document order: ${attachments.map((f) => `"${f.name}"`).join(", ")}.`;
               }
             } else {
+              // PDF: one chart-pages-only mini-PDF. A document attachment
+              // doesn't count against the image limit, and the platform renders
+              // its pages natively. Each chart page is tightened to its figure
+              // region so the model pays for the figure, not the whole page; a
+              // page with no detectable figure copies whole.
+              //
+              // Two crop strategies by engine: Chrome rasterizes the figure region
+              // to a PNG (extractPdfFigureCrops); Firefox can't run pdf.js canvas
+              // rendering in the content-script sandbox — it hangs (see rs-shim.js)
+              // — so it crops the vector page to the figure box via setCropBox
+              // (extractPdfFigureBoxes), geometry only, no rendering. Either way a
+              // failure just degrades to whole pages / text-only.
+              // Highest-fidelity tier first: pages whose figure IS a single
+              // embedded raster (photo/diagram) get the XObject's own pixels
+              // decoded (render-free — getOperatorList only, so it's tried on
+              // both engines). Pages the gate declines stay on the crop path.
+              let rasters = null;
               try {
-                crops = await withTimeout(extractPdfFigureCrops(r.file, r.meta, rasterPages), "figure crops");
+                rasters = await withTimeout(extractPdfRasterFigures(r.file, r.meta), "raster figures");
+                if (rasters?.size) console.log(TAG, `decoded ${rasters.size} raster figure(s) for ${r.file.name}`);
               } catch (err) {
-                console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
+                console.warn(TAG, `raster figure decode failed for ${r.file.name} — using crops:`, err);
+              }
+              const rasterPages = rasters?.size ? new Set(rasters.keys()) : null;
+              let crops = null;
+              let boxes = null;
+              if (restrictedSandbox) {
+                try {
+                  boxes = await withTimeout(extractPdfFigureBoxes(r.file, r.meta, rasterPages), "figure boxes");
+                } catch (err) {
+                  console.warn(TAG, `figure boxes failed for ${r.file.name} — using whole pages:`, err);
+                }
+              } else {
+                try {
+                  crops = await withTimeout(extractPdfFigureCrops(r.file, r.meta, rasterPages), "figure crops");
+                } catch (err) {
+                  console.warn(TAG, `figure crops failed for ${r.file.name} — using whole pages:`, err);
+                }
+              }
+              // Decoded rasters ride the crops slot of the mini-PDF builder
+              // (same shape; jpg instead of png).
+              if (rasters?.size) crops = new Map([...(crops ?? []), ...rasters]);
+              // Human/model-facing page references use the document's printed
+              // labels when the PDF defines them (matching the "[images
+              // omitted — page N]" markers and the in-page stamps).
+              const labelOf = (n) => r.meta?.pageLabels?.[n - 1] ?? n;
+              try {
+                const subset = await withTimeout(buildChartPagesPdf(r.file, r.meta, crops, boxes), "chart-pages PDF");
+                if (subset) {
+                  attachments.push(subset.file);
+                  attachedFigurePages = subset.pages.length;
+                  note =
+                    `The figures from this document are attached as "${subset.file.name}" ` +
+                    `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
+                  console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${(crops?.size ?? 0) + (boxes?.size ?? 0)} cropped) for ${r.file.name}`);
+                }
+              } catch (err) {
+                console.warn(TAG, `chart-pages PDF failed for ${r.file.name}:`, err);
+                if (restrictedSandbox) throw err; // no pdf.js render fallback here — degrade to text-only
+                const figs = (await withTimeout(extractPdfFigures(r.file, r.meta), "figure render")).slice(0, maxImages);
+                attachments.push(...figs);
+                attachedFigurePages = figs.length;
+                if (figs.length) {
+                  note = `The document's figure pages are attached as images: ${figs
+                    .map((f) => {
+                      const n = Number(f.name.match(/-p(\d+)\.png$/)?.[1]);
+                      return `"${f.name}" = document page ${labelOf(n)}`;
+                    })
+                    .join(", ")}.`;
+                }
               }
             }
-            // Decoded rasters ride the crops slot of the mini-PDF builder
-            // (same shape; jpg instead of png).
-            if (rasters?.size) crops = new Map([...(crops ?? []), ...rasters]);
-            // Human/model-facing page references use the document's printed
-            // labels when the PDF defines them (matching the "[images
-            // omitted — page N]" markers and the in-page stamps).
-            const labelOf = (n) => r.meta?.pageLabels?.[n - 1] ?? n;
-            try {
-              const subset = await withTimeout(buildChartPagesPdf(r.file, r.meta, crops, boxes), "chart-pages PDF");
-              if (subset) {
-                attachments.push(subset.file);
-                attachedFigurePages = subset.pages.length;
-                note =
-                  `The figures from this document are attached as "${subset.file.name}" ` +
-                  `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
-                console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${(crops?.size ?? 0) + (boxes?.size ?? 0)} cropped) for ${r.file.name}`);
-              }
-            } catch (err) {
-              console.warn(TAG, `chart-pages PDF failed for ${r.file.name}:`, err);
-              if (restrictedSandbox) throw err; // no pdf.js render fallback here — degrade to text-only
-              const figs = (await withTimeout(extractPdfFigures(r.file, r.meta), "figure render")).slice(0, maxImages);
-              attachments.push(...figs);
-              attachedFigurePages = figs.length;
-              if (figs.length) {
-                note = `The document's figure pages are attached as images: ${figs
-                  .map((f) => {
-                    const n = Number(f.name.match(/-p(\d+)\.png$/)?.[1]);
-                    return `"${f.name}" = document page ${labelOf(n)}`;
-                  })
-                  .join(", ")}.`;
-              }
-            }
+            if (note) mdFile = await withFiguresNote(r.converted, note);
+          } catch (err) {
+            // Any failure in the figures path degrades to the plain converted
+            // Markdown — the upload is never lost to figure extraction. (Note the
+            // withFiguresNote call is INSIDE this try: it reads the converted file
+            // and must not be able to escape the guard.)
+            console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
+            mdFile = r.converted;
+            attachments.length = 0;
+            attachedFigurePages = 0;
           }
-          if (note) mdFile = await withFiguresNote(r.converted, note);
-        } catch (err) {
-          // Any failure in the figures path degrades to the plain converted
-          // Markdown — the upload is never lost to figure extraction. (Note the
-          // withFiguresNote call is INSIDE this try: it reads the converted file
-          // and must not be able to escape the guard.)
-          console.warn(TAG, `figure extraction failed for ${r.file.name} — sending text only:`, err);
-          mdFile = r.converted;
-          attachments.length = 0;
-          attachedFigurePages = 0;
+          chosen.push(mdFile);
+          chosen.push(...attachments);
+          // Count toward the savings badge with the reattached pages netted out.
+          converted.push(
+            attachedFigurePages ? { ...r, attachedFigurePages } : r
+          );
         }
-        chosen.push(mdFile);
-        chosen.push(...attachments);
-        // Count toward the savings badge with the reattached pages netted out.
-        converted.push(
-          attachedFigurePages ? { ...r, attachedFigurePages } : r
-        );
+      } finally {
+        figBadge?.remove();
       }
     } else {
       chosen = ambiguous.map((r) => (choice === "convert" ? r.converted : r.file));

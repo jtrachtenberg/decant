@@ -196,8 +196,10 @@ export function showPassthroughBadge(onCancel) {
 // Progress badge shown while a file is being converted, so a slow (large-PDF)
 // conversion doesn't look like a swallowed drop — the attached chip only
 // appears once conversion resolves. Same shadow-root pattern as the
-// passthrough badge; returns a handle with remove().
-export function showConvertingBadge(fileName) {
+// passthrough badge; returns a handle with remove(). `verb` names the phase
+// ("converting" by default; the figures path passes its own — rendering chart
+// pages takes visibly longer than the text conversion that preceded it).
+export function showConvertingBadge(fileName, verb = "converting") {
   document.getElementById(CONVERTING_ID)?.remove();
 
   const host = document.createElement("div");
@@ -229,7 +231,7 @@ export function showConvertingBadge(fileName) {
       <span class="msg"></span>
     </div>
   `;
-  root.querySelector(".msg").textContent = `Decant: converting “${fileName}”…`;
+  root.querySelector(".msg").textContent = `Decant: ${verb} “${fileName}”…`;
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
