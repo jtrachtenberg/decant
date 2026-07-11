@@ -284,7 +284,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
     acceptance (convergence, interleave, and glue evidence; symbol rails like
     R/S commitment letters stay row-paired with their entries), with aligned
     prose columns no longer formalized into fake pipe tables
-    ([ADR 0012](./docs/adr/0012-n-column-guarded-recursion.md)).
+    ([ADR 0012](./docs/adr/0012-n-column-guarded-recursion.md)); and line
+    reconstruction assembles cells in x order with word spacing, span
+    regions, and headings judged at each glyph run's own size - fixing
+    spliced subscripts (tCO2e, Nb3Sn), display headings interleaved into
+    side legends, symbol letters emitting as fake headings, and hanging
+    panel headers gluing two streams into one line
+    ([ADR 0013](./docs/adr/0013-display-band-reconstruction.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

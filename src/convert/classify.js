@@ -355,13 +355,15 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
   const { regions, gutter } = columnRegions(boxes, hint, exclude);
   const med = medianHeight(boxes);
   if (gutter == null) {
-    const lines = linesFromGlyphs(glyphs);
+    // A gutterless page is one leaf prose stream — give it the same
+    // stream-integrity repairs (symbol rails, marginalia) as split leaves.
+    const { lines, parts } = leafProse(linesFromGlyphs(glyphs));
     return {
       lines,
       gutter: null,
       sawTable: false,
       split: false,
-      parts: [lines],
+      parts,
     };
   }
 
@@ -436,7 +438,7 @@ function regionProse(regionBoxes, depth) {
   const glyphs = regionBoxes.map((b) => b.g);
   const flat = linesFromGlyphs(glyphs);
   if (depth >= COLUMN_SPLIT_MAX_DEPTH)
-    return { lines: flat, sawTable: false, parts: [flat] };
+    return leafProse(flat);
   // A region holding three streams offers several candidate gutters, and the
   // densest-vote one isn't always the right first cut (it can be the corridor
   // in front of a symbol rail, whose split orphans the symbols from their
@@ -450,7 +452,115 @@ function regionProse(regionBoxes, depth) {
     }
     excluded.push(sub.gutter);
   }
-  return { lines: flat, sawTable: false, parts: [flat] };
+  return leafProse(flat);
+}
+
+// A leaf prose region's final lines: symbol rails re-attached to the entries
+// they sit level with, then marginal side-labels pulled out of sentences.
+// Both are stream-integrity repairs for a reader that only sees tokens in
+// order (the converted document's consumer is an LLM, not an eye): a margin
+// label spliced mid-sentence silently corrupts the claim it lands in, and a
+// detached symbol row loses its row binding.
+function leafProse(flat) {
+  const lines = extractMarginalia(mergeSymbolRails(flat));
+  return { lines, sawTable: false, parts: [lines] };
+}
+
+// A symbol-only line (1–2-char tokens: R/S commitment letters, checkmarks)
+// whose baseline sits within the previous line's vertical band, starting past
+// that line's right edge, is the same visual row — an 18pt letters run whose
+// baseline offset pushed it past the line-grouping tolerance. Re-attach it as
+// trailing cells so the entry keeps its letters ("UN Global Compact R S").
+function mergeSymbolRails(lines) {
+  const out = [];
+  for (const line of lines) {
+    const prev = out[out.length - 1];
+    const text = line.cells.map((c) => c.text).join(" ");
+    if (
+      prev &&
+      !prev.marker &&
+      !prev.grid &&
+      !line.marker &&
+      !line.grid &&
+      SYMBOL_LINE_RE.test(text) &&
+      Math.abs(prev.y - line.y) <= Math.max(prev.h, line.h) * 0.5 &&
+      line.cells[0].x >= prev.cells[prev.cells.length - 1].endX - 2
+    ) {
+      prev.cells.push(...line.cells);
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+// Marginal side-labels: a designed page hangs short labels ("Maintaining
+// legitimacy", a sidebar tag) off the edge of a prose column, where they
+// reconstruct as a trailing cell on a body line and emit spliced into the
+// middle of a sentence. The fingerprint is a line whose FIRST cell sits on
+// the region's dominant start band while its LAST cell sits on a band almost
+// nobody shares. Such cells are lifted out and appended after the region as
+// their own block — the sentence reads clean, and the label survives as an
+// isolated fragment instead of corrupting a claim. Deliberately conservative:
+// only in regions that are otherwise single-stream (few multi-cell lines —
+// a genuine two-column table pairs its cells on well-shared bands), only a
+// handful of lines, only short alphabetic labels.
+const MARGINALIA_MAX_CHARS = 24;
+const MARGINALIA_MAX_LINES = 3;
+const MARGINALIA_MAX_MULTI_FRAC = 0.25;
+// The host line's own text must be genuine running prose — a multi-cell line
+// of short fragments ("ST MT" legend tokens, a 4-cell table header) is row
+// data whose cells belong together, however weak the last cell's band.
+const MARGINALIA_MIN_HOST_CHARS = 30;
+
+function extractMarginalia(lines) {
+  const content = lines.filter((l) => !l.marker && !l.grid && l.cells.length);
+  if (content.length < 8) return lines;
+  const multi = content.filter((l) => l.cells.length >= 2);
+  if (!multi.length || multi.length / content.length > MARGINALIA_MAX_MULTI_FRAC)
+    return lines;
+
+  const tol =
+    (content.reduce((s, l) => s + (l.h || 10), 0) / content.length) *
+    CONVERGENCE_TOL_RATIO;
+  const bands = [];
+  const starts = [];
+  for (const l of content) for (const c of l.cells) starts.push(c.x);
+  starts.sort((a, b) => a - b);
+  for (const x of starts) {
+    const last = bands[bands.length - 1];
+    if (last && x - last.max <= tol) {
+      last.support++;
+      last.max = x;
+    } else {
+      bands.push({ min: x, max: x, support: 1 });
+    }
+  }
+  const supportOf = (x) => {
+    for (const b of bands)
+      if (x >= b.min - tol && x <= b.max + tol) return b.support;
+    return 1;
+  };
+  const strongMin = Math.max(3, content.length * CONVERGENCE_MIN_SUPPORT_RATIO);
+
+  const hosts = multi.filter((l) => {
+    if (l.cells.length !== 2) return false;
+    const [first, last] = l.cells;
+    return (
+      first.text.length >= MARGINALIA_MIN_HOST_CHARS &&
+      supportOf(first.x) >= strongMin &&
+      supportOf(last.x) <= 2 &&
+      last.text.length <= MARGINALIA_MAX_CHARS &&
+      /[A-Za-z]/.test(last.text)
+    );
+  });
+  if (!hosts.length || hosts.length > MARGINALIA_MAX_LINES) return lines;
+
+  const extracted = hosts.map((l, i) => {
+    const cell = l.cells.pop();
+    return { y: l.y, h: cell.domH ?? l.h, para: i === 0, cells: [cell] };
+  });
+  return [...lines, ...extracted];
 }
 
 // The nested-split guard: better-structure evidence, not just a candidate
@@ -1069,6 +1179,16 @@ function bandSupport(xs, tol) {
 }
 
 // Group one region's glyphs into lines + cells (the core reconstruction).
+//
+// Two phases. Phase 1 assigns glyphs to lines in y-then-x order (the same
+// clustering rules as always: half-line-height tolerance, running-average y,
+// max height). Phase 2 sorts each line's glyphs by x BEFORE forming cells —
+// glyphs on one line whose baselines differ slightly (a display heading beside
+// a small legend, superscripts, an 18pt symbol letter beside 8pt entry text)
+// arrive in y-order, not x-order, and single-pass cell building appended them
+// in arrival order, splicing text mid-line ("SignatoryR", "Sclimate change" on
+// the Discovery report's heading band). Reading order within a line is x
+// order, unconditionally.
 function linesFromGlyphs(glyphs) {
   glyphs.sort((a, b) => {
     const dy = b.transform[5] - a.transform[5];
@@ -1076,39 +1196,22 @@ function linesFromGlyphs(glyphs) {
     return a.transform[4] - b.transform[4];
   });
 
-  // Whitespace-only runs are not appended and don't advance the cell's right
-  // edge — some PDFs fill column gaps with space glyphs, and consuming their
-  // width would mask the positional gap that signals a column break. Instead a
-  // whitespace run just flags that a space belongs before the next glyph, so
-  // real word spacing survives while wide column gaps still register.
+  // Phase 1: line assignment. Whitespace-only runs join their line but never
+  // extend its y/h — they only matter as word-space hints in phase 2.
   const lines = [];
-  let pendingSpace = false;
   for (const g of glyphs) {
-    const x = g.transform[4];
     const y = g.transform[5];
-    const w = g.width || 0;
     const h = g.height || 10;
+    const ws = !g.str.trim().length;
     const last = lines[lines.length - 1];
     const sameLine = last && Math.abs(y - last.y) <= last.h * 0.5;
 
-    if (!g.str.trim().length) {
-      if (sameLine) pendingSpace = true;
+    if (ws) {
+      if (sameLine) last.glyphs.push(g);
       continue;
     }
-
     if (sameLine) {
-      const cell = last.cells[last.cells.length - 1];
-      const gap = x - cell.endX;
-      if (gap > COLUMN_GAP * last.h) {
-        last.cells.push({ text: g.str, x, endX: x + w });
-      } else {
-        const needsSpace =
-          (pendingSpace || gap > WORD_GAP * last.h) &&
-          !/\s$/.test(cell.text) &&
-          !/^\s/.test(g.str);
-        cell.text += (needsSpace ? " " : "") + g.str;
-        cell.endX = x + w;
-      }
+      last.glyphs.push(g);
       // Running average, so the line's y drifts toward later glyphs. Harmless
       // at current tolerances (same-line matching uses half the line height);
       // switch to a sumY/count mean if that ever tightens.
@@ -1116,9 +1219,71 @@ function linesFromGlyphs(glyphs) {
       if (h > last.h) last.h = h;
     } else {
       const para = last ? last.y - y > last.h * PARA_GAP : false;
-      lines.push({ y, h, para, cells: [{ text: g.str, x, endX: x + w }] });
+      lines.push({ y, h, para, glyphs: [g] });
     }
-    pendingSpace = false;
+  }
+
+  // Phase 2: cells, in x order. Whitespace-only runs are not appended and
+  // don't advance the cell's right edge — some PDFs fill column gaps with
+  // space glyphs, and consuming their width would mask the positional gap that
+  // signals a column break. Instead a whitespace run just flags that a space
+  // belongs before the next glyph, so real word spacing survives while wide
+  // column gaps still register. Each cell also records its char-weighted
+  // dominant glyph height (domH): a line's h is the MAX height, which one tall
+  // symbol ("R"/"S" commitment letters at 18pt beside 8pt entries) inflates —
+  // emission decisions that mean "what size is this text really" read domH.
+  for (const line of lines) {
+    line.glyphs.sort((a, b) => a.transform[4] - b.transform[4]);
+    const cells = [];
+    let hh = null; // rounded height -> char count, for the open cell
+    let pendingSpace = false;
+    const finalize = (cell) => {
+      if (!cell) return;
+      let domH = null;
+      let domChars = 0;
+      for (const [k, n] of hh) {
+        if (n > domChars) {
+          domChars = n;
+          domH = k;
+        }
+      }
+      cell.domH = domH ?? line.h;
+    };
+    let prevH = line.h;
+    for (const g of line.glyphs) {
+      if (!g.str.trim().length) {
+        pendingSpace = true;
+        continue;
+      }
+      const x = g.transform[4];
+      const w = g.width || 0;
+      const h = g.height || 10;
+      const cell = cells[cells.length - 1];
+      const gap = cell ? x - cell.endX : Infinity;
+      if (!cell || gap > COLUMN_GAP * line.h) {
+        finalize(cell);
+        hh = new Map();
+        cells.push({ text: g.str, x, endX: x + w });
+      } else {
+        // Word spacing is judged at the scale of the SMALLER adjacent glyph,
+        // not the line's tallest: a 34pt display glyph on the line would
+        // stretch the space threshold past a real 8pt-text word gap and weld
+        // neighbouring small-type words together ("SSignatory").
+        const needsSpace =
+          (pendingSpace || gap > WORD_GAP * Math.min(prevH, h)) &&
+          !/\s$/.test(cell.text) &&
+          !/^\s/.test(g.str);
+        cell.text += (needsSpace ? " " : "") + g.str;
+        if (x + w > cell.endX) cell.endX = x + w;
+      }
+      const k = Math.round(h);
+      hh.set(k, (hh.get(k) ?? 0) + g.str.trim().length);
+      prevH = h;
+      pendingSpace = false;
+    }
+    finalize(cells[cells.length - 1]);
+    line.cells = cells;
+    delete line.glyphs;
   }
 
   for (const line of lines) {
@@ -1169,32 +1334,108 @@ function columnRegions(boxes, hint = null, exclude = []) {
   }
   if (gx == null) return { regions: [boxes], gutter: null };
 
-  // Walk rows top-to-bottom: a row straddling the gutter (full-width heading or
-  // figure) flushes the current column block and is emitted on its own; other
-  // rows are divided left/right at the gutter.
+  // Walk rows top-to-bottom: boxes genuinely straddling the gutter
+  // (full-width headings, intro paragraphs) collect into spanning regions;
+  // other boxes are divided left/right at the gutter.
+  //
+  // Three refinements over the original all-or-nothing row treatment:
+  //   - Straddling is judged per horizontal CLUSTER, not per row. A row's
+  //     boxes chain into clusters at the same gap that splits cells
+  //     (COLUMN_GAP), so a heading typeset as several adjacent glyph runs
+  //     stays one unit — but a crossing cluster no longer drags along a
+  //     row-mate a column-gap away ("RELATED COMMITMENTS INCLUDE:", a panel
+  //     header outdented across the panel's own gutter, level with a
+  //     body-column line, used to pull that line into one full-width region,
+  //     gluing the two streams into one emitted line). Only the crossing
+  //     cluster leaves; distant row-mates stay in their column streams.
+  //   - CONSECUTIVE spanning rows accumulate into ONE region — a full-width
+  //     intro paragraph is several spanning rows, and emitting each as its
+  //     own region put a paragraph break between every line of it.
+  //   - A box must cross by half a median height on each side to count: a
+  //     column line overshooting the gutter by a couple of points is a long
+  //     line, not a full-width element.
+  const spanMargin = med * 0.5;
+  const crosses = (b) =>
+    !b.ws && b.x0 < gx - spanMargin && b.x1 > gx + spanMargin;
   const regions = [];
   let left = [];
   let right = [];
+  let span = [];
   const flush = () => {
     if (left.length) regions.push(left);
     if (right.length) regions.push(right);
     left = [];
     right = [];
   };
+  const flushSpan = () => {
+    if (span.length) regions.push(span);
+    span = [];
+  };
   let prevBottom = null;
   for (const r of rows) {
     // A large vertical gap ends the current column block (e.g. a heading sitting
     // below the columns), so it isn't merged into a column.
-    if (prevBottom != null && prevBottom - r.y1 > GAP_FLUSH * med) flush();
-    if (rowSpansGutter(r, gx)) {
+    if (prevBottom != null && prevBottom - r.y1 > GAP_FLUSH * med) {
       flush();
-      regions.push(r.boxes);
+      flushSpan();
+    }
+    // Chain the row's content boxes into horizontal clusters; whitespace-only
+    // boxes ride with whichever cluster they sit in (nearest by center).
+    const content = r.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
+    const clusters = [];
+    for (const b of content) {
+      const cur = clusters[clusters.length - 1];
+      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * r.h) {
+        cur.boxes.push(b);
+        if (b.x1 > cur.x1) cur.x1 = b.x1;
+        cur.x0 = Math.min(cur.x0, b.x0);
+      } else {
+        clusters.push({ x0: b.x0, x1: b.x1, boxes: [b] });
+      }
+    }
+    for (const b of r.boxes) {
+      if (!b.ws || !clusters.length) continue;
+      const c = (b.x0 + b.x1) / 2;
+      let best = clusters[0];
+      for (const cl of clusters) {
+        const d = c < cl.x0 ? cl.x0 - c : c > cl.x1 ? c - cl.x1 : 0;
+        const bd = c < best.x0 ? best.x0 - c : c > best.x1 ? c - best.x1 : 0;
+        if (d < bd) best = cl;
+      }
+      best.boxes.push(b);
+    }
+    // A non-crossing cluster stays in its column stream only when it reads as
+    // running text — an independent stream's line. A short/numeric fragment
+    // level with a full-width line (a balance-sheet amount beside its long
+    // label, a date column beside a crossing header) is that line's ROW DATA,
+    // and rides along so the pair still reads row-major. The asymmetry is
+    // deliberate: wrongly carrying a fragment glues one token onto a line,
+    // wrongly stranding it divorces a whole table column from its labels.
+    const clusterText = (cl) =>
+      cl.boxes
+        .map((b) => b.g.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const spanning = clusters.filter((cl) => cl.boxes.some(crosses));
+    if (spanning.length) {
+      flush();
+      for (const cl of clusters) {
+        if (spanning.includes(cl) || isTabularCell(clusterText(cl))) {
+          span.push(...cl.boxes);
+        } else {
+          for (const b of cl.boxes)
+            ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
+        }
+      }
     } else {
+      flushSpan();
       for (const b of r.boxes) ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
     }
     prevBottom = r.y0;
   }
   flush();
+  flushSpan();
   return regions.length > 1
     ? { regions, gutter: gx }
     : { regions: [boxes], gutter: null };
@@ -1303,9 +1544,13 @@ function fragmentFitsGutter(rows, gx) {
 }
 
 // A row straddles the gutter (a full-width element) if a non-whitespace glyph
-// crosses gx (a space glyph filling the gutter doesn't count).
-function rowSpansGutter(row, gx) {
-  return row.boxes.some((b) => !b.ws && b.x0 < gx && b.x1 > gx);
+// crosses gx (a space glyph filling the gutter doesn't count). `margin`
+// (optional) requires the crossing to be real on both sides — a column line
+// overshooting the gutter by a couple of points isn't a full-width element.
+function rowSpansGutter(row, gx, margin = 0) {
+  return row.boxes.some(
+    (b) => !b.ws && b.x0 < gx - margin && b.x1 > gx + margin
+  );
 }
 
 // The column gutter x, found from the densest cluster of per-row gap *right
@@ -1424,7 +1669,8 @@ export function linesToText(lines) {
 export function linesToMarkdown(lines, pageLabel = null) {
   if (!lines.length) return "";
   const bodyH = modeHeight(lines);
-  const tableStarts = tableRuns(lines); // Map<startIndex, endIndex>
+  lines = extractDisplayBands(lines, bodyH);
+  const tableStarts = tableRuns(lines, bodyH); // Map<startIndex, endIndex>
   // Geometry-detected grids (Deliverable 1) emit as tables regardless of cell
   // length; take precedence over the content-based runs above.
   for (let i = 0; i < lines.length; ) {
@@ -1494,9 +1740,13 @@ export function linesToMarkdown(lines, pageLabel = null) {
 function modeHeight(lines) {
   const counts = new Map();
   for (const l of lines) {
-    const k = Math.round(l.h);
-    const chars = l.cells.reduce((s, c) => s + c.text.length, 0);
-    counts.set(k, (counts.get(k) || 0) + chars);
+    for (const c of l.cells) {
+      // Per-cell dominant height where available: a line's h is its MAX
+      // glyph height, which a single tall symbol on the line inflates — the
+      // cell's own text shouldn't vote for that symbol's size.
+      const k = Math.round(c.domH ?? l.h);
+      counts.set(k, (counts.get(k) || 0) + c.text.length);
+    }
   }
   let best = 10;
   let bestN = 0;
@@ -1511,19 +1761,38 @@ function modeHeight(lines) {
 
 // Runs of >=2 consecutive lines that each have >=2 cells AND look tabular →
 // table blocks.
-function tableRuns(lines) {
+function tableRuns(lines, bodyH) {
   const starts = new Map();
   let start = -1;
   for (let i = 0; i <= lines.length; i++) {
     const multi = i < lines.length && lines[i].cells.length >= 2;
     if (multi && start === -1) start = i;
     else if (!multi && start !== -1) {
-      if (i - start >= 2 && qualifiesAsTable(lines.slice(start, i)))
+      const run = lines.slice(start, i);
+      if (i - start >= 2 && qualifiesAsTable(run) && !isDisplayHeightRun(run, bodyH))
         starts.set(start, i);
       start = -1;
     }
   }
   return starts;
+}
+
+// A run whose rows sit at display-heading height, not body height, isn't a
+// table — it's disparate display elements (a section heading beside a legend
+// beside a nav rail) that a tall heading glyph vacuumed onto shared lines, so
+// their short fragments read as multi-cell "rows" (Discovery report p6:
+// "Our position on"/"KEY:" + "Reporting"/"SignatoryR" at ~4x body height).
+// Real short/numeric tables are set at body height, and mildly-emphasized
+// callouts (a ratio formula at ~1.2x) stay tables too: the threshold is the h1
+// heading ratio, so a run only fails when every "cell" is itself heading-sized
+// — the exact fingerprint of display text mashed into rows. Keyed on the run's
+// median row height so one tall header row over body-height data can't trip it.
+const TABLE_MAX_HEIGHT_RATIO = HEADING_LEVELS[0][0]; // h1 ratio (1.8)
+function isDisplayHeightRun(rows, bodyH) {
+  if (!bodyH) return false;
+  const heights = rows.map((r) => r.h || bodyH).sort((a, b) => a - b);
+  const median = heights[Math.floor(heights.length / 2)];
+  return median >= TABLE_MAX_HEIGHT_RATIO * bodyH;
 }
 
 // A run is only a table if its cells are predominantly short or numeric. This
@@ -1557,10 +1826,103 @@ function emitTable(rows) {
   return md.join("\n");
 }
 
+// A line of nothing but 1–2-character tokens is symbols — commitment letters
+// ("R S"), checkbox marks, bullets — whose display size says nothing about
+// document structure. Never a heading, whatever its height.
+const SYMBOL_LINE_RE = /^\S{1,2}(?:\s\S{1,2})*$/;
+
+// --- Display bands: headings that share lines with side content -------------
+// A display heading set beside smaller side content (Discovery p6: a 34pt
+// two-line section heading, an 8pt KEY legend to its right, both vertically
+// centered on the same baselines) reconstructs as MIXED lines — each holding
+// one heading-height cell and one body-height cell. Emitted as-is they read
+// "Our position on KEY:" / "climate change R Reporting S Signatory": the
+// heading is spliced line-by-line into the side panel. Print reading order is
+// the headline first, then the side content, so a run of such lines is
+// rewritten as [the display cells, line by line] + [the body cells, line by
+// line] — the display lines then emit (and merge) as a normal heading, and
+// the side content follows as its own block.
+//
+// A cell only counts as display when its own dominant height clears the h1
+// heading ratio, it reads as heading text (short, not just symbol tokens —
+// an 18pt "R S" rail cell must not be mistaken for a headline), and the line
+// also carries body-height content (pure display lines are already handled by
+// ordinary heading emission).
+function extractableDisplayCell(cell, bodyH) {
+  return (
+    (cell.domH ?? 0) >= HEADING_LEVELS[0][0] * bodyH &&
+    cell.text.length > 0 &&
+    cell.text.length < HEADING_MAX_LEN &&
+    !SYMBOL_LINE_RE.test(cell.text)
+  );
+}
+
+function extractDisplayBands(lines, bodyH) {
+  const out = [];
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i];
+    const mixed = (l) =>
+      !l.marker &&
+      !l.grid &&
+      l.cells.some((c) => extractableDisplayCell(c, bodyH)) &&
+      l.cells.some((c) => !extractableDisplayCell(c, bodyH));
+    if (!mixed(line)) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    // Maximal run of consecutive mixed lines: one display band.
+    let j = i;
+    while (j < lines.length && mixed(lines[j])) j++;
+    const band = lines.slice(i, j);
+    // A headline opens with a capital, digit, or quote. A "display" cell that
+    // starts lowercase mid-clause is an artifact of a page whose body-height
+    // mode collapsed (tiny-glyph font metrics make ordinary annotations clear
+    // the ratio) — pass the band through untouched rather than promote prose
+    // fragments to headings. Only the band's FIRST display cell is tested:
+    // a genuine heading's continuation lines may be lowercase ("Our position
+    // on" / "climate change").
+    const first = band[0].cells.find((c) => extractableDisplayCell(c, bodyH));
+    if (!/^["“'‘]?[A-Z0-9]/.test(first.text)) {
+      for (const l of band) out.push(l);
+      i = j;
+      continue;
+    }
+    band.forEach((l, k) => {
+      const display = l.cells.filter((c) => extractableDisplayCell(c, bodyH));
+      out.push({
+        y: l.y,
+        h: Math.max(...display.map((c) => c.domH)),
+        para: k === 0 ? l.para : false,
+        cells: display,
+      });
+    });
+    band.forEach((l, k) => {
+      const body = l.cells.filter((c) => !extractableDisplayCell(c, bodyH));
+      out.push({
+        y: l.y,
+        h: Math.max(...body.map((c) => c.domH ?? l.h)),
+        para: k === 0,
+        cells: body,
+      });
+    });
+    i = j;
+  }
+  return out;
+}
+
 function emitLine(line, bodyH) {
   const text = line.cells.map((c) => c.text).join(" ");
-  if (line.cells.length === 1 && text.length > 0 && text.length < HEADING_MAX_LEN) {
-    const ratio = line.h / bodyH;
+  if (
+    line.cells.length === 1 &&
+    text.length > 0 &&
+    text.length < HEADING_MAX_LEN &&
+    !SYMBOL_LINE_RE.test(text)
+  ) {
+    // The cell's char-weighted dominant height, not the line max: an entry
+    // whose 17pt "R S" letters tag along shouldn't read as heading-sized when
+    // its own text is body-sized ("The UNEP FI Principles… (PSI) R S").
+    const ratio = (line.cells[0].domH ?? line.h) / bodyH;
     for (const [threshold, prefix] of HEADING_LEVELS) {
       if (ratio >= threshold) return prefix + text;
     }
