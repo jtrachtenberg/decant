@@ -139,3 +139,190 @@ test("a collapsed table fires only the table marker, never both", () => {
   assert.match(md, /low structural confidence/i);
   assert.doesNotMatch(md, /flattened into text/i);
 });
+
+// --- Display-height fake tables (Discovery report p6) -----------------------
+// A run of short-cell "rows" set at display-heading height isn't a table but
+// disparate display elements — a section heading, a legend, a nav rail — that a
+// tall heading glyph vacuumed onto shared baselines, then read as multi-cell
+// lines ("| Our position on | KEY: | ... | Reporting | SignatoryR | ... |").
+// A real short/numeric table is set at body height, so the guard keys on the
+// run's height alone: same cells, different height, opposite verdict.
+const dline = (h, para, ...texts) => ({
+  y: 0,
+  h,
+  para,
+  cells: texts.map((t, i) => ({ text: t, x: i * 200, endX: i * 200 + 20 })),
+});
+const bodyLines = () => [
+  dline(9, true, "This is an ordinary paragraph of running body text on the page."),
+  dline(9, false, "It continues here so nine-point text dominates the height mode."),
+];
+
+test("a short-cell run at display-heading height is not emitted as a table", () => {
+  const display = [
+    dline(34, true, "Our position on", "KEY:"),
+    dline(34, false, "Reporting", "Signatory"),
+  ];
+  const md = linesToMarkdown([...bodyLines(), ...display]);
+  assert.doesNotMatch(md, /\|/); // no fake pipe table
+  assert.match(md, /Our position on/); // the text itself survives as prose
+});
+
+test("the same short-cell run at body height still emits as a table", () => {
+  const rows = [
+    dline(9, true, "2024", "2025"),
+    dline(9, false, "100", "200"),
+  ];
+  const md = linesToMarkdown([...bodyLines(), ...rows]);
+  assert.match(md, /\| 2024 \| 2025 \|/);
+});
+
+// --- Discovery p6 fixes: x-order cells, symbol headings, display bands ------
+// Synthetic regressions for the heading-band failures (table-heavy corpus doc,
+// document page 6): a 34pt two-line heading beside an 8pt KEY legend and 17pt
+// R/S commitment letters, all sharing baselines.
+
+test("same-line glyphs at offset baselines assemble in x order, not arrival order", () => {
+  // "Signatory" (y=380, h=8) arrives before "R" (y=376, h=18) in y-then-x
+  // order, but R sits LEFT of Signatory. Single-pass cell building appended
+  // arrival-order ("SignatoryR"); cells must read in x order.
+  const items = [
+    item("Reporting", 620, 380, { w: 37, h: 8 }),
+    item("Signatory", 691, 380, { w: 35, h: 8 }),
+    item("R", 601, 376, { w: 11, h: 18 }),
+    item("S", 673, 376, { w: 10, h: 18 }),
+  ];
+  const { lines } = reconstructPage(items);
+  assert.equal(lines.length, 1);
+  const text = lines[0].cells.map((c) => c.text).join(" ");
+  assert.equal(text, "R Reporting S Signatory");
+});
+
+test("subscripts join their word without a space (word gap at the smaller glyph's scale)", () => {
+  // "CO" + subscript "2" + "-equivalent": the subscript's tiny gap must not
+  // read as a word break, and the word must not weld to the next either.
+  const items = [
+    item("reduce CO", 100, 200, { w: 45, h: 9 }),
+    item("2", 145.2, 197, { w: 4, h: 5 }),
+    item("-equivalent", 149.4, 200, { w: 52, h: 9 }),
+  ];
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /reduce CO2-equivalent/);
+});
+
+test("a line of 1-2 char symbol tokens never emits as a heading", () => {
+  const items = [];
+  for (let i = 0; i < 4; i++)
+    items.push(item("Body text line long enough to set the height mode.", 0, 200 - i * 12, { w: 240, h: 9 }));
+  items.push(item("R", 40, 130, { w: 10, h: 18 }));
+  items.push(item("S", 60, 130, { w: 10, h: 18 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /# R S/);
+  assert.match(md, /^R S$/m);
+});
+
+test("tall symbols riding an entry line don't make it a heading (char-weighted height)", () => {
+  const items = [];
+  for (let i = 0; i < 4; i++)
+    items.push(item("Body text line long enough to set the height mode.", 0, 200 - i * 12, { w: 240, h: 9 }));
+  // Entry text at body height with 17pt letters close enough to share a cell.
+  items.push(item("The UNEP FI Principles for Sustainable Insurance", 0, 130, { w: 230, h: 9 }));
+  items.push(item("R", 239, 128, { w: 10, h: 17 }));
+  items.push(item("S", 259, 128, { w: 10, h: 17 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /^#/m);
+  assert.match(md, /The UNEP FI Principles for Sustainable Insurance R S/);
+});
+
+test("a display heading beside side content extracts as one heading plus the side block", () => {
+  const items = [];
+  for (let i = 0; i < 4; i++)
+    items.push(item("Ordinary body copy that fixes the page's body height.", 0, 100 - i * 12, { w: 250, h: 9 }));
+  // The real Discovery p6 band: a 34pt two-line heading, an 8pt KEY legend
+  // level with line 1, and the legend's 18pt R/S letters + 8pt labels level
+  // with line 2 (the tall letters bridge the small labels onto the heading's
+  // line during y-clustering — keep the real geometry).
+  items.push(item("Our position on", 33, 408, { w: 241, h: 34 }));
+  items.push(item("KEY:", 599, 397, { w: 17, h: 8 }));
+  items.push(item("Reporting", 620, 380, { w: 37, h: 8 }));
+  items.push(item("Signatory", 691, 380, { w: 35, h: 8 }));
+  items.push(item("R", 601, 376, { w: 11, h: 18 }));
+  items.push(item("S", 673, 376, { w: 10, h: 18 }));
+  items.push(item("climate change", 33, 373, { w: 236, h: 34 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /# Our position on climate change/);
+  assert.match(md, /KEY:\nR Reporting S Signatory/);
+  assert.doesNotMatch(md, /Our position on KEY:/);
+});
+
+test("a lowercase 'display' cell does not extract (collapsed body-height guard)", () => {
+  // A page whose body height mode collapses makes ordinary annotations clear
+  // the heading ratio; a mid-clause lowercase fragment must stay in place.
+  const items = [];
+  for (let i = 0; i < 4; i++)
+    items.push(item("tiny metrics body text run repeated for the mode.", 0, 100 - i * 6, { w: 200, h: 2 }));
+  items.push(item("specific point in time—showing", 0, 200, { w: 140, h: 9 }));
+  items.push(item("260,000", 300, 200, { w: 35, h: 2 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /# specific point/);
+});
+
+// --- Stream-integrity repairs (LLM-first: token order is all the reader has) --
+
+test("a symbol rail line re-attaches to the entry it sits level with", () => {
+  const items = [];
+  for (let i = 0; i < 4; i++)
+    items.push(item("Body text line long enough to set the height mode.", 0, 300 - i * 12, { w: 240, h: 8 }));
+  // Entry at body height; its R/S letters 5pt below the baseline — past the
+  // 4pt line-grouping tolerance, so they land on their own line.
+  items.push(item("UN Global Compact", 0, 200, { w: 85, h: 8 }));
+  items.push(item("R", 230, 195, { w: 10, h: 17 }));
+  items.push(item("S", 250, 195, { w: 10, h: 17 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /UN Global Compact R S/);
+  assert.doesNotMatch(md, /^R S$/m);
+});
+
+test("a margin label spliced into prose is lifted out as its own block", () => {
+  // A prose column with a short side-label hanging off two of its lines
+  // ("Maintaining legitimacy"): the sentence must read clean and the label
+  // must survive separately — not corrupt the claim it landed in.
+  const items = [];
+  const prose = [
+    "One advocates for a reframing of investors' role",
+    "in achieving net zero, emphasising real-world",
+    "carbon reduction and portfolio returns that",
+    "support a just and inclusive transition. Ninety",
+    "One engages with higher-emitting companies",
+    "on their strategic response to climate change,",
+    "applying assessment frameworks to ensure the",
+    "plans and strategies are credible and aligned.",
+  ];
+  prose.forEach((t, i) => items.push(item(t, 758, 300 - i * 12, { w: 170, h: 8 })));
+  items.push(item("Maintaining", 984, 288, { w: 55, h: 10 }));
+  items.push(item("legitimacy", 988, 276, { w: 50, h: 10 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /emphasising real-world\ncarbon reduction/);
+  assert.doesNotMatch(md, /real-world Maintaining/);
+  assert.match(md, /Maintaining\s*\n?legitimacy/i);
+});
+
+test("a table header row keeps its last column (marginalia must not strip table cells)", () => {
+  // Four header cells, the last on a band only these two lines share — it is
+  // row data (the scenario name), not a margin label.
+  const items = [];
+  for (let i = 0; i < 8; i++)
+    items.push(item("Running prose body line to anchor the band support.", 0, 300 - i * 12, { w: 230, h: 8 }));
+  items.push(item("SECTOR/", 0, 180, { w: 40, h: 8 }));
+  items.push(item("NET ZERO", 80, 180, { w: 45, h: 8 }));
+  items.push(item("FRAGMENTED", 160, 180, { w: 60, h: 8 }));
+  items.push(item("HOT", 260, 180, { w: 20, h: 8 }));
+  items.push(item("INDUSTRY", 0, 168, { w: 48, h: 8 }));
+  items.push(item("2050", 80, 168, { w: 22, h: 8 }));
+  items.push(item("WORLD", 160, 168, { w: 35, h: 8 }));
+  items.push(item("HOUSE", 260, 168, { w: 32, h: 8 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /HOT/);
+  assert.match(md, /SECTOR\/.*HOT|HOT.*HOUSE/s);
+  assert.doesNotMatch(md, /WORLD \|\s*$/m);
+});
