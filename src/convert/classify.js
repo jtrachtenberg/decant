@@ -357,7 +357,7 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
   if (gutter == null) {
     // A gutterless page is one leaf prose stream — give it the same
     // stream-integrity repairs (symbol rails, marginalia) as split leaves.
-    const { lines, parts } = leafProse(linesFromGlyphs(glyphs));
+    const { lines, parts } = leafProse(linesFromGlyphs(glyphs), glyphs);
     return {
       lines,
       gutter: null,
@@ -438,7 +438,7 @@ function regionProse(regionBoxes, depth) {
   const glyphs = regionBoxes.map((b) => b.g);
   const flat = linesFromGlyphs(glyphs);
   if (depth >= COLUMN_SPLIT_MAX_DEPTH)
-    return leafProse(flat);
+    return leafProse(flat, glyphs);
   // A region holding three streams offers several candidate gutters, and the
   // densest-vote one isn't always the right first cut (it can be the corridor
   // in front of a symbol rail, whose split orphans the symbols from their
@@ -452,7 +452,7 @@ function regionProse(regionBoxes, depth) {
     }
     excluded.push(sub.gutter);
   }
-  return leafProse(flat);
+  return leafProse(flat, glyphs);
 }
 
 // A leaf prose region's final lines: symbol rails re-attached to the entries
@@ -461,9 +461,135 @@ function regionProse(regionBoxes, depth) {
 // order (the converted document's consumer is an LLM, not an eye): a margin
 // label spliced mid-sentence silently corrupts the claim it lands in, and a
 // detached symbol row loses its row binding.
-function leafProse(flat) {
+function leafProse(flat, glyphs) {
+  const railed = railTable(flat, glyphs);
+  if (railed) return { lines: railed, sawTable: true, parts: [railed] };
   const lines = extractMarginalia(mergeSymbolRails(flat));
   return { lines, sawTable: false, parts: [lines] };
+}
+
+// Rebuild a leaf carrying a LEFT tag rail (letter chips a few points left of
+// the text band - see railAdoption) as one row per item: the chip(s) in the
+// first cell, the item's wrapped label joined into the second. This is the
+// only form in which the tag-to-item binding survives linearization for an
+// LLM reader: left in line form, a chip merges into whichever wrapped line it
+// happens to sit level with ("related issues in G reviewing capital").
+//
+// Chips are detected on the RAW GLYPHS, not on reconstructed cells: the
+// chip-to-text corridor (~1.5 heights) straddles the cell-merge threshold, so
+// depending on a fraction of a point a chip either becomes its own cell or
+// welds onto its neighbouring line's text - glyph geometry is stable where
+// cell structure is not. Returns rebuilt lines, or null when the leaf shows
+// no credible rail.
+function railTable(flat, glyphs) {
+  if (!glyphs || flat.some((l) => l.marker || l.grid)) return null;
+  if (flat.length < RAIL_MIN_TAGS * 2) return null;
+  const boxes = glyphs.map(toBox).filter((b) => !b.ws);
+  if (!boxes.length) return null;
+  const med = medianHeight(boxes);
+
+  // The rail: the tightest start-x cluster of pure-letter chip glyphs.
+  const chipCand = boxes
+    .filter((b) => RAIL_TAG_RE.test(b.g.str.trim()))
+    .sort((a, b) => a.x0 - b.x0);
+  if (chipCand.length < RAIL_MIN_TAGS) return null;
+  let band = [];
+  let best = [];
+  for (const b of chipCand) {
+    if (band.length && b.x0 - band[band.length - 1].x0 > RAIL_X_TOL * med)
+      band = [];
+    band.push(b);
+    if (band.length > best.length) best = band;
+  }
+  if (best.length < RAIL_MIN_TAGS) return null;
+  const chipSet = new Set(best);
+  const railX1 = Math.max(...best.map((b) => b.x1));
+  const bandX0 = Math.min(...best.map((b) => b.x0));
+
+  // The other side must be real TEXT — every chip-like box is excluded, not
+  // just the winning band. A region holding nothing but two adjacent chip
+  // columns (an R-rail beside an S-rail, isolated by a split) must NOT read
+  // as a rail annotating a "text" column of letters: emitting it as a table
+  // sets sawTable, which would bypass the symbol-rail split veto and accept
+  // the very split that orphaned the rail from its entries. No running text
+  // may start on the rail band itself, and the band must hug the text band
+  // from the left across a corridor of at most RAIL_REACH heights.
+  const rest = boxes.filter((b) => !RAIL_TAG_RE.test(b.g.str.trim()));
+  if (!rest.length) return null;
+  if (rest.some((b) => Math.abs(b.x0 - bandX0) <= RAIL_X_TOL * med))
+    return null;
+  const rowStarts = groupRows(rest)
+    .map((r) => {
+      let min = Infinity;
+      for (const b of r.boxes) if (b.x0 < min) min = b.x0;
+      return min;
+    })
+    .sort((a, b) => a - b);
+  const textX = medianOf(rowStarts);
+  if (railX1 >= textX || textX - railX1 > RAIL_REACH * med) return null;
+
+  // Item blocks: the non-chip glyphs' lines, split at paragraph-sized gaps.
+  const lines = linesFromGlyphs(rest.map((b) => b.g));
+  const blocks = [];
+  let prevY = null;
+  for (const l of lines) {
+    if (prevY == null || prevY - l.y > PARA_GAP * (l.h || med))
+      blocks.push({ top: l.y, bottom: l.y, lines: [l], tags: [] });
+    else {
+      const cur = blocks[blocks.length - 1];
+      cur.lines.push(l);
+      cur.bottom = l.y;
+    }
+    prevY = l.y;
+  }
+  if (blocks.length < RAIL_MIN_TAGS) return null;
+
+  // Each chip belongs to the block whose y-span contains it (else nearest).
+  const chips = best
+    .slice()
+    .sort((a, b) => b.y0 - a.y0)
+    .map((b) => ({ y: b.y0, text: b.g.str.trim() }));
+  for (const t of chips) {
+    let bestB = null;
+    let bestD = Infinity;
+    for (const b of blocks) {
+      const d =
+        t.y > b.top + med
+          ? t.y - b.top
+          : t.y < b.bottom - med
+            ? b.bottom - t.y
+            : 0;
+      if (d < bestD) {
+        bestD = d;
+        bestB = b;
+      }
+    }
+    if (bestB) bestB.tags.push(t.text);
+  }
+
+  return blocks.map((b) => ({
+    y: b.top,
+    h: med,
+    para: false,
+    grid: true,
+    cells: [
+      { text: b.tags.join(" "), x: 0, endX: 0 },
+      {
+        text: b.lines
+          .map((l) => l.cells.map((c) => c.text).join(" "))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        x: 1,
+        endX: 1,
+      },
+    ],
+  }));
+}
+
+function medianOf(nums) {
+  const s = [...nums].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)] ?? 10;
 }
 
 // A symbol-only line (1–2-char tokens: R/S commitment letters, checkmarks)
@@ -1357,6 +1483,13 @@ function columnRegions(boxes, hint = null, exclude = []) {
   const spanMargin = med * 0.5;
   const crosses = (b) =>
     !b.ws && b.x0 < gx - spanMargin && b.x1 > gx + spanMargin;
+  // Tag-rail adoption: a column of 1–2 LETTER chips hugging the gutter from
+  // the left (G/RM/S/MT pillar tags beside each disclosure item) annotates
+  // the column on its RIGHT — the gutter vote lands in the wide corridor the
+  // sparse rail sits inside, and splitting there divorces every tag from its
+  // item. Adopted boxes route right regardless of center.
+  const adopted = railAdoption(boxes, gx, med);
+  const sideOf = (b) => (adopted.has(b) || (b.x0 + b.x1) / 2 >= gx);
   const regions = [];
   let left = [];
   let right = [];
@@ -1424,13 +1557,12 @@ function columnRegions(boxes, hint = null, exclude = []) {
         if (spanning.includes(cl) || isTabularCell(clusterText(cl))) {
           span.push(...cl.boxes);
         } else {
-          for (const b of cl.boxes)
-            ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
+          for (const b of cl.boxes) (sideOf(b) ? right : left).push(b);
         }
       }
     } else {
       flushSpan();
-      for (const b of r.boxes) ((b.x0 + b.x1) / 2 < gx ? left : right).push(b);
+      for (const b of r.boxes) (sideOf(b) ? right : left).push(b);
     }
     prevBottom = r.y0;
   }
@@ -1528,6 +1660,78 @@ function findGutterByColumnStarts(rows, med, exclude = []) {
   if (rightTop - rightBot < MIN_COL_HEIGHT * med) return null;
   if (rightMinX0 - leftMaxX1 < V_GUTTER * med) return null;
   return gx;
+}
+
+// --- Tag rails: letter chips annotating a column of items -------------------
+// Designed matrices (the Discovery report's phased-disclosure spread) tag
+// each item with 1-2-letter pillar chips (G/RM/S/MT) set in a narrow rail a
+// few points LEFT of the item text. The rail is sparse - one chip per
+// multi-line item - so gutter votes land in the wide corridor the rail sits
+// inside and split the rail away from its items, orphaning every tag.
+//
+// A rail is only believed on strong shape evidence: at least RAIL_MIN_TAGS
+// pure-letter chips whose start x agrees within half a median height (chips
+// are set flush; stray 1-2-letter WORDS ending lines scatter), whose band no
+// running text shares, sitting within RAIL_REACH median heights of what they
+// annotate. Letters only - bullets, dashes and list numbers must not read as
+// tag rails.
+const RAIL_TAG_RE = /^[A-Za-z]{1,2}$/;
+const RAIL_MIN_TAGS = 3;
+const RAIL_REACH = 3; // xmed: max corridor between rail band and its column
+const RAIL_X_TOL = 0.5; // xmed: chip start-x agreement within the band
+
+// The boxes forming a tag rail that hugs gutter `gx` from the left - they
+// annotate the RIGHT column and must travel with it when the region splits.
+function railAdoption(boxes, gx, med) {
+  const out = new Set();
+  // A chip with content close on its LEFT on the same row is a TRAILING
+  // anchor of the left column (a footnote letter after its line), not a
+  // leading tag of the right one: a real rail chip sits in open corridor
+  // space, far from any left neighbour.
+  const closeLeft = (chip) =>
+    boxes.some(
+      (b) =>
+        !b.ws &&
+        b !== chip &&
+        b.x1 <= chip.x0 &&
+        chip.x0 - b.x1 <= RAIL_REACH * med &&
+        b.y0 < chip.y1 &&
+        b.y1 > chip.y0
+    );
+  const cand = boxes
+    .filter(
+      (b) =>
+        !b.ws &&
+        RAIL_TAG_RE.test(b.g.str.trim()) &&
+        b.x1 <= gx &&
+        gx - b.x1 <= RAIL_REACH * med &&
+        !closeLeft(b)
+    )
+    .sort((a, b) => a.x0 - b.x0);
+  if (cand.length < RAIL_MIN_TAGS) return out;
+  let group = [];
+  const flushGroup = () => {
+    if (group.length >= RAIL_MIN_TAGS) {
+      const bandX0 = Math.min(...group.map((b) => b.x0));
+      // Running text starting on the same band means this is a text column's
+      // left edge, not a rail of chips.
+      const shared = boxes.some(
+        (b) =>
+          !b.ws &&
+          !RAIL_TAG_RE.test(b.g.str.trim()) &&
+          Math.abs(b.x0 - bandX0) <= RAIL_X_TOL * med
+      );
+      if (!shared) for (const b of group) out.add(b);
+    }
+    group = [];
+  };
+  for (const b of cand) {
+    if (group.length && b.x0 - group[group.length - 1].x0 > RAIL_X_TOL * med)
+      flushGroup();
+    group.push(b);
+  }
+  flushGroup();
+  return out;
 }
 
 // Does a short page agree with a carried gutter? At least two rows must have
