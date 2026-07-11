@@ -271,6 +271,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
     pattern, attached as flattened chart pages **cropped to the chart's own
     band** (whole page whenever the band isn't confident), and flagged in
     the Markdown so the model knows the rows are missing their values.
+  - **Designed/interactive PDFs read clean** (testing-period hardening):
+    full-bleed background art that design tools slice into abutting raster
+    tiles is reassembled and judged as one component, so decorated text pages
+    stop attaching as figures and crops frame the real photo/infographic
+    ([ADR 0010](./docs/adr/0010-tiled-art-reassembly.md)); nav rails and
+    running headers repeated at the same position across pages are stripped
+    as furniture before reconstruction, ending the column interleave they
+    caused ([ADR 0011](./docs/adr/0011-repeated-text-furniture.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

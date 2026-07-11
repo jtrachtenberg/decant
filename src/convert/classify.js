@@ -87,6 +87,78 @@ export function countChars(text) {
   return m ? m.length : 0;
 }
 
+// --- Repeated text furniture (running headers, footers, nav rails) ----------
+// Interactive/designed PDFs print the same chrome on every page: a running
+// header, and — the Discovery-report case — a navigation rail whose dozen
+// section labels sit at identical positions on all 30+ pages. Reconstructed
+// as content, that rail interleaves into the body columns of every single
+// page (often gluing onto body words with no space). The signal that makes it
+// furniture is exact repetition: the same text at the same position on many
+// pages. Real content — including a page number, whose text changes per page
+// — never repeats positionally like that.
+//
+// Detection is a two-pass document-scope job with per-page state, so it's a
+// factory: feed every page's getTextContent items through addPage(), then ask
+// for the furniture key set and filter each page's items through
+// stripFurniture() before reconstruction. Streaming counts (never the items)
+// keeps memory flat on huge documents.
+
+// A (text, position) pair must recur on at least this many pages AND this
+// fraction of the document's pages to be furniture. The fraction keeps a
+// paragraph that happens to repeat in a short document (a 3-page doc's
+// disclaimer) from being stripped; the floor keeps 2-page docs out entirely
+// (nothing can repeat 3 times in 2 pages).
+export const FURNITURE_MIN_PAGES = 3;
+export const FURNITURE_PAGE_FRACTION = 0.3;
+// Positions are quantized to this many pt so sub-point placement jitter
+// between pages still buckets together. Coarser would start colliding
+// distinct lines (body leading is ~12pt).
+export const FURNITURE_POS_QUANTUM_PT = 2;
+
+const furnitureKey = (item) => {
+  const str = typeof item.str === "string" ? item.str.replace(/\s+/g, " ").trim() : "";
+  if (!str) return null;
+  const q = FURNITURE_POS_QUANTUM_PT;
+  return `${Math.round(item.transform[4] / q)}:${Math.round(item.transform[5] / q)}:${str}`;
+};
+
+export function createFurnitureDetector() {
+  const counts = new Map();
+  let pages = 0;
+  return {
+    addPage(items) {
+      pages++;
+      const seen = new Set();
+      for (const it of items ?? []) {
+        const k = furnitureKey(it);
+        if (!k || seen.has(k)) continue; // count once per page
+        seen.add(k);
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+    },
+    // The keys that qualify as furniture over everything added so far.
+    keys() {
+      const threshold = Math.max(
+        FURNITURE_MIN_PAGES,
+        Math.ceil(pages * FURNITURE_PAGE_FRACTION)
+      );
+      const out = new Set();
+      for (const [k, c] of counts) if (c >= threshold) out.add(k);
+      return out;
+    },
+  };
+}
+
+// One page's items with the furniture removed. An empty/absent key set is a
+// no-op, so callers can wire this unconditionally.
+export function stripFurniture(items, keys) {
+  if (!keys?.size) return items;
+  return items.filter((it) => {
+    const k = furnitureKey(it);
+    return !k || !keys.has(k);
+  });
+}
+
 // Horizontal-gap thresholds, as multiples of the line's glyph height:
 //   above WORD_GAP  → a space within the same cell (word break)
 //   above COLUMN_GAP → a new cell (column break — a table-ish gap)
