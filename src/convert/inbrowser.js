@@ -27,9 +27,14 @@ import {
   shouldScanImages,
   extrapolateImages,
   appendOmittedImagesNote,
+  appendVectorChartNote,
   IMAGE_OP_NAMES,
 } from "./classify.js";
-import { scanPageOps, countSignificantImages } from "./raster-gate.js";
+import {
+  scanPageOps,
+  countSignificantImages,
+  hasVectorChartFills,
+} from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
 
@@ -92,26 +97,35 @@ export async function analyzePdf(file) {
       gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
-      const scan = shouldScanImages(n, pageCount) ? await countImages(page) : null;
+      const scan = shouldScanImages(n, pageCount)
+        ? await countImages(page, content.items)
+        : null;
       const images = scan ? scan.images : null;
-      const pageMd = linesToMarkdown(lines, pageLabels?.[n - 1] ?? n);
+      const label = pageLabels?.[n - 1] ?? n;
+      let pageMd = linesToMarkdown(lines, label);
+      // A vector symbol chart (colored fills, no raster, no text values) gets
+      // a visible note: the emitted rows are missing their data, the attached
+      // figure is the faithful copy. Scan-gated like the image markers —
+      // assert only what was seen.
+      if (scan?.vectorChart) pageMd = appendVectorChartNote(pageMd, label);
       perPage.push({
         chars: countChars(linesToText(lines)),
         images,
         figureImages: scan ? scan.figureImages : null,
         // The page's text misrepresents a figure — Tier 2 convergence flagged
-        // it as a flattened chart, or a corrupt chart table was omitted with a
-        // "see attached figure" note. Classification routes such pages into
-        // the figures flow even when they paint no raster (a pure vector
-        // chart). Known for every page (text is never sampled), unlike the
-        // image counts above.
-        flattened: hasFlattenedFigure(lines) || hasOmittedChartTable(pageMd),
+        // it as a flattened chart, a corrupt chart table was omitted with a
+        // "see attached figure" note, or the operator scan found a vector
+        // symbol chart whose values never reach the text layer.
+        // Classification routes such pages into the figures flow even when
+        // they paint no raster (a pure vector chart).
+        flattened:
+          hasFlattenedFigure(lines) ||
+          hasOmittedChartTable(pageMd) ||
+          !!scan?.vectorChart,
       });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
-      pageMarkdown.push(
-        appendOmittedImagesNote(pageMd, images ?? 0, pageLabels?.[n - 1] ?? n)
-      );
+      pageMarkdown.push(appendOmittedImagesNote(pageMd, images ?? 0, label));
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the
@@ -138,16 +152,30 @@ export async function analyzePdf(file) {
 // pixel-bearing — raster-gate.js). Same operator list, one extra pure walk;
 // the significance count is what lets classification prompt on a single real
 // chart while staying quiet for a lone logo.
-async function countImages(page) {
+//
+// `textItems` (getTextContent().items, already in hand at the call site)
+// feeds the background demotion: an image the page's text is printed OVER is
+// a backdrop, not a figure. Also reports vectorChart — the colored-fill
+// symbol-chart signal (raster-gate.js hasVectorChartFills).
+async function countImages(page, textItems = null) {
   try {
     const ops = await page.getOperatorList();
     let images = 0;
     for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
     const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
     const [vx0, vy0, vx1, vy1] = page.view;
-    const figureImages = countSignificantImages(scan, (vx1 - vx0) * (vy1 - vy0));
-    return { images, figureImages };
+    const textPoints = (textItems ?? []).map((it) => ({
+      x: it.transform[4],
+      y: it.transform[5],
+      chars: (it.str?.match(/\S/g) ?? []).length,
+    }));
+    const figureImages = countSignificantImages(
+      scan,
+      (vx1 - vx0) * (vy1 - vy0),
+      { view: page.view, textPoints }
+    );
+    return { images, figureImages, vectorChart: hasVectorChartFills(scan) };
   } catch {
-    return { images: 0, figureImages: 0 }; // operator list unavailable
+    return { images: 0, figureImages: 0, vectorChart: false }; // operator list unavailable
   }
 }

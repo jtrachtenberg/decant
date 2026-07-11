@@ -262,6 +262,15 @@ on it fall back gracefully (in-browser conversion or passthrough).
     figure, document page N]` instead of plausible-looking wrong data, and
     floating legend/axis text boxes beside a chart's grid are kept out of its
     rows instead of shredding into them.
+  - **Decoration out, symbol charts in**
+    ([ADR 0009](./docs/adr/0009-background-demotion-vector-symbol-charts.md)):
+    full-bleed cover/divider art and images the page's text is printed over
+    no longer count as figures, while charts that encode values as colored
+    vector symbols (risk matrices, heatmap grids — invisible to both the
+    raster and convergence signals) are detected from their multi-hue fill
+    pattern, attached as flattened chart pages **cropped to the chart's own
+    band** (whole page whenever the band isn't confident), and flagged in
+    the Markdown so the model knows the rows are missing their values.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

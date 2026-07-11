@@ -11,6 +11,7 @@ import {
   shouldScanImages,
   extrapolateImages,
   appendOmittedImagesNote,
+  appendVectorChartNote,
   hasOmittedChartTable,
   selectChartPages,
   MIN_CHART_PAGES_FOR_AMBIGUOUS,
@@ -149,6 +150,17 @@ test("appendOmittedImagesNote marks pages that had images, and only those", () =
     appendOmittedImagesNote("page text", 1, "iv"),
     "page text\n\n[1 image omitted — page iv]"
   );
+});
+
+test("appendVectorChartNote promises the attached figure, with the page label", () => {
+  const noted = appendVectorChartNote("| TIME HORIZON | ACUTE |", 10);
+  assert.match(noted, /colored symbols/);
+  assert.match(noted, /see attached figure — page 10\]$/);
+  // Printed labels pass through; without one the note stays unanchored.
+  assert.match(appendVectorChartNote("t", "iv"), /page iv\]$/);
+  assert.doesNotMatch(appendVectorChartNote("t", null), /— page/);
+  // Empty page text: the note stands alone (parity with the omission note).
+  assert.match(appendVectorChartNote("", 3), /^\[chart on this page/);
 });
 
 test("shouldScanImages scans every page at or below the ceiling", () => {

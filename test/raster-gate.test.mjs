@@ -25,10 +25,22 @@ import {
   VECTOR_PAINT_OP_NAMES,
   NON_DECODABLE_IMAGE_OP_NAMES,
   REPEAT_IMAGE_OP_NAMES,
+  FILL_PAINT_OP_NAMES,
   MIN_IMAGE_EDGE_PT,
   MIN_INTRINSIC_PX,
   MAX_INTRINSIC_ASPECT,
   MAX_VECTOR_PAINT_OPS,
+  parseFillRGB,
+  hueBucket,
+  hasVectorChartFills,
+  vectorChartBox,
+  isBackgroundImage,
+  bleedEdgeCount,
+  VECTOR_CHART_MIN_COLORED_FILLS,
+  VECTOR_CHART_MIN_HUES,
+  BACKGROUND_MIN_BLEED_EDGES,
+  BACKGROUND_TEXT_FRACTION,
+  BACKGROUND_MIN_TEXT_CHARS,
 } from "../src/convert/raster-gate.js";
 import { IMAGE_OP_NAMES } from "../src/convert/classify.js";
 
@@ -44,6 +56,9 @@ const OPS = {
   paintImageMaskXObject: 83,
   constructPath: 91,
   shadingFill: 62,
+  setFillRGBColor: 58,
+  fill: 22,
+  stroke: 20,
 };
 
 // Operator-list builder: each step is [opName, args].
@@ -258,6 +273,237 @@ test("significance is broader than decodability: a two-photo collage counts", ()
   assert.equal(decodeCandidate(collage), null); // but stays on the crop path
 });
 
+// --- Background/decoration demotion ------------------------------------------
+
+test("full-bleed art (3+ page edges) is decoration, not a figure", () => {
+  const A4 = [0, 0, 595, 842];
+  // The MSIM field case: a section-divider photo bleeding left, right and top
+  // (box from the actual document, 62% of the page).
+  const divider = { x0: -1, y0: 321, x1: 596, y1: 843 };
+  assert.equal(bleedEdgeCount(divider, A4), 3);
+  assert.ok(isBackgroundImage(divider, { view: A4 }));
+  // A generous hero image touching top + one side (2 edges) stays a figure.
+  const hero = { x0: -1, y0: 400, x1: 400, y1: 843 };
+  assert.equal(bleedEdgeCount(hero, A4), 2);
+  assert.ok(!isBackgroundImage(hero, { view: A4 }));
+  // A margin-respecting chart bleeds nothing.
+  const chart = { x0: 60, y0: 300, x1: 500, y1: 700 };
+  assert.equal(bleedEdgeCount(chart, A4), 0);
+  // Without a view the bleed check is skipped.
+  assert.ok(!isBackgroundImage(divider, {}));
+});
+
+test("an image the page's text is printed over is a backdrop", () => {
+  const box = { x0: 0, y0: 400, x1: 595, y1: 842 };
+  const inside = (chars) => ({ x: 100, y: 600, chars });
+  const outside = (chars) => ({ x: 100, y: 100, chars });
+  // All 100 chars inside → backdrop (the MSIM cover-page case).
+  assert.ok(isBackgroundImage(box, { textPoints: [inside(60), inside(40)] }));
+  // Half the text outside → real figure territory (a caption inside is fine).
+  assert.ok(
+    !isBackgroundImage(box, { textPoints: [inside(50), outside(50)] })
+  );
+  // A bare page number on a photo is too little text to judge by.
+  assert.ok(
+    !isBackgroundImage(box, {
+      textPoints: [inside(BACKGROUND_MIN_TEXT_CHARS - 1)],
+    })
+  );
+  // Fraction boundary: just under the threshold stays a figure.
+  const under = Math.ceil(100 * BACKGROUND_TEXT_FRACTION) - 1;
+  assert.ok(
+    !isBackgroundImage(box, {
+      textPoints: [inside(under), outside(100 - under)],
+    })
+  );
+});
+
+test("background demotion flows through significance and decode", () => {
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  // Full-bleed photo: passes every size gate, demoted by geometry.
+  const scan = scanOf([
+    ["save"],
+    ["transform", [597, 0, 0, 522, -1, 321]],
+    ["paintImageXObject", ["img_p5_1", 2412, 2107]],
+    ["restore"],
+  ]);
+  assert.equal(significantRasters(scan, AREA).length, 1); // no view: old behavior
+  assert.equal(significantRasters(scan, AREA, { view: A4 }).length, 0);
+  assert.ok(!pageHasSignificantImage(scan, AREA, { view: A4 }));
+  assert.equal(decodeCandidate(scan, AREA, { view: A4 }), null);
+  // Inline images respect the demotion too.
+  const inline = scanOf([
+    ["save"],
+    ["transform", [597, 0, 0, 522, -1, 321]],
+    ["paintInlineImageXObject", [{}]],
+    ["restore"],
+  ]);
+  assert.equal(countSignificantImages(inline, AREA, { view: A4 }), 0);
+  assert.equal(countSignificantImages(inline, AREA), 1);
+});
+
+// --- Vector-chart fill signal -------------------------------------------------
+
+test("parseFillRGB handles CSS hex strings, floats and 0–255 components", () => {
+  assert.deepEqual(parseFillRGB(["#199050"]), [0x19, 0x90, 0x50]);
+  assert.deepEqual(parseFillRGB([1, 0.5, 0]), [255, 128, 0]);
+  assert.deepEqual(parseFillRGB([240, 195, 25]), [240, 195, 25]);
+  assert.equal(parseFillRGB(["not-a-color"]), null);
+  assert.equal(parseFillRGB(null), null);
+});
+
+test("hueBucket separates a categorical palette, rejects neutrals", () => {
+  const red = hueBucket(parseFillRGB(["#a61e22"]));
+  const yellow = hueBucket(parseFillRGB(["#f0c319"]));
+  const green = hueBucket(parseFillRGB(["#199050"]));
+  const blue = hueBucket(parseFillRGB(["#005c90"]));
+  // The MSIM risk-matrix palette lands in four distinct buckets.
+  assert.equal(new Set([red, yellow, green, blue]).size, 4);
+  // Black text, gray rules, near-white bands: no bucket.
+  assert.equal(hueBucket(parseFillRGB(["#000000"])), null);
+  assert.equal(hueBucket(parseFillRGB(["#8b8e90"])), null);
+  assert.equal(hueBucket(parseFillRGB(["#e2e9ed"])), null);
+  assert.equal(hueBucket(null), null);
+});
+
+// N fills under the given hex color.
+const coloredFills = (hex, n) => [
+  ["setFillRGBColor", [hex]],
+  ...Array.from({ length: n }, () => ["fill", []]),
+];
+
+test("a symbol chart's fills (many, multi-hue) read as a vector chart", () => {
+  // The MSIM risk matrix: green/yellow/red cells plus blue header accents.
+  const scan = scanOf([
+    ...coloredFills("#199050", 6),
+    ...coloredFills("#f0c319", 8),
+    ...coloredFills("#a61e22", 7),
+    ...coloredFills("#005c90", 3),
+  ]);
+  assert.equal(scan.coloredFills, 24);
+  assert.ok(hasVectorChartFills(scan));
+});
+
+test("single-hue decoration never reads as a vector chart, however busy", () => {
+  // The clean-text field case: 163 brand-colored fills, ONE hue family.
+  const scan = scanOf([
+    ...coloredFills("#005c90", 100),
+    ...coloredFills("#009bda", 63), // nearby blue: same/adjacent bucket, still <3 hues
+    ...coloredFills("#000000", 50), // neutrals never count
+  ]);
+  assert.ok(scan.coloredFills >= VECTOR_CHART_MIN_COLORED_FILLS);
+  assert.ok(!hasVectorChartFills(scan));
+});
+
+test("a sparse multicolor page (cover art, a few icons) stays quiet", () => {
+  const scan = scanOf([
+    ...coloredFills("#199050", 2),
+    ...coloredFills("#f0c319", 2),
+    ...coloredFills("#a61e22", 2),
+  ]);
+  assert.ok(scan.coloredFills < VECTOR_CHART_MIN_COLORED_FILLS);
+  assert.ok(!hasVectorChartFills(scan));
+  // Many fills but only two hues clearing the per-hue floor: still quiet.
+  const twoHue = scanOf([
+    ...coloredFills("#199050", 10),
+    ...coloredFills("#a61e22", 10),
+    ...coloredFills("#f0c319", 1), // below the per-hue floor
+  ]);
+  assert.ok(!hasVectorChartFills(twoHue));
+});
+
+// A v4+ packed path: constructPath carrying its paint verb and bounds.
+const packedPath = (verb, x0, y0, x1, y1) => [
+  ["constructPath", [OPS[verb], [new Float32Array(0)], new Float32Array([x0, y0, x1, y1])]],
+];
+// A w×h chromatic symbol at (x, y).
+const symbol = (hex, x, y, w = 10, h = 10) => [
+  ["setFillRGBColor", [hex]],
+  ...packedPath("fill", x, y, x + w, y + h),
+];
+
+test("constructPath counts by its packed verb; fills record CTM'd boxes", () => {
+  // A stroked grid under a lingering chromatic fill color is not a symbol.
+  const strokes = scanOf([
+    ["setFillRGBColor", ["#199050"]],
+    ...packedPath("stroke", 0, 0, 500, 0),
+    ...packedPath("stroke", 0, 20, 500, 20),
+  ]);
+  assert.equal(strokes.coloredFills, 0);
+  // A fill verb counts and carries its bounds — through the CTM in force.
+  const scan = scanOf([
+    ["save"],
+    ["transform", [2, 0, 0, 2, 10, 10]],
+    ...symbol("#199050", 5, 5),
+    ["restore"],
+  ]);
+  assert.equal(scan.coloredFills, 1);
+  assert.deepEqual(scan.coloredFillBoxes[0].box, { x0: 20, y0: 20, x1: 40, y1: 40 });
+});
+
+test("vectorChartBox finds the symbol cluster, ignores far accents", () => {
+  // The MSIM page-12 shape: a compact symbol grid + legend low on the page,
+  // a few chromatic brand accents far above. The box is the grid's, not the
+  // union's.
+  const grid = [];
+  const palette = ["#199050", "#f0c319", "#a61e22"];
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 6; col++) {
+      grid.push(...symbol(palette[(row + col) % 3], 150 + col * 70, 80 + row * 25));
+    }
+  }
+  const scan = scanOf([
+    ...symbol("#005c90", 40, 780, 200, 20), // header accent, far away
+    ...grid,
+  ]);
+  assert.ok(hasVectorChartFills(scan));
+  const box = vectorChartBox(scan);
+  assert.ok(box);
+  assert.ok(box.y1 <= 80 + 4 * 25 && box.y0 >= 80, `band ${box.y0}–${box.y1}`);
+  assert.ok(box.y1 < 700, "accent excluded");
+});
+
+test("vectorChartBox declines when it can't point at ONE confident cluster", () => {
+  // Bare fill verbs (older builds): the gate fires but there's no geometry.
+  const bare = scanOf([
+    ...coloredFills("#199050", 6),
+    ...coloredFills("#f0c319", 6),
+    ...coloredFills("#a61e22", 6),
+  ]);
+  assert.ok(hasVectorChartFills(bare));
+  assert.equal(vectorChartBox(bare), null);
+  // Two qualifying clusters (a two-chart page): ambiguous, whole page.
+  const chartAt = (yBase) => {
+    const fills = [];
+    for (let i = 0; i < 12; i++) {
+      fills.push(
+        ...symbol(["#199050", "#f0c319", "#a61e22"][i % 3], 100 + i * 12, yBase + (i % 4) * 20)
+      );
+    }
+    return fills;
+  };
+  const twoCharts = scanOf([...chartAt(100), ...chartAt(600)]);
+  assert.ok(hasVectorChartFills(twoCharts));
+  assert.equal(vectorChartBox(twoCharts), null);
+  // Not a chart page at all: no box either.
+  assert.equal(vectorChartBox(scanOf(symbol("#199050", 0, 0))), null);
+});
+
+test("fill color rides save/restore and stroke ops don't count as fills", () => {
+  const scan = scanOf([
+    ["setFillRGBColor", ["#199050"]],
+    ["save"],
+    ["setFillRGBColor", ["#000000"]], // neutral inside the saved state
+    ["fill", []], // doesn't count
+    ["restore"], // green is current again
+    ["fill", []], // counts
+    ["stroke", []], // stroke never applies fill color
+  ]);
+  assert.equal(scan.coloredFills, 1);
+  assert.equal(hasVectorChartFills(scan), false);
+});
+
 test("matrix helpers follow PDF's row-vector convention", () => {
   const scaled = composeTransform([1, 0, 0, 1, 10, 20], [2, 0, 0, 2, 0, 0]);
   assert.deepEqual(applyTransform(scaled, 1, 1), [22, 42]);
@@ -279,6 +525,7 @@ test("all OPS names resolve in the installed pdfjs-dist build", async () => {
     "restore",
     "transform",
     "paintImageXObject",
+    "setFillRGBColor", // the colored-fill (vector chart) signal's color source
   ];
   for (const name of names) {
     assert.notEqual(pdfjs.OPS[name], undefined, `OPS.${name} missing`);
@@ -286,4 +533,5 @@ test("all OPS names resolve in the installed pdfjs-dist build", async () => {
   // The bare paint verbs are intentionally tolerated as absent (older builds
   // only) — opSet() drops undefined — but at least one vector op must map.
   assert.ok(VECTOR_PAINT_OP_NAMES.some((n) => pdfjs.OPS[n] !== undefined));
+  assert.ok(FILL_PAINT_OP_NAMES.some((n) => pdfjs.OPS[n] !== undefined));
 });

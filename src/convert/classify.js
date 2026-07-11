@@ -1166,6 +1166,20 @@ export function appendOmittedImagesNote(pageMarkdown, images, pageNumber) {
   return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
 }
 
+// Visible marker appended to a page's Markdown when the operator-list scan
+// found a vector symbol chart (raster-gate.js hasVectorChartFills): the
+// chart's values are colored shapes that never reach the text layer, so the
+// emitted text is headers and row labels around invisible data. Without the
+// note the model reads a half-empty table with no idea anything is missing.
+// The note PROMISES an attached figure, so callers must also route the page
+// into the figures flow (perPage[i].flattened — same invariant as
+// hasOmittedChartTable).
+export function appendVectorChartNote(pageMarkdown, pageNumber) {
+  const where = pageNumber != null ? ` — page ${pageNumber}` : "";
+  const note = `[chart on this page encodes values as colored symbols that are not text — rows here may be missing their values; see attached figure${where}]`;
+  return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
+}
+
 // Decide what to do with a document from its per-page signals.
 //
 //   perPage: [{ chars: number, images: number, figureImages?: number }]
