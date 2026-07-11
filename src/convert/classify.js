@@ -195,6 +195,61 @@ const MIN_COL_HEIGHT = 8;
 const MIN_COL_ROWS = 4;
 const GAP_FLUSH = 1.8;
 
+// N-column generalization: after the page splits at its primary gutter, each
+// side may itself hold several side-by-side streams (designed reports run 3–4
+// columns per page, sometimes a sidebar panel beside those), so each
+// non-table region gets recursive split attempts up to this nesting depth.
+// Depth 2 reaches a panel nested two levels in (page → band → prose|panel);
+// deeper only multiplies the chances of slicing a table. A candidate
+// sub-gutter alone is NOT enough to accept a split at any level (an unguarded
+// depth-2 recursion over-split tables and garbled scans across the corpus);
+// the guard is acceptSubSplit below.
+const COLUMN_SPLIT_MAX_DEPTH = 2;
+// Guard thresholds for a nested split (calibrated on the 6-doc corpus):
+//   SUBSPLIT_MIN_CELLS   too few content cells and there's no evidence either
+//                        way — keep the region whole rather than gamble
+//   SUBSPLIT_DEGRADE_TOL the split may not lower the region's convergence by
+//                        more than this (over-splits crater it: a table read
+//                        column-major, a scan's noise split at random)
+//   SUBSPLIT_SCORE_GAIN  a convergence rise this big counts as measurable
+//                        improvement on its own
+//   SUBSPLIT_MULTI_DROP  ...as does this drop in the fraction of multi-cell
+//                        lines: two streams sharing baselines read as 2-cell
+//                        interleaved lines, and a correct split turns them
+//                        into single-cell prose
+//   SUBSPLIT_GLUE_FRAC   ...as does this fraction of whole-region lines whose
+//                        cell text runs straight across the sub-gutter: two
+//                        streams set so tight that no gap registers read as
+//                        words glued across the boundary ("goals.health"),
+//                        which is direct evidence the whole reading
+//                        concatenates unrelated streams
+//   SUBSPLIT_DEGRADE_MAX / SUBSPLIT_STRONG_MULTI
+//                        convergence can punish a CORRECT split: a sidebar's
+//                        ragged labels score worse read honestly than glued
+//                        onto a prose margin where every start "converges".
+//                        When the interleave evidence is overwhelming (the
+//                        multi-cell fraction collapses by STRONG_MULTI), the
+//                        split may cost up to DEGRADE_MAX of convergence —
+//                        still far under what a real over-split loses (the
+//                        rejected corpus over-splits cratered 0.4–0.6)
+const SUBSPLIT_MIN_CELLS = 6;
+const SUBSPLIT_DEGRADE_TOL = 0.06;
+const SUBSPLIT_SCORE_GAIN = 0.05;
+const SUBSPLIT_MULTI_DROP = 0.1;
+const SUBSPLIT_GLUE_FRAC = 0.15;
+const SUBSPLIT_DEGRADE_MAX = 0.1;
+const SUBSPLIT_STRONG_MULTI = 0.4;
+// How many candidate gutters a region may try before reading whole (each
+// rejected candidate is excluded from the next attempt).
+const SUBSPLIT_GUTTER_ATTEMPTS = 2;
+// A split leaf made (almost) entirely of 1–2 char cells is a symbol rail —
+// R/S commitment markers, checkboxes, bullets — whose meaning lives in the
+// row pairing with the neighbouring column. Splitting it off orphans every
+// symbol from its referent, so such a split is rejected no matter how the
+// scores move (the right cut, if any, is a different gutter).
+const SUBSPLIT_SYMBOL_MAX_CHARS = 2;
+const SUBSPLIT_SYMBOL_RATIO = 0.8;
+
 // Reconstruct lines from positioned glyph runs. pdf.js gives each run a
 // transform matrix ([4]=x, [5]=y, origin bottom-left so larger y is higher).
 //
@@ -235,8 +290,13 @@ export function reconstructPage(items, columnHint = null) {
   // An aligned grid (a bordered/columnar table) must be read row-major and
   // rebuilt cell-by-cell at its column bands — column-splitting it (below)
   // reads it column-major and scrambles the row bindings. Detected first so it
-  // takes precedence over the prose column-reflow path.
-  const grid = detectGrid(glyphs);
+  // takes precedence over the prose column-reflow path. A "grid" whose bands
+  // are really the page's column origins (three aligned prose columns pass
+  // the aligned-starts test too) is rejected and falls through to column
+  // reflow instead — formalizing it would emit prose as a fake pipe table.
+  let grid = detectGrid(glyphs);
+  if (grid && (gridIsPageColumns(grid, glyphs) || gridWrapsLikeProse(grid)))
+    grid = null;
   if (grid) {
     const yTop = Math.max(...grid.rows.map((r) => r.y1));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
@@ -260,9 +320,50 @@ export function reconstructPage(items, columnHint = null) {
     };
   }
 
+  const { lines, gutter, sawTable, split } = reconstructColumns(
+    glyphs,
+    columnHint,
+    0
+  );
+
+  // Markers only when nothing upgraded to a clean table. A recognized table is
+  // high-fidelity; the markers below flag the cases that stayed column-major —
+  // an unrecognized table read column-major, or chart-label soup — exactly as
+  // before (this whole branch is unchanged for pages with no detected table).
+  if (!sawTable) {
+    if (split && looksTabular(lines)) {
+      lines.unshift(lowConfidenceMarker());
+    } else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
+      lines.unshift(flattenedFigureMarker());
+    }
+  }
+  return { lines, gutter };
+}
+
+// One (sub)page's column reconstruction: split at the gutter, upgrade
+// row-corresponding pairs to tables, and give every remaining prose region a
+// guarded chance to split again (N-column pages arrive here as a 2-way split
+// whose sides still hold 2 streams each). Returns { lines, gutter, sawTable,
+// split, parts } — `split` says a gutter split actually happened (what the
+// caller's low-confidence marker keys on, formerly regions.length > 1);
+// `parts` is the same lines grouped by leaf unit (one column, one table run,
+// one separator), which is what the split guard scores: each column must be
+// judged against its own line population, or a legitimate short sidebar
+// drowns in the page-wide support threshold.
+function reconstructColumns(glyphs, hint, depth, exclude = []) {
   const boxes = glyphs.map(toBox);
-  const { regions, gutter } = columnRegions(boxes, columnHint);
+  const { regions, gutter } = columnRegions(boxes, hint, exclude);
   const med = medianHeight(boxes);
+  if (gutter == null) {
+    const lines = linesFromGlyphs(glyphs);
+    return {
+      lines,
+      gutter: null,
+      sawTable: false,
+      split: false,
+      parts: [lines],
+    };
+  }
 
   // columnRegions already carved the page into reading-order regions, emitting
   // each column block as a left region immediately followed by its right region
@@ -277,6 +378,7 @@ export function reconstructPage(items, columnHint = null) {
   // pairwise align, upgrade the pair to a row-major pipe table. Doing it
   // per-region (not per-page) handles several stacked tables on one page.
   const lines = [];
+  const parts = [];
   let sawTable = false;
   for (let i = 0; i < regions.length; ) {
     // Collect a maximal run of consecutive left-then-right region pairs, then
@@ -302,32 +404,140 @@ export function reconstructPage(items, columnHint = null) {
         const rowLines = columnTableLines(table);
         if (lines.length && rowLines.length) rowLines[0].para = true;
         lines.push(...rowLines);
+        parts.push(rowLines);
         sawTable = true;
         i = j;
         continue;
       }
     }
     // Not a table: emit this one region column-major (its right partner, if any,
-    // follows on the next iteration), preserving the existing prose reflow.
-    const regionLines = linesFromGlyphs(regions[i].map((b) => b.g));
+    // follows on the next iteration), preserving the existing prose reflow —
+    // after offering it one guarded nested split of its own.
+    const sub = regionProse(regions[i], depth);
+    const regionLines = sub.lines;
+    if (sub.sawTable) sawTable = true;
     // A region boundary (column or block break) is itself a paragraph break.
     if (lines.length && regionLines.length) regionLines[0].para = true;
     lines.push(...regionLines);
+    parts.push(...sub.parts);
     i++;
   }
+  return { lines, gutter, sawTable, split: true, parts };
+}
 
-  // Markers only when nothing upgraded to a clean table. A recognized table is
-  // high-fidelity; the markers below flag the cases that stayed column-major —
-  // an unrecognized table read column-major, or chart-label soup — exactly as
-  // before (this whole branch is unchanged for pages with no detected table).
-  if (!sawTable) {
-    if (regions.length > 1 && looksTabular(lines)) {
-      lines.unshift(lowConfidenceMarker());
-    } else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
-      lines.unshift(flattenedFigureMarker());
+// One prose region's lines, with (at most COLUMN_SPLIT_MAX_DEPTH) recursive
+// column-split attempts. The nested split is accepted only when acceptSubSplit
+// finds it measurably better than reading the region whole — a candidate
+// gutter alone routinely exists inside tables and noisy scans, and splitting
+// those reads them column-major and scrambles them. A nested tableFromColumns
+// upgrade is trusted as-is: row correspondence is stronger evidence than any
+// after-the-fact score.
+function regionProse(regionBoxes, depth) {
+  const glyphs = regionBoxes.map((b) => b.g);
+  const flat = linesFromGlyphs(glyphs);
+  if (depth >= COLUMN_SPLIT_MAX_DEPTH)
+    return { lines: flat, sawTable: false, parts: [flat] };
+  // A region holding three streams offers several candidate gutters, and the
+  // densest-vote one isn't always the right first cut (it can be the corridor
+  // in front of a symbol rail, whose split orphans the symbols from their
+  // referents). A rejected candidate is excluded and the next corridor tried.
+  const excluded = [];
+  for (let attempt = 0; attempt < SUBSPLIT_GUTTER_ATTEMPTS; attempt++) {
+    const sub = reconstructColumns(glyphs, null, depth + 1, excluded);
+    if (!sub.split) break;
+    if (sub.sawTable || acceptSubSplit(flat, sub)) {
+      return { lines: sub.lines, sawTable: sub.sawTable, parts: sub.parts };
     }
+    excluded.push(sub.gutter);
   }
-  return { lines, gutter };
+  return { lines: flat, sawTable: false, parts: [flat] };
+}
+
+// The nested-split guard: better-structure evidence, not just a candidate
+// gutter. Compares the region read whole vs split on two output-derived
+// measures — column convergence (recurring start-x bands; over-splits crater
+// it) and the multi-cell line fraction (two streams sharing baselines read as
+// interleaved 2-cell lines; a correct split dissolves them into single-cell
+// prose). Accepts only when nothing degrades, something measurably improves,
+// and the split doesn't read tabular (short/numeric cells split column-major
+// are a table being scrambled, not columns being freed).
+function acceptSubSplit(flatLines, sub) {
+  const before = convergenceOf(flatLines);
+  const after = convergenceOf(sub.lines);
+  const beforeScore = before.charScore;
+  const afterScore = partsCharScore(sub.parts) ?? after.charScore;
+  const delta = afterScore - beforeScore;
+  const multiDrop =
+    multiCellFraction(flatLines) - multiCellFraction(sub.lines);
+  const allowedDrop =
+    multiDrop >= SUBSPLIT_STRONG_MULTI
+      ? SUBSPLIT_DEGRADE_MAX
+      : SUBSPLIT_DEGRADE_TOL;
+  if (after.cellCount < SUBSPLIT_MIN_CELLS) return false;
+  if (sub.parts.some(isSymbolRail)) return false;
+  if (delta < -allowedDrop) return false;
+  if (looksTabular(sub.lines)) return false;
+  return (
+    delta >= SUBSPLIT_SCORE_GAIN ||
+    multiDrop >= SUBSPLIT_MULTI_DROP ||
+    gluedFraction(flatLines, sub.gutter) >= SUBSPLIT_GLUE_FRAC
+  );
+}
+
+// The split side's coherence: a char-weighted mean of each leaf part's own
+// convergence. Judging the concatenation instead systematically punishes
+// honest splits — the support threshold scales with the combined line count,
+// so a legitimate short column (a sidebar of a dozen entries beside two tall
+// prose columns) reads as noise. Parts too small to score are skipped; null
+// when nothing is scoreable (caller falls back to the concatenated score).
+function partsCharScore(parts) {
+  let wSum = 0;
+  let sSum = 0;
+  for (const part of parts) {
+    const conv = convergenceOf(part);
+    if (conv.cellCount < SUBSPLIT_MIN_CELLS) continue;
+    wSum += conv.totalChars;
+    sSum += conv.charScore * conv.totalChars;
+  }
+  return wSum ? sSum / wSum : null;
+}
+
+// Fraction of content lines with a cell whose text runs across the gutter x —
+// the glue symptom of two streams set so tight that reconstruction merged
+// them into one cell (a full-width heading also crosses, but headings are a
+// line or two while glue affects a block). Complements multiCellFraction: a
+// wide inter-stream gap makes 2-cell lines, a vanishing one makes glue.
+function gluedFraction(lines, gutter) {
+  if (gutter == null) return 0;
+  const content = lines.filter((l) => !l.marker && l.cells.length);
+  if (!content.length) return 0;
+  const crossing = content.filter((l) =>
+    l.cells.some((c) => c.x < gutter && c.endX > gutter)
+  );
+  return crossing.length / content.length;
+}
+
+// Is this leaf part a symbol rail (see SUBSPLIT_SYMBOL_RATIO)? Grid/table
+// parts are exempt: a table upgrade pairs its cells row-major, which is
+// exactly what a rail needs.
+function isSymbolRail(part) {
+  const cells = part
+    .filter((l) => !l.marker && !l.grid)
+    .flatMap((l) => l.cells);
+  if (cells.length < 3) return false;
+  const tiny = cells.filter(
+    (c) =>
+      c.text.replace(/\s+/g, "").length <= SUBSPLIT_SYMBOL_MAX_CHARS
+  ).length;
+  return tiny / cells.length >= SUBSPLIT_SYMBOL_RATIO;
+}
+
+// Fraction of content lines holding 2+ cells — the interleave symptom two
+// side-by-side streams leave when read as one region.
+function multiCellFraction(lines) {
+  const content = lines.filter((l) => !l.marker && l.cells.length);
+  if (!content.length) return 0;
+  return content.filter((l) => l.cells.length >= 2).length / content.length;
 }
 
 // --- Aligned-grid tables (geometry-based, Deliverable 1) -------------------
@@ -388,6 +598,74 @@ function detectGrid(glyphs) {
     }
   }
   return best;
+}
+
+// Is a detected "grid" really the page's own column layout? Three (or more)
+// aligned prose columns satisfy detectGrid's aligned-starts test exactly as a
+// bordered table does — the geometry is identical inside the grid's rows. The
+// tell is OUTSIDE them: a real table's interior column positions are private
+// to the table (surrounding prose doesn't start text at a table's second
+// column), while a prose "grid"'s bands are the page's column origins, where
+// rows begin across most of the page height. So: reject the grid when every
+// interior band keeps recurring as a segment start beyond the grid's own rows
+// and its supporters span most of the page. Formalizing such a grid would
+// emit prose as a fake pipe table — and gridLines' floating-box exclusion
+// would silently drop the text that doesn't fit the fiction.
+const PAGE_COLUMN_MIN_SPAN = 0.6; // of the page's content height
+const PAGE_COLUMN_MIN_OUTSIDE_ROWS = 2;
+
+function gridIsPageColumns(grid, glyphs) {
+  const rows = groupRows(glyphs.map(toBox));
+  const gridTop = Math.max(...grid.rows.map((r) => r.y1));
+  const gridBot = Math.min(...grid.rows.map((r) => r.y0));
+  const pageTop = Math.max(...rows.map((r) => r.y1));
+  const pageBot = Math.min(...rows.map((r) => r.y0));
+  const pageSpan = pageTop - pageBot;
+  if (!(pageSpan > 0)) return false;
+  const outsideGrid = (r) => r.y0 > gridTop || r.y1 < gridBot;
+  return grid.bands.slice(1).every((band) => {
+    const hits = rows.filter((r) =>
+      segmentStarts(r).some((x) => Math.abs(x - band) <= GRID_X_TOL)
+    );
+    if (hits.filter(outsideGrid).length < PAGE_COLUMN_MIN_OUTSIDE_ROWS)
+      return false;
+    const top = Math.max(...hits.map((r) => r.y1));
+    const bot = Math.min(...hits.map((r) => r.y0));
+    return top - bot >= PAGE_COLUMN_MIN_SPAN * pageSpan;
+  });
+}
+
+// The second prose tell, for column layouts too local for the page-columns
+// test (a page can change column grid mid-height, so a false table's bands
+// may match nothing outside its own rows): prose WRAPS. In N side-by-side
+// prose columns, each band's consecutive "cells" are just successive lines of
+// one running paragraph — the upper line breaks mid-sentence and the next
+// picks up in lowercase ("...enhancing and" / "protecting their lives...").
+// A genuine table's vertically adjacent cells are separate entries and don't
+// systematically continue each other. Requires both signals: cells long
+// enough to be running text, and enough adjacent pairs that read as wraps.
+const GRID_PROSE_MIN_LONG_RATIO = 0.5;
+const GRID_PROSE_MIN_WRAP_RATIO = 0.25;
+
+function gridWrapsLikeProse(grid) {
+  const lines = gridLines(grid);
+  const texts = lines.flatMap((l) => l.cells.map((c) => c.text));
+  const nonEmpty = texts.filter((t) => t);
+  if (!nonEmpty.length) return false;
+  const long = nonEmpty.filter((t) => !isTabularCell(t)).length;
+  if (long / nonEmpty.length < GRID_PROSE_MIN_LONG_RATIO) return false;
+  let pairs = 0;
+  let wraps = 0;
+  for (let i = 0; i + 1 < lines.length; i++) {
+    for (let k = 0; k < grid.bands.length; k++) {
+      const upper = lines[i].cells[k]?.text;
+      const lower = lines[i + 1].cells[k]?.text;
+      if (!upper || !lower) continue;
+      pairs++;
+      if (!/[.:;!?]$/.test(upper) && /^[a-z]/.test(lower)) wraps++;
+    }
+  }
+  return pairs > 0 && wraps / pairs >= GRID_PROSE_MIN_WRAP_RATIO;
 }
 
 // Which band an x-position belongs to (largest band start at or left of x).
@@ -701,6 +979,27 @@ const CONVERGENCE_TOL_RATIO = 1.5;
 const CONVERGENCE_MIN_SUPPORT_RATIO = 0.2;
 
 export function columnConvergence(lines) {
+  const conv = convergenceOf(lines);
+  if (conv.cellCount < CONVERGENCE_MIN_CELLS) {
+    return { score: 1, columns: conv.contentLines ? 1 : 0, bands: 0 };
+  }
+  return { score: conv.score, columns: conv.columns, bands: conv.bands };
+}
+
+// The raw convergence computation, without the min-cells confidence floor.
+// columnConvergence (the flagging signal) applies the floor; the nested-split
+// guard compares regions that are often smaller than the floor and needs the
+// real score either way.
+//
+// Two coverage ratios come out of the same clustering: `score` counts cells
+// (the calibrated document-level signal, unchanged) and `charScore` counts
+// characters. The guard compares charScore: a sidebar's one-letter symbol
+// cells ("R", "S") land on lonely bands and, counted per-cell, can veto the
+// split that honestly separated them — but they're a rounding error of the
+// region's characters. Band strength itself stays count-based either way, so
+// a genuinely scattered region (label soup, an over-split table) still holds
+// most of its characters on weak bands and craters both scores.
+function convergenceOf(lines) {
   const content = (lines || []).filter(
     (l) => l && !l.marker && Array.isArray(l.cells) && l.cells.length
   );
@@ -708,17 +1007,46 @@ export function columnConvergence(lines) {
   let hSum = 0;
   for (const l of content) {
     hSum += l.h || 10;
-    for (const c of l.cells) starts.push(c.x);
+    for (const c of l.cells) starts.push({ x: c.x, w: c.text?.length || 1 });
   }
-  if (starts.length < CONVERGENCE_MIN_CELLS) {
-    return { score: 1, columns: content.length ? 1 : 0, bands: 0 };
+  if (!starts.length) {
+    return {
+      score: 1,
+      charScore: 1,
+      columns: 0,
+      bands: 0,
+      cellCount: 0,
+      contentLines: 0,
+      totalChars: 0,
+    };
   }
   const tol = (hSum / content.length) * CONVERGENCE_TOL_RATIO;
-  const bands = bandSupport(starts, tol);
+  starts.sort((a, b) => a.x - b.x);
+  const bands = [];
+  for (const s of starts) {
+    const last = bands[bands.length - 1];
+    if (last && s.x - last.max <= tol) {
+      last.support++;
+      last.chars += s.w;
+      last.max = s.x;
+    } else {
+      bands.push({ support: 1, chars: s.w, max: s.x });
+    }
+  }
   const minSupport = Math.max(2, content.length * CONVERGENCE_MIN_SUPPORT_RATIO);
   const strong = bands.filter((b) => b.support >= minSupport);
   const covered = strong.reduce((sum, b) => sum + b.support, 0);
-  return { score: covered / starts.length, columns: strong.length, bands: bands.length };
+  const totalChars = starts.reduce((sum, s) => sum + s.w, 0);
+  const coveredChars = strong.reduce((sum, b) => sum + b.chars, 0);
+  return {
+    score: covered / starts.length,
+    charScore: coveredChars / totalChars,
+    columns: strong.length,
+    bands: bands.length,
+    cellCount: starts.length,
+    contentLines: content.length,
+    totalChars,
+  };
 }
 
 // Cluster start-x positions into bands, each { x: mean, support: count },
@@ -825,11 +1153,11 @@ function toBox(g) {
 // found among narrow rows only, so a full-width heading bridging it doesn't
 // hide it. Returns an ordered list of box-arrays; falls back to [boxes] (single
 // region, unchanged behavior) whenever no confident column layout is found.
-function columnRegions(boxes, hint = null) {
+function columnRegions(boxes, hint = null, exclude = []) {
   const rows = groupRows(boxes);
   const med = medianHeight(boxes);
 
-  let gx = detectGutter(rows, med);
+  let gx = detectGutter(rows, med, exclude);
 
   // Page-break remainder: too short for confident detection, but the previous
   // page established a gutter. Accept it when this page's rows agree — at
@@ -874,14 +1202,19 @@ function columnRegions(boxes, hint = null) {
 
 // Confident same-page gutter detection (the original guards): enough
 // two-column rows, spanning enough height that a short table isn't split
-// into columns.
-function detectGutter(rows, med) {
+// into columns. `exclude` lists gutter x positions already tried and rejected
+// by the nested-split guard, so a retry can surface the next-best corridor (a
+// region holding three streams offers several gutters, and the densest vote
+// isn't always the right first cut).
+function detectGutter(rows, med, exclude = []) {
   if (rows.length < MIN_COL_ROWS) return null;
   // findGutter reads each row's interior gutter gap, so it needs rows that hold
   // both columns (shared baselines). When the columns are typeset on independent
   // baselines — no row holds both — it sees nothing; findGutterByColumnStarts
   // recovers the gutter from the two left-edge bands instead.
-  const gx = findGutter(rows, med) ?? findGutterByColumnStarts(rows, med);
+  const gx =
+    findGutter(rows, med, exclude) ??
+    findGutterByColumnStarts(rows, med, exclude);
   if (gx == null) return null;
   const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
   if (colRows.length < MIN_COL_ROWS) return null;
@@ -902,7 +1235,7 @@ function detectGutter(rows, med) {
 // lies between the left content's right edge and the right column's start. A
 // single-column page (one band) or a hanging indent (left content crosses the
 // candidate, so few rows sit entirely left of it) fails these and stays whole.
-function findGutterByColumnStarts(rows, med) {
+function findGutterByColumnStarts(rows, med, exclude = []) {
   const starts = [];
   for (const r of rows) {
     let min = Infinity;
@@ -916,7 +1249,11 @@ function findGutterByColumnStarts(rows, med) {
     .sort((a, b) => a.x - b.x);
   if (bands.length < 2) return null;
   const leftBand = bands[0].x;
-  const rightBand = bands.find((b) => b.x > leftBand + V_GUTTER * med);
+  const rightBand = bands.find(
+    (b) =>
+      b.x > leftBand + V_GUTTER * med &&
+      !exclude.some((x) => Math.abs(b.x - 1 - x) <= med)
+  );
   if (!rightBand) return null;
   const gx = rightBand.x - 1;
 
@@ -976,7 +1313,7 @@ function rowSpansGutter(row, gx) {
 // two-column rows even when the left line ends early, whereas the gap midpoint
 // shifts; lone gaps from prose or charts scatter and don't cluster. Returns the
 // gutter x (just left of the right column) or null.
-function findGutter(rows, med) {
+function findGutter(rows, med, exclude = []) {
   const edges = [];
   for (const r of rows) {
     const g = largestInteriorGap(r.boxes);
@@ -984,6 +1321,14 @@ function findGutter(rows, med) {
     // skew the threshold the way a page-wide median would.
     if (g && g.size >= V_GUTTER * r.h) edges.push(g.end);
   }
+  const kept = edges.filter(
+    (e) => !exclude.some((x) => Math.abs(e - x) <= med)
+  );
+  return clusterGutterEdges(kept, med);
+}
+
+// The densest cluster of gutter right edges → the gutter x, or null.
+function clusterGutterEdges(edges, med) {
   if (edges.length < MIN_COL_ROWS) return null;
 
   let center = null;
