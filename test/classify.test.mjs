@@ -13,6 +13,7 @@ import {
   appendOmittedImagesNote,
   appendVectorChartNote,
   hasOmittedChartTable,
+  flattenedWithEvidence,
   selectChartPages,
   createFurnitureDetector,
   stripFurniture,
@@ -422,4 +423,19 @@ test("stripFurniture: empty key set is a no-op passthrough", () => {
   const items = [itemAt("x", 1, 2)];
   assert.equal(stripFurniture(items, new Set()), items);
   assert.equal(stripFurniture(items, null), items);
+});
+
+test("convergence-flagged pages join the figures flow only with visual evidence", () => {
+  // A flagged page with raster paint (the CERN p6 chart) attaches.
+  assert.ok(flattenedWithEvidence(true, 5, false));
+  // A flagged page whose chart is pure colored fills attaches too.
+  assert.ok(flattenedWithEvidence(true, 0, true));
+  // Ornate but purely textual layout (org chart, nav divider): flagged, zero
+  // raster, no fills - the Markdown already carries every word, skip it.
+  assert.ok(!flattenedWithEvidence(true, 0, false));
+  // Unscanned page on a sampled large doc: no evidence either way, flag stands.
+  assert.ok(flattenedWithEvidence(true, null, false));
+  // The vector-chart signal is evidence all by itself.
+  assert.ok(flattenedWithEvidence(false, 0, true));
+  assert.ok(!flattenedWithEvidence(false, 3, false));
 });

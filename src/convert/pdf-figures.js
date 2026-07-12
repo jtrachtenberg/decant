@@ -173,15 +173,24 @@ async function paddedFigureBox(page, repeatedDims = null) {
     };
   } else {
     // No raster figure — a symbol chart's colored fills, when the scan can
-    // point at exactly one confident cluster. Full page width (row labels,
-    // column headers and legend text sit outside the fills' own bounds, but
-    // never outside the page margins); generous vertical pad for the header
-    // rows. Any doubt → null → whole-page copy, the pre-crop baseline.
+    // point at exactly one confident cluster. The x-range depends on page
+    // orientation: a PORTRAIT page is document flow, where the chart owns the
+    // text width and its row/end labels sit well outside the fills' bounds
+    // (the MSIM matrices' row labels start 118 pt left of the first symbol;
+    // the CERN donut has value labels flanking both sides) — full page width
+    // is the only safe crop. A LANDSCAPE page is a slide-style layout whose
+    // chart lives in its own panel with parallel side streams (a prose
+    // column, a nav rail) that duplicate nothing of the chart — there the
+    // band's own x-range plus the same pad frames it (the Discovery phase
+    // chart and emissions tables; each keeps its adjacent legend inside the
+    // pad). Generous vertical pad for the header rows either way. Any doubt
+    // → null → whole-page copy, the pre-crop baseline.
     const band = vectorChartBox(scan);
     if (band) {
+      const landscape = vx1 - vx0 > vy1 - vy0;
       padded = {
-        x0: vx0,
-        x1: vx1,
+        x0: landscape ? Math.max(vx0, band.x0 - VECTOR_CHART_PAD_PT) : vx0,
+        x1: landscape ? Math.min(vx1, band.x1 + VECTOR_CHART_PAD_PT) : vx1,
         y0: Math.max(vy0, band.y0 - VECTOR_CHART_PAD_PT),
         y1: Math.min(vy1, band.y1 + VECTOR_CHART_PAD_PT),
       };

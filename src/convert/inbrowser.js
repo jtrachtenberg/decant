@@ -23,6 +23,7 @@ import {
   countChars,
   classifyDocument,
   hasFlattenedFigure,
+  flattenedWithEvidence,
   hasOmittedChartTable,
   shouldScanImages,
   extrapolateImages,
@@ -161,15 +162,19 @@ export async function analyzePdf(file) {
         images,
         figureImages: scan ? scan.figureImages : null,
         // The page's text misrepresents a figure — Tier 2 convergence flagged
-        // it as a flattened chart, a corrupt chart table was omitted with a
-        // "see attached figure" note, or the operator scan found a vector
-        // symbol chart whose values never reach the text layer.
-        // Classification routes such pages into the figures flow even when
-        // they paint no raster (a pure vector chart).
+        // it as a flattened chart (only honored with visual evidence: raster
+        // paint or the vector-chart fills — flattenedWithEvidence), a corrupt
+        // chart table was omitted with a "see attached figure" note, or the
+        // operator scan found a vector symbol chart whose values never reach
+        // the text layer. Classification routes such pages into the figures
+        // flow even when they paint no raster (a pure vector chart).
         flattened:
-          hasFlattenedFigure(lines) ||
           hasOmittedChartTable(pageMd) ||
-          !!scan?.vectorChart,
+          flattenedWithEvidence(
+            hasFlattenedFigure(lines),
+            scan ? scan.images : null,
+            scan?.vectorChart
+          ),
       });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).

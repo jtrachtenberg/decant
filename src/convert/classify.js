@@ -1166,6 +1166,19 @@ export function hasFlattenedFigure(lines) {
   return (lines || []).some((l) => l && l.flattened === true);
 }
 
+// Should a convergence-flagged page actually JOIN the figures flow? Only when
+// the page shows some visual evidence a figure exists — raster paint
+// (`images` ≥ 1) or the colored-fill chart signal. Low convergence alone can
+// be an ornate but purely textual layout (a committee org chart, a nav-heavy
+// section divider): its every word is already in the Markdown, so attaching
+// the page render buys the model nothing. `images` null means the page was
+// never scanned (a sampled large doc) — no evidence either way, so the flag
+// stands as before. Corrupt-table omissions and vector charts join the flow
+// unconditionally (callers OR those in separately): they ARE the evidence.
+export function flattenedWithEvidence(flagged, images, vectorChart) {
+  return !!vectorChart || (!!flagged && (images == null || images >= 1));
+}
+
 // --- Tier 2: column-clustering convergence (confidence signal, SPEC §3.9) ---
 // How cleanly a page's reconstructed content aligns into columns — the same
 // computation that rebuilds columns also scores its own confidence. A real

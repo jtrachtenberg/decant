@@ -382,6 +382,29 @@ test("a text-backed panel texture is a backdrop (density demotion)", () => {
   );
 });
 
+test("flattening debris (many overlapping slabs) is not a figure", () => {
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  // Transparency-flattened artwork: 20 full-width slabs re-painting the same
+  // 400×100pt band (the Discovery scenario-page wave art painted 249 slabs
+  // at overlap 53×). Sum of member areas = 20×400×60 vs box 400×100 → 12×.
+  const slabs = [];
+  for (let i = 0; i < 20; i++) {
+    slabs.push(...placeImage(`img_pD_${i}`, 50, 300 + (i % 5) * 10, 400, 60));
+  }
+  const debris = scanOf(slabs);
+  assert.equal(significantFigureComponents(debris, AREA, { view: A4 }).length, 0);
+  // A partitioned composition of the same footprint (ADR 0010 tiles, sliced
+  // photos) stays: members abut, sum ≈ box.
+  const tiles = scanOf([
+    ...placeImage("img_pT_1", 50, 300, 200, 170),
+    ...placeImage("img_pT_2", 251, 300, 200, 170),
+    ...placeImage("img_pT_3", 50, 471, 200, 170),
+    ...placeImage("img_pT_4", 251, 471, 200, 170),
+  ]);
+  assert.equal(significantFigureComponents(tiles, AREA, { view: A4 }).length, 1);
+});
+
 test("cross-page repeated images are furniture, not figures", () => {
   const A4 = [0, 0, 595, 842];
   const AREA = 595 * 842;

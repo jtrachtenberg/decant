@@ -21,6 +21,7 @@ import {
   columnConvergence,
   classifyDocument,
   hasFlattenedFigure,
+  flattenedWithEvidence,
   selectChartPages,
   shouldScanImages,
   extrapolateImages,
@@ -249,19 +250,27 @@ for (let n = 1; n <= pdf.numPages; n++) {
       // Vector symbol chart (colored categorical fills, values not in text).
       vectorChart = hasVectorChartFills(scan);
       // The crop band the figures flow would use (pdf-figures.js
-      // paddedFigureBox: full page width, the fills' y-range + 48pt pads,
+      // paddedFigureBox: the fills' band + 48pt pads — full page width on
+      // portrait pages, the band's own x-range on landscape slide layouts —
       // skipped past 85% of the page). Recorded for the QA readout below.
       if (vectorChart) {
         const band = vectorChartBox(scan);
         if (band) {
+          const landscape = vx1 - vx0 > vy1 - vy0;
+          const x0 = landscape ? Math.max(vx0, band.x0 - 48) : vx0;
+          const x1 = landscape ? Math.min(vx1, band.x1 + 48) : vx1;
           const y0 = Math.max(vy0, band.y0 - 48);
           const y1 = Math.min(vy1, band.y1 + 48);
-          const frac = (y1 - y0) / (vy1 - vy0);
+          const frac =
+            ((x1 - x0) * (y1 - y0)) / ((vx1 - vx0) * (vy1 - vy0));
           chartBands.push({
             page: n,
+            x0,
+            x1,
             y0,
             y1,
             frac,
+            fullWidth: !landscape,
             crops: frac <= 0.85,
           });
         } else {
@@ -274,8 +283,9 @@ for (let n = 1; n <= pdf.numPages; n++) {
   }
 
   // flattened mirrors the extension's perPage signal (analyzePdf): the
-  // flattened-figure marker (or the vector-chart fill signal) routes the page
-  // into the figures flow even with zero raster images (a pure vector chart).
+  // flattened-figure marker joins the figures flow only with visual evidence
+  // (raster paint or the vector-chart fill signal — flattenedWithEvidence);
+  // a vector chart joins even with zero raster images.
   perPage.push({
     chars,
     images,
@@ -284,7 +294,11 @@ for (let n = 1; n <= pdf.numPages; n++) {
     marker,
     decodable,
     vectorChart,
-    flattened: hasFlattenedFigure(lines) || vectorChart,
+    flattened: flattenedWithEvidence(
+      hasFlattenedFigure(lines),
+      images,
+      vectorChart
+    ),
   });
 }
 
@@ -349,7 +363,8 @@ if (summary.chartPageNumbers.length) {
     console.log(
       `  vector-chart crop p${b.page}: ` +
         (b.crops
-          ? `y ${b.y0.toFixed(0)}–${b.y1.toFixed(0)} (${(b.frac * 100).toFixed(0)}% of page, full width)`
+          ? `y ${b.y0.toFixed(0)}–${b.y1.toFixed(0)} (${(b.frac * 100).toFixed(0)}% of page, ` +
+            (b.fullWidth ? "full width" : `x ${b.x0.toFixed(0)}–${b.x1.toFixed(0)}`) + ")"
           : `whole page (${b.y0 == null ? "no confident band" : `band ${(b.frac * 100).toFixed(0)}% > 85%`})`)
     );
   }
