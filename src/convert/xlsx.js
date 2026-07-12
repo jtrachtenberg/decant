@@ -60,6 +60,7 @@ export function escapeMarkerLabel(text) {
   return String(text ?? "")
     .replace(/[[\]]/g, "")
     .replace(/\s+/g, " ")
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .trim();
 }
