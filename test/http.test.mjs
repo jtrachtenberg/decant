@@ -117,6 +117,21 @@ for (const [name, fetchFn] of [
   });
 }
 
+test("a hung endpoint times out into HttpEngineError (M1)", async () => {
+  // fetch never settles; the timeout must abort and surface a fallback error
+  // rather than hanging the upload forever.
+  const hangs = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () =>
+        reject(new DOMException("aborted", "AbortError"))
+      );
+    });
+  await assert.rejects(
+    httpConvert(upload(), rule(), hangs, 20),
+    (err) => err instanceof HttpEngineError && /timed out/.test(err.message)
+  );
+});
+
 // --- Integration: real engine ↔ real test endpoint over loopback -----------
 
 describe("integration with scripts/mock-endpoint.mjs", () => {

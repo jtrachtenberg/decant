@@ -82,6 +82,7 @@ export function installPassthroughHotkey() {
   document.addEventListener(
     "keydown",
     (e) => {
+      if (!e.isTrusted) return; // ignore page-synthesized key events
       if (matches(e)) {
         e.preventDefault();
         e.stopPropagation();

@@ -66,6 +66,10 @@ export const PDFJS_DOC_OPTIONS = {
   standardFontDataUrl: STANDARD_FONT_DATA_URL,
   wasmUrl: WASM_URL,
   iccUrl: ICC_URL,
+  // The MV3 extension CSP already blocks eval, so pdf.js's runtime feature-probe
+  // fails and it falls back — but state the intent explicitly rather than relying
+  // on the CSP to catch it.
+  isEvalSupported: false,
 };
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));

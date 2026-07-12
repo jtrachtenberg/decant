@@ -488,6 +488,7 @@ function injectViaInput(preferred, files) {
 document.addEventListener(
   "change",
   (ev) => {
+    if (!ev.isTrusted) return; // ignore page-synthesized events
     const target = ev.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "file") return;
     if (ev[SENTINEL]) return;
@@ -557,6 +558,7 @@ function clearDropOverlay(ev) {
 document.addEventListener(
   "drop",
   (ev) => {
+    if (!ev.isTrusted) return; // ignore page-synthesized events
     if (ev[SENTINEL]) return;
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
@@ -605,6 +607,7 @@ document.addEventListener(
 document.addEventListener(
   "paste",
   (ev) => {
+    if (!ev.isTrusted) return; // ignore page-synthesized events
     if (ev[SENTINEL]) return;
     const cd = ev.clipboardData;
     if (!cd) return;
