@@ -2,9 +2,11 @@
 //
 // Default-deny activation (SPEC §7.1): instead of a static content_scripts
 // match, the content script is registered dynamically for exactly the hosts the
-// user has enabled AND granted permission for. This keeps the install prompt
-// minimal (only claude.ai is a required host permission) and lets users add
-// other hosts at runtime via the options page.
+// user has enabled AND granted permission for. The manifest declares the
+// shipped default hosts (claude.ai, chatgpt.com, gemini.google.com,
+// www.perplexity.ai) as host_permissions so they work on install; any other
+// host is added at runtime from the options page via an optional-permission
+// grant, so nothing injects into a site the user hasn't opted into.
 //
 // Registration is kept in sync on install, browser startup, config changes, and
 // permission grants/revocations.

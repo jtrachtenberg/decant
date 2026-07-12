@@ -191,14 +191,14 @@ async function requestEndpointPermission(endpoints) {
 
 function renderRules() {
   rulesEl.replaceChildren();
-  config.routing.rules.forEach((rule, i) => {
+  config.routing.rules.forEach((rule) => {
     const li = document.createElement("li");
 
     const label = document.createElement("label");
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = rule.enabled;
-    cb.addEventListener("change", () => toggleRule(i, cb.checked));
+    cb.addEventListener("change", () => toggleRule(rule, cb.checked));
     const what = document.createElement("span");
     what.className = "rule-what";
     what.textContent = [...rule.match.ext, ...rule.match.mime].join(", ");
@@ -225,24 +225,36 @@ function renderRules() {
     remove.className = "remove";
     remove.textContent = "✕";
     remove.title = "Remove rule";
-    remove.addEventListener("click", () => removeRule(i));
+    remove.addEventListener("click", () => removeRule(rule));
 
     li.append(label, remove);
     rulesEl.append(li);
   });
 }
 
-async function toggleRule(index, enabled) {
-  const rule = config.routing.rules[index];
-  if (!rule) return;
+// toggle/remove operate on the rule OBJECT, not a render-time index: an index
+// captured at render can point at a different rule after a concurrent edit or a
+// double-click during a slow save (splicing the wrong one). The object is a
+// live element of config.routing.rules, so identity stays correct until the
+// next render replaces the row.
+async function toggleRule(rule, enabled) {
+  if (!config.routing.rules.includes(rule)) return;
   rule.enabled = enabled;
   if (!(await commit())) return;
   status(enabled ? "Rule enabled." : "Rule disabled.");
 }
 
-async function removeRule(index) {
-  config.routing.rules.splice(index, 1);
+async function removeRule(rule) {
+  const i = config.routing.rules.indexOf(rule);
+  if (i === -1) return; // already gone (double-click) — no-op
+  config.routing.rules.splice(i, 1);
   if (!(await commit())) return;
+  // Release the endpoint's host permission if no remaining rule still uses that
+  // origin — otherwise a deleted rule's grant lingers forever (L5).
+  const origin = rule.endpoint && originPattern(rule.endpoint);
+  if (origin && !config.routing.rules.some((r) => r.endpoint && originPattern(r.endpoint) === origin)) {
+    await browser.permissions.remove({ origins: [origin] }).catch(() => {});
+  }
   status("Rule removed.");
 }
 
@@ -304,6 +316,16 @@ async function addRule() {
     ? await requestEndpointPermission([rule.endpoint])
     : true;
 
+  // routeFile is first-enabled-match and new rules append, so an earlier enabled
+  // rule matching the same type shadows this one — it would render as active but
+  // never run. Warn (still add) since there's no reorder UI (L1).
+  const shadow = config.routing.rules.find(
+    (r) =>
+      r.enabled &&
+      ([...mime].some((t) => r.match.mime.includes(t)) ||
+        [...ext].some((t) => r.match.ext.includes(t)))
+  );
+
   config.routing.rules.push(rule);
   matchInput.value = "";
   endpointInput.value = "";
@@ -311,11 +333,18 @@ async function addRule() {
   document.getElementById("new-onempty").value = "";
   syncRuleForm();
   if (!(await commit())) return;
-  status(
-    granted
-      ? "Rule added."
-      : "Rule added — endpoint permission declined, so matching files use the fallback until it's granted."
-  );
+  if (shadow) {
+    const type = [...shadow.match.ext, ...shadow.match.mime][0] || "that type";
+    status(
+      `Rule added, but an earlier enabled rule already handles ${type}, so this one won't run until you remove or disable the earlier one.`
+    );
+  } else {
+    status(
+      granted
+        ? "Rule added."
+        : "Rule added — endpoint permission declined, so matching files use the fallback until it's granted."
+    );
+  }
 }
 
 // ------------------------------------------------------------ JSON config ---

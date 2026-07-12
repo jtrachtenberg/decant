@@ -11,7 +11,9 @@ per-file-type control over what happens.
 ## Decision
 
 **Default-deny activation** — Decant is inert on any page unless its host or URL
-is explicitly whitelisted (ships with `claude.ai` enabled). **Per-type routing** —
+is explicitly whitelisted (ships with `claude.ai`, `chatgpt.com`,
+`gemini.google.com`, and `www.perplexity.ai` enabled as the default LLM hosts;
+other common hosts are pre-listed but off). **Per-type routing** —
 files are matched by MIME/extension to one of `inbrowser`, `companion`, `http`,
 or `passthrough`, with `passthrough` the default for unmatched types. PDFs and
 Word docs default to Markdown conversion.
