@@ -31,6 +31,7 @@
 import { restrictedSandbox } from "./rs-shim.js"; // must precede the pdf.js import chain
 import { convertFile, convertViaCompanion } from "../convert/index.js";
 import { companionAvailable, dedupeFileNames } from "../convert/result.js";
+import { routeFile } from "../router/route.js";
 import {
   extractFigures,
   figuresSupported,
@@ -484,6 +485,26 @@ function injectViaInput(preferred, files) {
   input.dispatchEvent(change);
 }
 
+// Serialize batches across separate upload events. Within a batch injection is
+// already all-or-nothing, but two *concurrent* resolveAndInject calls (a slow
+// PDF still converting when a second file is dropped) would each assign the
+// hidden input's .files, and the second overwrites the first — losing a batch on
+// any site that copies input.files asynchronously. Chaining keeps them
+// sequential; a batch's own failure is caught so it never stalls the chain. A
+// single multi-file drop is one batch, so ordinary multi-file uploads are
+// unaffected — only genuinely separate events queue.
+let injectChain = Promise.resolve();
+function queueInject(preferred, files, label) {
+  const run = injectChain.then(() =>
+    resolveAndInject(preferred, files).catch((err) => {
+      console.warn(TAG, `resolveAndInject failed (${label}):`, err);
+      showAttachFailureNotice(files.map((f) => f.name));
+    })
+  );
+  injectChain = run.catch(() => {}); // keep the chain alive regardless of outcome
+  return run;
+}
+
 // ---------------------------------------------------------------- change ---
 document.addEventListener(
   "change",
@@ -505,13 +526,10 @@ document.addEventListener(
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
 
-    // Fire-and-forget, but never silently: the native event is already blocked,
-    // so any unexpected throw must surface as an attach-failure notice rather
-    // than a swallowed upload.
-    resolveAndInject(target, originals).catch((err) => {
-      console.warn(TAG, "resolveAndInject failed (change):", err);
-      showAttachFailureNotice(originals.map((f) => f.name));
-    });
+    // Serialized + never silent: the native event is already blocked, so any
+    // unexpected throw must surface as an attach-failure notice, and concurrent
+    // batches must not clobber each other's FileList (see queueInject).
+    queueInject(target, originals, "change");
   },
   true
 );
@@ -590,10 +608,7 @@ document.addEventListener(
 
     // (a) Convert, then inject through the hidden input. The input is resolved
     // at injection time (see injectViaInput), after the async conversion.
-    resolveAndInject(null, originals).catch((err) => {
-      console.warn(TAG, "resolveAndInject failed (drop):", err);
-      showAttachFailureNotice(originals.map((f) => f.name));
-    });
+    queueInject(null, originals, "drop");
   },
   true
 );
@@ -623,6 +638,21 @@ document.addEventListener(
     }
     if (originals.length === 0) return; // text-only paste — leave it alone
 
+    // Office cell copies (Excel/Word) put text/plain + text/html on the
+    // clipboard AND an image/png rendition in .files. If the clipboard carries
+    // text and none of its files would actually convert, the user meant to paste
+    // the text — hijacking it to attach the image rendition drops what they
+    // wanted. Only intercept when a file would route to conversion, or when
+    // there's no text alternative (a pure image/file paste, e.g. a screenshot).
+    const hasText = Array.from(cd.types || []).includes("text/plain");
+    const willConvert = originals.some(
+      (f) => routeFile(f, routing).action !== "passthrough"
+    );
+    if (hasText && !willConvert) {
+      console.log(TAG, "paste has text and no convertible file → leaving native paste");
+      return;
+    }
+
     // Site adapter: same reasoning as the drop path.
     if (adapter.interceptPaste === false) {
       consumePassthrough();
@@ -641,10 +671,7 @@ document.addEventListener(
     ev.stopImmediatePropagation();
 
     // Input resolved at injection time (see injectViaInput).
-    resolveAndInject(null, originals).catch((err) => {
-      console.warn(TAG, "resolveAndInject failed (paste):", err);
-      showAttachFailureNotice(originals.map((f) => f.name));
-    });
+    queueInject(null, originals, "paste");
   },
   true
 );
