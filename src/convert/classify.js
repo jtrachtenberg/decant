@@ -298,20 +298,30 @@ export function reconstructPage(items, columnHint = null) {
   if (grid && (gridIsPageColumns(grid, glyphs) || gridWrapsLikeProse(grid)))
     grid = null;
   if (grid) {
-    const yTop = Math.max(...grid.rows.map((r) => r.y1));
+    // Exclude the grid's OWN glyphs by identity, then split the rest at the
+    // grid's baseline span. The old code split on glyph *edges* (`y1` =
+    // baseline + height) with a 1pt slop, which left a dead zone up to one
+    // glyph-height tall above the grid: a non-grid line whose baseline fell in
+    // (topRowBaseline, y1] landed in NEITHER recursive band nor gridLines, so
+    // its text vanished with no marker (e.g. an 8pt caption 10pt above a 12pt
+    // table header). detectGrid takes the longest consecutive run of aligned
+    // rows, so no non-grid line's baseline sits between the grid's top and
+    // bottom baselines — every remaining glyph is cleanly above yTop or below
+    // yBot. Excluding grid glyphs by set keeps the recursion strictly smaller
+    // (so it terminates) regardless of per-glyph baseline jitter.
+    const gridGlyphs = new Set(grid.rows.flatMap((r) => r.boxes.map((b) => b.g)));
+    const yTop = Math.max(...grid.rows.map((r) => r.y0));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
     // The prose above/below the grid still deserves the full reconstruction —
     // WHO-doc p17 is two-column body text above a figure's label grid, and
     // assembling those bands as plain y-order lines interleaves the columns.
-    // Each band is just a smaller page, so recurse (terminates: the grid's own
-    // glyphs are excluded from both bands, so any nested grid is a different,
-    // strictly smaller band).
+    // Each band is just a smaller page, so recurse.
     const above = reconstructPage(
-      glyphs.filter((g) => g.transform[5] > yTop + 1),
+      glyphs.filter((g) => !gridGlyphs.has(g) && g.transform[5] > yTop),
       columnHint
     );
     const below = reconstructPage(
-      glyphs.filter((g) => g.transform[5] < yBot - 1),
+      glyphs.filter((g) => !gridGlyphs.has(g) && g.transform[5] < yBot),
       above.gutter ?? columnHint
     );
     return {
@@ -513,7 +523,8 @@ function railTable(flat, glyphs) {
   // sets sawTable, which would bypass the symbol-rail split veto and accept
   // the very split that orphaned the rail from its entries. No running text
   // may start on the rail band itself, and the band must hug the text band
-  // from the left across a corridor of at most RAIL_REACH heights.
+  // from the left across a corridor of at most RAIL_REACH heights. (ADR-0014
+  // documents this exclusion as load-bearing — see the review's H6 note.)
   const rest = boxes.filter((b) => !RAIL_TAG_RE.test(b.g.str.trim()));
   if (!rest.length) return null;
   if (rest.some((b) => Math.abs(b.x0 - bandX0) <= RAIL_X_TOL * med))

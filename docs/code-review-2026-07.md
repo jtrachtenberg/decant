@@ -73,34 +73,43 @@ composer at a completely unexpected moment. Fixed by resolving a superseded
 prompt as a dismissal (`"original"`) and detaching its listener before the new
 one opens.
 
-### H5. Grid band-split silently deletes glyphs in a dead zone above a detected table
-`src/convert/classify.js:301-315` — *recommended, needs fixture*
+### H5. Grid band-split silently deleted glyphs in a dead zone above a detected table **[fixed]**
+`src/convert/classify.js:301-315`
 
-When a grid (table) is detected, the "above" and "below" prose bands are rebuilt
+When a grid (table) was detected, the "above"/"below" prose bands were rebuilt
 by recursion, filtered with `g.transform[5] > yTop + 1` and `< yBot - 1`, where
 `yTop = max(row.y1)` is the grid's top row baseline **plus a full glyph height**
 (`toBox` sets `y1 = baseline + height`, classify.js:1435). Any non-grid line
-whose baseline falls in `(gridTopBaseline, yTop + 1]` is excluded from *both*
-bands and from `gridLines`, so it vanishes with no marker. Trigger: a caption or
-sub-head set tighter than the grid's tallest top-row glyph — e.g. an 8 pt
-caption 10 pt above a 12 pt table header (`10 ≤ 12 + 1` → dropped). The below
-side is protected by `groupRows` half-height separation; the above side is not.
-Fix direction: derive `yTop`/`yBot` from the grid rows' baselines (transform[5])
-rather than `y1`, or route excluded-but-present glyphs into the nearest band.
+whose baseline fell in `(gridTopBaseline, yTop + 1]` was excluded from *both*
+bands and from `gridLines`, so it vanished with no marker — e.g. an 8 pt caption
+10 pt above a 12 pt table header (`10 ≤ 12 + 1` → dropped). Fixed by excluding
+the grid's own glyphs by identity (a Set) and splitting the rest at the grid's
+baseline span rather than its glyph edges. `detectGrid` takes the longest
+consecutive run of aligned rows, so no non-grid line's baseline sits between the
+grid's top and bottom baselines — every remaining glyph is cleanly above or
+below, and the Set keeps the recursion strictly smaller so it still terminates.
 
-### H6. Tag-rail table drops every chip outside the single winning band
-`src/convert/classify.js:487-505, 517, 570-587` — *recommended, needs fixture*
+### H6. Tag-rail "single winning band" exclusion — re-examined, **not a bug** (intentional per ADR-0014)
+`src/convert/classify.js:487-505`
 
-`railTable` builds output rows from `rest` (non-chip boxes) plus `best` (the one
-tightest start-x cluster of chip glyphs), and `rest` excludes **all** chip-like
-`[A-Za-z]{1,2}` boxes region-wide. So a second rail column (items tagged with two
-pillars, "G RM" side by side, where the chip pitch exceeds `RAIL_X_TOL`) has its
-second column in neither `best` nor `rest` — every "RM" tag disappears, and the
-table confidently reports half the tags. Standalone short words ("of", "UK")
-pdf.js emits as their own item are lost the same way. This defeats the plural
-"chips in the first cell" promise of ADR-0014. Fix direction: gather all chip
-bands to the left of the text column (not just the tightest one) and join per
-row; only exclude short words that actually sit in a chip band.
+This was flagged as a silent-drop: `railTable` builds rows from `rest` (non-chip
+boxes) plus `best` (the one tightest chip cluster), and `rest` excludes **all**
+chip-like `[A-Za-z]{1,2}` boxes, so a hypothetical second rail column ("G RM"
+side by side) would land in neither. On investigation this is **by design**, and
+overriding it regresses the format. ADR-0014's "Decision" section documents the
+exclusion as a hard-learned guard: *"the rail-table's 'text side' must exclude
+ALL chip-like boxes, not just the winning band — a region holding nothing but an
+R-rail beside an S-rail … must not emit as a `| R | S |` table, because
+`sawTable` bypasses [the symbol-rail split] veto and locks the bad split in."*
+Real rails carry **one** 1–2-letter chip per item (G/RM/S/MT are *alternatives*,
+per the ADR's own description), not two side-by-side; the `| R | S |` case the
+finding imagined is exactly what the guard exists to reject. A prototype fix
+(admit all chip bands left of the text column) was written, tested, and
+**reverted** when it proved to contradict the ADR. One genuine but *low*-severity
+residue remains: a standalone 1–2-letter token that pdf.js emits as its own item
+*inside* the item text (e.g. "UK") is excluded from `rest` and dropped. It's rare
+and narrow; any future fix must rescue only tokens inside the text column without
+re-widening rail membership (which would trip the ADR-0014 guard).
 
 ---
 

@@ -75,6 +75,29 @@ test("an aligned 3-column grid becomes a pipe table (row-major)", () => {
   assert.doesNotMatch(md, /low structural confidence/i);
 });
 
+test("a caption in the dead zone just above a grid is not dropped (H5)", () => {
+  // The caption's baseline sits ~8pt above the grid's top-row baseline — inside
+  // the old (baseline + glyph-height) exclusion band, so the old split dropped
+  // it from both recursive bands with no marker. It must now survive.
+  const items = [];
+  items.push(item("Table 3: quarterly regional results", 0, 208, { w: 220 }));
+  const rows = [
+    ["Region", "Q1", "Notes here are long enough to defeat the short-cell rule"],
+    ["North", "100", "on track for the quarter and beyond, comfortably now"],
+    ["South", "80", "supply issue affecting the southern distribution hub"],
+    ["East", "60", "recovering after the outage earlier in the period now"],
+  ];
+  rows.forEach((r, i) => {
+    const y = 200 - i * 15;
+    items.push(item(r[0], 0, y, { w: 40 }));
+    items.push(item(r[1], 120, y, { w: 20 }));
+    items.push(item(r[2], 180, y, { w: 300 }));
+  });
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /Table 3: quarterly regional results/); // caption survives
+  assert.match(md, /\| Region \| Q1 \| Notes/); // grid still reconstructs
+});
+
 test("low-confidence marker fires when tabular columns collapse (not a clean grid)", () => {
   // A tall 2-column short-cell table: detectGrid needs >= 3 columns, so this
   // isn't cleanly reconstructed; the prose column-split reads it column-major,
