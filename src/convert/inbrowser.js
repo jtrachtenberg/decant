@@ -38,6 +38,8 @@ import {
   countSignificantImages,
   hasVectorChartFills,
   textPointsFromItems,
+  imageDimsKey,
+  REPEATED_DIMS_MIN_PAGES,
 } from "./raster-gate.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
@@ -103,6 +105,11 @@ export async function analyzePdf(file) {
 
   const perPage = [];
   const pageMarkdown = [];
+  // The repeated-image census (raster-gate.js isRepeatedImage): intrinsic-dims
+  // fingerprints seen on REPEATED_DIMS_MIN_PAGES+ pages. Filled by the first
+  // pass, consumed by every page's significance judgment, and carried on the
+  // summary so the figure paths (pdf-figures.js) frame crops the same way.
+  const repeatedDims = new Set();
   // Column gutter carried page-to-page, so a page-break remainder (too short
   // for detection on its own) still reflows column-first.
   let gutter = null;
@@ -111,16 +118,35 @@ export async function analyzePdf(file) {
     // pages (running headers, nav rails) so reconstruction below can drop it.
     // Item arrays are cached for the second pass on ordinarily-sized docs;
     // past the analysis ceiling only the counts are kept (memory stays flat)
-    // and the text is re-extracted below.
+    // and the text is re-extracted below. Operator lists are scanned in the
+    // same pass (sampled like everything image-related) to build the
+    // repeated-image census: intrinsic dims recurring across pages mark an
+    // image as decoration (raster-gate.js isRepeatedImage), and the census
+    // must be complete before any single page's figures are judged.
     const furniture = createFurnitureDetector();
     const cache = pageCount <= MAX_ANALYZE_PAGES ? [] : null;
+    const scans = new Map(); // page number → { scan, images }, sampled pages
+    const dimsPages = new Map(); // imageDimsKey → Set of page numbers
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
       const { items } = await page.getTextContent();
       furniture.addPage(items);
       cache?.push(items);
+      if (!shouldScanImages(n, pageCount)) continue;
+      const scanned = await scanPage(page);
+      if (!scanned) continue;
+      scans.set(n, scanned);
+      for (const x of scanned.scan.xobjects) {
+        if (x.w == null || x.h == null) continue;
+        const key = imageDimsKey(x.w, x.h);
+        if (!dimsPages.has(key)) dimsPages.set(key, new Set());
+        dimsPages.get(key).add(n);
+      }
     }
     const furnitureKeys = furniture.keys();
+    for (const [key, pages] of dimsPages) {
+      if (pages.size >= REPEATED_DIMS_MIN_PAGES) repeatedDims.add(key);
+    }
 
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
@@ -133,7 +159,7 @@ export async function analyzePdf(file) {
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output.
       const scan = shouldScanImages(n, pageCount)
-        ? await countImages(page, items)
+        ? judgePageImages(page, scans.get(n), items, repeatedDims)
         : null;
       const images = scan ? scan.images : null;
       const label = pageLabels?.[n - 1] ?? n;
@@ -174,6 +200,10 @@ export async function analyzePdf(file) {
   // Ride the label table on the summary so the figure paths (mini-PDF stamps,
   // association footer) can label pages the way the document itself does.
   if (pageLabels) summary.pageLabels = pageLabels;
+  // Ride the repeated-image census too: the figure paths re-derive each page's
+  // significant components for crop framing / decode gating, and must demote
+  // the same decoration classification did or the crop frames the wrong thing.
+  if (repeatedDims.size) summary.repeatedImageDims = [...repeatedDims];
   const markdown =
     decision === "convert" || decision === "ambiguous"
       ? pageMarkdown.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"
@@ -182,31 +212,50 @@ export async function analyzePdf(file) {
   return { decision, reason, summary, markdown };
 }
 
-// Count raster-image paint operations on a page without rasterizing, plus
-// how many read as SIGNIFICANT figures (figure-sized on the page, really
-// pixel-bearing — raster-gate.js). Same operator list, one extra pure walk;
-// the significance count is what lets classification prompt on a single real
-// chart while staying quiet for a lone logo.
-//
-// `textItems` (getTextContent().items, already in hand at the call site)
-// feeds the background demotion: an image the page's text is printed OVER is
-// a backdrop, not a figure. Also reports vectorChart — the colored-fill
-// symbol-chart signal (raster-gate.js hasVectorChartFills).
-async function countImages(page, textItems = null) {
+// Walk a page's operator list without rasterizing: the raw raster-paint-op
+// count plus the raster-gate scan (figure boxes, colored fills). Runs in the
+// census pass so every page's xobject dims are known before any page is
+// judged. Null when the operator list is unavailable.
+async function scanPage(page) {
   try {
     const ops = await page.getOperatorList();
     let images = 0;
     for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
-    const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
-    const [vx0, vy0, vx1, vy1] = page.view;
-    const textPoints = textPointsFromItems(textItems);
-    const figureImages = countSignificantImages(
-      scan,
-      (vx1 - vx0) * (vy1 - vy0),
-      { view: page.view, textPoints }
-    );
-    return { images, figureImages, vectorChart: hasVectorChartFills(scan) };
+    return {
+      images,
+      scan: scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
+    };
   } catch {
-    return { images: 0, figureImages: 0, vectorChart: false }; // operator list unavailable
+    return null;
   }
+}
+
+// The judgment half of what used to be one countImages call: how many of the
+// scanned page's raster components read as SIGNIFICANT figures (figure-sized,
+// really pixel-bearing, not decoration — raster-gate.js). The significance
+// count is what lets classification prompt on a single real chart while
+// staying quiet for a lone logo.
+//
+// `textItems` (furniture-stripped getTextContent().items) feeds the
+// background/text-density demotions: an image the page's text is printed OVER
+// is a backdrop, not a figure. `repeatedDims` (the document census) demotes
+// cross-page decoration. Also reports vectorChart — the colored-fill
+// symbol-chart signal (raster-gate.js hasVectorChartFills).
+function judgePageImages(page, scanned, textItems, repeatedDims) {
+  if (!scanned) return { images: 0, figureImages: 0, vectorChart: false };
+  const [vx0, vy0, vx1, vy1] = page.view;
+  const figureImages = countSignificantImages(
+    scanned.scan,
+    (vx1 - vx0) * (vy1 - vy0),
+    {
+      view: page.view,
+      textPoints: textPointsFromItems(textItems),
+      repeatedDims,
+    }
+  );
+  return {
+    images: scanned.images,
+    figureImages,
+    vectorChart: hasVectorChartFills(scanned.scan),
+  };
 }
