@@ -8,12 +8,25 @@
 // Pattern-based like the format engines (no DOMParser in Node); the DrawingML
 // chart schema uses stable `c:`/`a:` prefixes across producers.
 
+// Upper bound on the dense point array a single series can materialize. Real
+// charts have at most a few thousand points; anything past this is corrupt or
+// hostile and its excess points are dropped rather than allocated.
+const MAX_CHART_POINTS = 100_000;
+
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 export function decodeEntities(s) {
   return s.replace(/&(amp|lt|gt|quot|apos|#x?[0-9a-f]+);/gi, (m, e) => {
     if (ENTITIES[e.toLowerCase()]) return ENTITIES[e.toLowerCase()];
     const code = e[1]?.toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+    // fromCodePoint throws for values above 0x10FFFF (and lone surrogates); a
+    // malformed numeric entity must not abort the whole conversion, so fall
+    // back to the raw text.
+    if (!Number.isFinite(code)) return m;
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return m;
+    }
   });
 }
 
@@ -72,8 +85,22 @@ function cachePoints(serXml, tag) {
     ...block[0].matchAll(/<c:pt\b[^>]*\bidx="(\d+)"[^>]*>[\s\S]*?<c:v>([\s\S]*?)<\/c:v>/g),
   ];
   if (!pts.length) return null;
-  const arr = Array(Math.max(...pts.map((p) => Number(p[1]))) + 1).fill("");
-  for (const p of pts) arr[Number(p[1])] = decodeEntities(p[2]).trim();
+  // `idx` comes straight from the document, so a hostile/corrupt part can carry
+  // a huge value (e.g. idx="99999999"). Sizing the dense array from it would
+  // force a multi-GB allocation and crash the tab — the one failure the
+  // passthrough guarantee can't survive. Compute the max without spreading a
+  // (potentially enormous) argument list, and cap the dense array.
+  let maxIdx = 0;
+  for (const p of pts) {
+    const n = Number(p[1]);
+    if (n > maxIdx) maxIdx = n;
+  }
+  const size = Math.min(maxIdx + 1, MAX_CHART_POINTS);
+  const arr = Array(size).fill("");
+  for (const p of pts) {
+    const i = Number(p[1]);
+    if (i < size) arr[i] = decodeEntities(p[2]).trim();
+  }
   return arr;
 }
 

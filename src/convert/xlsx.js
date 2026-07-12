@@ -62,7 +62,9 @@ export function rowsToMarkdownTable(rows) {
       .trim();
   const grid = rows.map((r) => (Array.isArray(r) ? r.map(cell) : []));
   while (grid.length && grid[grid.length - 1].every((c) => !c)) grid.pop();
-  let width = Math.max(0, ...grid.map((r) => r.length));
+  // Reduce, not `Math.max(...spread)`: a tall sheet spreads one argument per
+  // row and overflows the call stack past ~125k rows.
+  let width = grid.reduce((w, r) => (r.length > w ? r.length : w), 0);
   while (width > 0 && grid.every((r) => !(r[width - 1] || "").length)) width--;
   if (!grid.length || width === 0) return "";
 

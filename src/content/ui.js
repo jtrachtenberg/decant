@@ -20,11 +20,20 @@ const FAILURE_ID = "decant-attach-failure";
 const CONVERTING_ID = "decant-converting-badge";
 const SAVINGS_ID = "decant-savings-badge";
 
+// The dismiss callback of the prompt currently on screen, if any. A new prompt
+// supersedes the old one; we must resolve the old promise (never just remove
+// its host) or its awaiting upload batch is stranded and its capture-phase
+// keydown listener leaks — a later Escape would then inject that batch at an
+// unexpected moment.
+let activePromptDismiss = null;
+
 export function promptConvertChoice(results, options = {}) {
   const companion = !!options.companion;
   const figures = !!options.figures;
   return new Promise((resolve) => {
-    // Only one prompt at a time — replace any existing one.
+    // Only one prompt at a time — resolve any existing one as a dismissal
+    // ("original", the safe default) before replacing it.
+    if (activePromptDismiss) activePromptDismiss();
     document.getElementById(HOST_ID)?.remove();
 
     const host = document.createElement("div");
@@ -125,14 +134,17 @@ export function promptConvertChoice(results, options = {}) {
     const finish = (choice, remember) => {
       if (done) return;
       done = true;
+      if (activePromptDismiss === dismiss) activePromptDismiss = null;
       document.removeEventListener("keydown", onKey, true);
       host.remove();
       resolve({ choice, remember: !!remember });
     };
+    const dismiss = () => finish("original", false);
+    activePromptDismiss = dismiss;
     const onKey = (e) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        finish("original", false); // dismissal — never persists a default
+        dismiss(); // dismissal — never persists a default
       }
     };
 

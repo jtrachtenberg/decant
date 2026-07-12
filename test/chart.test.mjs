@@ -67,6 +67,40 @@ test("parseChartXml decodes entities in names, categories, and values", () => {
   ]);
 });
 
+test("parseChartXml bounds a hostile idx instead of allocating from it", () => {
+  // A crafted part with a huge idx must not force a multi-GB dense array (which
+  // would crash the tab before the passthrough catch can run). The parse should
+  // return quickly with the in-range point kept and the out-of-range one dropped.
+  const t0 = Date.now();
+  const parsed = parseChartXml(
+    chartPart(
+      "",
+      `<c:ser>
+        <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="99999999"><c:v>9</c:v></c:pt></c:numCache></c:val>
+      </c:ser>`
+    )
+  );
+  assert.ok(Date.now() - t0 < 2000, "parse must not hang on a hostile idx");
+  assert.equal(parsed.rows[0].length, 2); // Category + one series
+  assert.equal(parsed.rows[1][1], "1"); // in-range point survives
+  assert.ok(parsed.rows.length <= 100_001); // capped, not ~100M rows
+});
+
+test("parseChartXml survives an out-of-range numeric entity", () => {
+  // fromCodePoint throws above 0x10FFFF; a malformed entity must not abort the
+  // whole conversion — the raw text is kept.
+  const parsed = parseChartXml(
+    chartPart(
+      "",
+      `<c:ser>
+        <c:cat><c:strCache><c:pt idx="0"><c:v>bad &#x110000; here</c:v></c:pt></c:strCache></c:cat>
+        <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:val>
+      </c:ser>`
+    )
+  );
+  assert.equal(parsed.rows[1][0], "bad &#x110000; here");
+});
+
 test("parseChartXml returns null when there's no usable cached data", () => {
   assert.equal(parseChartXml("<c:chartSpace></c:chartSpace>"), null);
   assert.equal(parseChartXml("<c:chartSpace><c:ser></c:ser></c:chartSpace>"), null);
