@@ -52,6 +52,13 @@ export function estimateSavings(result) {
   return { savedTokens, markdownTokens, originalTokens };
 }
 
+// Compact token count for display: 500 → "500", 1500 → "1.5k", 25000 → "25k".
+// Shared by the post-conversion badge and the options page's lifetime total.
+export function formatTokens(n) {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
 // Sum the estimable savings across a batch of converted results. Returns
 // { savedTokens, originalTokens, percent, files } or null if nothing was
 // estimable (e.g. a batch of only DOCX conversions).

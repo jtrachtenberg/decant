@@ -54,6 +54,7 @@ import {
   showSavingsBadge,
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
+import { creditOnSubmit } from "./submit-credit.js";
 import { loadConfig, saveConfig, onConfigChanged } from "../config/config.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
@@ -425,7 +426,7 @@ async function resolveAndInject(preferredInput, fileArray) {
   // same-stem uploads (a.pdf + a.docx → a.md), which some uploaders dedupe by
   // dropping one.
   const files = dedupeFileNames([...immediate, ...chosen]);
-  if (files.length) injectViaInput(preferredInput, files);
+  const injected = files.length ? injectViaInput(preferredInput, files) : false;
 
   // Estimated token savings (the eliminated PDF page-image layer) — a brief
   // positive badge after a successful conversion.
@@ -433,6 +434,10 @@ async function resolveAndInject(preferredInput, fileArray) {
   if (savings) {
     console.log(TAG, `est. savings: ~${savings.savedTokens} tokens (~${savings.percent}%)`);
     if (showSavings) showSavingsBadge(savings);
+    // Lifetime counter: armed only for a batch that actually made it into the
+    // upload, and credited only when the message is sent (see submit-credit.js)
+    // — a converted file abandoned in the composer never counts.
+    if (injected) creditOnSubmit(savings.savedTokens);
   }
 }
 
@@ -467,6 +472,7 @@ function logResult(f, r) {
 // change event (the right one when still connected); drop/paste pass null.
 // If no usable input exists at all, surface a visible notice — a swallowed
 // attach with no feedback is the worst failure mode this extension can have.
+// Returns whether the files reached an input (the savings credit keys off it).
 function injectViaInput(preferred, files) {
   const input =
     preferred && preferred.isConnected ? preferred : findUsableFileInput();
@@ -477,12 +483,13 @@ function injectViaInput(preferred, files) {
       files.map((f) => f.name)
     );
     showAttachFailureNotice(files.map((f) => f.name));
-    return;
+    return false;
   }
   input.files = dataTransferWith(files).files;
   const change = new Event("change", { bubbles: true });
   change[SENTINEL] = true;
   input.dispatchEvent(change);
+  return true;
 }
 
 // Serialize batches across separate upload events. Within a batch injection is

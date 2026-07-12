@@ -14,6 +14,8 @@
 // Dismissing it (Escape / the X) resolves to choice "original" — the safe
 // default that never drops chart content.
 
+import { formatTokens } from "../convert/savings.js";
+
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
 const FAILURE_ID = "decant-attach-failure";
@@ -253,11 +255,6 @@ export function showConvertingBadge(fileName, verb = "converting") {
 // dismisses; same shadow-root pattern. `savings` is aggregateSavings()'s
 // result: { savedTokens, percent, files }.
 const SAVINGS_TIMEOUT_MS = 6000;
-
-function formatTokens(n) {
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
 
 export function showSavingsBadge(savings) {
   document.getElementById(SAVINGS_ID)?.remove();
