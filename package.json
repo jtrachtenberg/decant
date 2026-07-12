@@ -4,6 +4,16 @@
   "private": true,
   "description": "Convert files to Markdown before they upload to LLM chat UIs.",
   "type": "module",
+  "imports": {
+    "#pdfjs": {
+      "browser": "pdfjs-dist/build/pdf.mjs",
+      "node": "pdfjs-dist/legacy/build/pdf.mjs",
+      "default": "pdfjs-dist/build/pdf.mjs"
+    }
+  },
+  "bin": {
+    "decant": "src/cli/decant.mjs"
+  },
   "scripts": {
     "build": "node build.mjs",
     "build:firefox": "node build.mjs --firefox",
