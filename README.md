@@ -297,10 +297,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
     ([ADR 0014](./docs/adr/0014-tag-rail-row-binding.md)); and decoration
     stops attaching as figures — images reused across pages (background-art
     sets, gradient strips) demote via a document-level census extending the
-    decode gate's repetition rule to classification, and panel textures the
-    page's text is printed over demote by text density, halving one corpus
-    doc's attachments to exactly its real photos/charts and un-breaking two
-    crops the panels had inflated to whole-page copies
+    decode gate's repetition rule to classification, panel textures the
+    page's text is printed over demote by text density,
+    transparency-flattener debris demotes by paint overlap, the Tier 2
+    convergence flag attaches only with visual evidence, and vector-chart
+    bands crop to their own panel on landscape slide layouts — cutting one
+    corpus doc's attachments 18 → 10, exactly its real photos/charts, with
+    crops framing the figure instead of the page
     ([ADR 0015](./docs/adr/0015-repeated-image-and-text-density-demotion.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already

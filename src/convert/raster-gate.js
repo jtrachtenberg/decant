@@ -202,15 +202,31 @@ export const BACKGROUND_MIN_TEXT_CHARS = 50;
 // the page's text, nowhere near 85%), but density does: a box whose interior
 // carries text at a comparable per-area rate to the page overall is a text
 // backdrop, while a real raster figure is text-free inside (its labels are
-// pixels) save for a stray caption. Field calibration (Discovery climate
-// report): every text-backed panel scored 0.98–2.1× the page's density, every
-// genuine photo/chart/scan ≤0.39× — 0.7 splits them with margin on both
-// sides, biased high because this demotion REMOVES a figure (the costly
-// direction), so only clearly text-backed boxes may fire.
-export const BACKGROUND_TEXT_DENSITY_RATIO = 0.7;
-// Density floor: a caption inside a big photo is a few dozen chars — well
-// under body-panel territory (the calibrated panels held 389–1134 chars).
+// pixels) save for a stray caption. Field calibration (6-doc corpus sweep):
+// text-backed panels scored 0.54–2.1× the page's density, every genuine
+// photo/chart/scan ≤0.39× (worst keepers: a scanned-table region at 0.39, a
+// solar photo at 0.17). 0.5 sits in the gap; the demotion REMOVES a figure
+// (the costly direction), so the char floor below carries the safety margin —
+// the CERN chart pages whose annotation text reads at 1.2–1.4× density hold
+// only 130–160 chars and never reach the floor.
+export const BACKGROUND_TEXT_DENSITY_RATIO = 0.5;
+// Density floor: a caption or a chart's own annotations inside a figure box
+// are at most a couple hundred chars — the calibrated text-backed panels held
+// 306–1134. This floor, not the ratio, is what keeps label-dense real charts
+// (CERN pp6–7) out of the demotion.
 export const BACKGROUND_TEXT_DENSITY_MIN_CHARS = 250;
+
+// --- Flattening-debris components (the Discovery scenario-page wave art) ----
+// Transparency flattening exports soft/gradient artwork as DOZENS of
+// overlapping raster slabs — one page painted 249 XObjects into a 617×92pt
+// band. Merged, they read as a single significant component that no other
+// gate can see through (the union is figure-sized, page-claiming, text-free).
+// The tell is paint overlap: debris members RE-COVER the same region over and
+// over (member-area sum ≈ 53× the component box), while every legitimate
+// multi-paint composition PARTITIONS its footprint — ADR 0010 art tiles,
+// strip-sliced photos and double-painted images all measure ≤ 1.7×. 4 splits
+// the two populations with more than 2× margin on either side.
+export const DEBRIS_OVERLAP_RATIO = 4;
 
 // --- Cross-page repeated-image demotion (the Discovery contents-page FPs) ---
 // The decode gate's G3 insight (ADR 0007) applied to significance itself: an
@@ -657,6 +673,12 @@ export function significantFigureComponents(scan, pageArea = null, opts = {}) {
     if (!figureSized(c)) return false;
     if (!claimsPageArea(c, pageArea)) return false;
     if (isBackgroundImage(c, opts)) return false;
+    // Flattening debris: many members re-painting the same region
+    // (DEBRIS_OVERLAP_RATIO above). Legit compositions partition (~1×).
+    if (c.members.length > 1) {
+      const sum = c.members.reduce((s, m) => s + boxArea(m.box), 0);
+      if (sum >= DEBRIS_OVERLAP_RATIO * boxArea(c)) return false;
+    }
     const only = c.members.length === 1 ? c.members[0].xobject : null;
     if (only && only.w != null && only.h != null) {
       if (Math.min(only.w, only.h) < MIN_INTRINSIC_PX) return false;
