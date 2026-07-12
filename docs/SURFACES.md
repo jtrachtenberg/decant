@@ -44,6 +44,19 @@ review are still required — that cost doesn't go away — but the hardware/Xco
 barrier does. Lowest-effort expansion group overall; Brave/Edge first, Firefox
 next, Safari no longer blocked on hardware.
 
+**Command line (headless conversion).** Sanctioned-tool paradigm. A terminal
+build of the conversion core: name a file, get the Markdown Decant would produce
+in the browser — no DOM, no upload to intercept. Its first consumer is
+[decantCC](https://github.com/jtrachtenberg/decantCC), the evaluation harness,
+which needs to generate converted test inputs at scale and deterministically; a
+`--mode` flag forces a specific output variant (text-only, text+figures,
+companion, passthrough) so the harness can generate each in its own pass. Reuses
+the shared `convertFile()` unchanged once two browser-isms are lifted behind a
+seam (asset resolution, the companion relay). Ships as a single self-contained
+executable per OS via Node SEA — **Windows `.exe` first**, \*nix (Linux/macOS)
+from the same recipe. Implementation spec in [`CLI.md`](./CLI.md); rationale in
+[ADR 0016](./adr/0016-cli-surface-for-test-input.md).
+
 **Claude Desktop — MCP server (recommended next surface).** Sanctioned-tool
 paradigm. Claude Desktop (Windows/macOS/Linux) installs MCP servers packaged as
 MCP Bundles (`.mcpb`, formerly `.dxt`) via one-click UI. Instead of intercepting
@@ -99,12 +112,16 @@ picker).
 ## Recommended sequence
 
 1. Finish the browser surface (current work).
-2. Add the MCP server / `.mcpb` bundle — covers all of Claude Desktop, every OS,
+2. Add the command-line surface — the cheapest headless reuse of the core
+   (only the two intake seams to lift) and the one that unblocks decantCC's
+   evaluation harness, which measures every other surface's quality. Windows
+   `.exe` first, \*nix from the same recipe.
+3. Add the MCP server / `.mcpb` bundle — covers all of Claude Desktop, every OS,
    for minimal effort; reuses the Python companion via a thin Node server.
-3. Brave/Edge (load as-is), then the small Firefox MV3 port, of the browser
+4. Brave/Edge (load as-is), then the small Firefox MV3 port, of the browser
    extension. Safari packaging via App Store Connect if store distribution is
    wanted there.
-4. Only if there's demand: native desktop via WinFsp/macFUSE/FUSE, then Android
+5. Only if there's demand: native desktop via WinFsp/macFUSE/FUSE, then Android
    (DocumentsProvider/Share) and iOS (Share/File Provider).
 
 Every surface above plugs into the same core; only intake changes. That reuse is
