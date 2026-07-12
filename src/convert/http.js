@@ -17,18 +17,35 @@ import { bufferToBase64 } from "./codec.js";
 
 export class HttpEngineError extends Error {}
 
-export async function httpConvert(file, rule, fetchFn = fetch) {
-  let res;
+// Endpoints that accept a connection but never respond would otherwise block the
+// upload behind a "converting" badge until the network stack or MV3 worker gives
+// up (minutes) — and because the promise never settles, the onError fallback
+// never runs. A bounded timeout turns a hung endpoint into a fast-failing one so
+// the fallback (passthrough / another engine) actually fires.
+export const HTTP_TIMEOUT_MS = 30_000;
+
+export async function httpConvert(file, rule, fetchFn = fetch, timeoutMs = HTTP_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    res = await fetchFn(rule.endpoint, await buildRequest(file, rule));
+    const req = await buildRequest(file, rule);
+    const res = await fetchFn(rule.endpoint, { ...req, signal: controller.signal });
+    if (!res.ok) {
+      throw new HttpEngineError(`endpoint returned ${res.status}`);
+    }
+    const text = await extractText(res, rule.responseField);
+    return outputFile(file, rule.output, text);
   } catch (err) {
+    // Preserve the specific contract errors (bad status/shape/empty); map a
+    // timeout or a transport failure to a fallback-triggering engine error.
+    if (err instanceof HttpEngineError) throw err;
+    if (controller.signal.aborted) {
+      throw new HttpEngineError(`endpoint timed out after ${timeoutMs}ms`);
+    }
     throw new HttpEngineError(`endpoint unreachable: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
   }
-  if (!res.ok) {
-    throw new HttpEngineError(`endpoint returned ${res.status}`);
-  }
-  const text = await extractText(res, rule.responseField);
-  return outputFile(file, rule.output, text);
 }
 
 // SPEC §3.4 request.encoding — multipart/form-data (default) or base64 JSON.

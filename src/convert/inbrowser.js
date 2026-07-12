@@ -68,6 +68,10 @@ export const PDFJS_DOC_OPTIONS = {
   standardFontDataUrl: STANDARD_FONT_DATA_URL,
   wasmUrl: WASM_URL,
   iccUrl: ICC_URL,
+  // The MV3 extension CSP already blocks eval, so pdf.js's runtime feature-probe
+  // fails and it falls back — but state the intent explicitly rather than relying
+  // on the CSP to catch it.
+  isEvalSupported: false,
 };
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
@@ -75,7 +79,16 @@ const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 export async function analyzePdf(file) {
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  const pdf = await loadingTask.promise;
+  // getDocument eagerly spins up a worker; if the open itself rejects
+  // (password-protected / corrupt PDF), the page-loop's finally below never
+  // runs, so tear the task (and its worker) down here before rethrowing.
+  let pdf;
+  try {
+    pdf = await loadingTask.promise;
+  } catch (err) {
+    await loadingTask.destroy();
+    throw err;
+  }
   const pageCount = pdf.numPages;
 
   // The document's printed page labels ("OFC1, i, ii, …, 1, 2") when the PDF

@@ -98,6 +98,26 @@ test("a caption in the dead zone just above a grid is not dropped (H5)", () => {
   assert.match(md, /\| Region \| Q1 \| Notes/); // grid still reconstructs
 });
 
+test("a literal pipe in a grid cell is escaped, not column-splitting (M11)", () => {
+  const items = [];
+  const rows = [
+    ["Metric", "Value", "Notes here are long enough to defeat the short-cell rule"],
+    ["Revenue | FY23", "100", "on track for the quarter and beyond, comfortably now"],
+    ["Cost", "80", "supply issue affecting the southern distribution hub today"],
+    ["Net", "60", "recovering after the outage earlier in the reporting period"],
+  ];
+  rows.forEach((r, i) => {
+    const y = 200 - i * 15;
+    items.push(item(r[0], 0, y, { w: 60 }));
+    items.push(item(r[1], 120, y, { w: 20 }));
+    items.push(item(r[2], 180, y, { w: 300 }));
+  });
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  // The pipe is backslash-escaped so it stays inside its own cell; the row keeps
+  // exactly three columns instead of the value shifting under a wrong header.
+  assert.match(md, /\| Revenue \\\| FY23 \| 100 \|/);
+});
+
 test("low-confidence marker fires when tabular columns collapse (not a clean grid)", () => {
   // A tall 2-column short-cell table: detectGrid needs >= 3 columns, so this
   // isn't cleanly reconstructed; the prose column-split reads it column-major,

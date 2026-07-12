@@ -10,10 +10,29 @@ import {
   shouldEscalate,
   ESCALATE_REASONS,
   companionAvailable,
+  dedupeFileNames,
 } from "../src/convert/result.js";
 
 const pdf = (name) => new File(["%PDF-fake"], name, { type: "application/pdf" });
 const summary = { pageCount: 1, contentPages: 1, chartPages: 0, totalChars: 99, totalImages: 0 };
+
+test("dedupeFileNames disambiguates colliding batch names (L11)", () => {
+  const f = (name) => new File(["x"], name, { type: "text/markdown" });
+  const out = dedupeFileNames([f("a.md"), f("a.md"), f("A.md"), f("b.md")]);
+  assert.deepEqual(
+    out.map((x) => x.name),
+    ["a.md", "a (2).md", "A (3).md", "b.md"] // case-insensitive collide; original case kept
+  );
+  // A pre-existing " (2)" name doesn't get clobbered — the next free slot wins.
+  const out2 = dedupeFileNames([f("a.md"), f("a (2).md"), f("a.md")]);
+  assert.deepEqual(
+    out2.map((x) => x.name),
+    ["a.md", "a (2).md", "a (3).md"]
+  );
+  // Extensionless names still get a suffix.
+  const out3 = dedupeFileNames([f("README"), f("README")]);
+  assert.deepEqual(out3.map((x) => x.name), ["README", "README (2)"]);
+});
 
 test("convert renames case-insensitively and returns a Markdown file", () => {
   const original = pdf("Report.PDF");

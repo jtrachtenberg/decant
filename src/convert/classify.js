@@ -171,6 +171,13 @@ const COLUMN_GAP = 2.0;
 // multiple of line height.
 const PARA_GAP = 1.6;
 
+// Baseline quantum (pt) for line-ordering sorts: glyphs whose baselines round to
+// the same bucket are ordered left-to-right; different buckets order top-to-
+// bottom. A fixed grid keeps the comparator a total order (unlike a pairwise
+// "within Npt" window, which is intransitive). Grouping loops still apply a
+// half-height tolerance, so a line straddling a bucket edge is merged anyway.
+const LINE_BUCKET = 2;
+
 // Heading thresholds: a single-cell line taller than the page's body text by
 // these ratios becomes a Markdown heading of the given level.
 const HEADING_LEVELS = [
@@ -1327,9 +1334,16 @@ function bandSupport(xs, tol) {
 // the Discovery report's heading band). Reading order within a line is x
 // order, unconditionally.
 function linesFromGlyphs(glyphs) {
+  // Quantize the baseline into line buckets, then sort by (bucket desc, x asc).
+  // A pairwise "within 2pt → compare by x, else by y" test is intransitive
+  // (A~B and B~C by x, yet A vs C by y), so V8's sort order is unspecified and
+  // near-threshold baselines could scramble reading order. Bucketing gives a
+  // stable total order; the phase-1 tolerance below still merges glyphs that
+  // straddle a bucket edge, and phase 2 re-sorts each line by x regardless.
   glyphs.sort((a, b) => {
-    const dy = b.transform[5] - a.transform[5];
-    if (Math.abs(dy) > 2) return dy;
+    const ay = Math.round(a.transform[5] / LINE_BUCKET);
+    const by = Math.round(b.transform[5] / LINE_BUCKET);
+    if (ay !== by) return by - ay;
     return a.transform[4] - b.transform[4];
   });
 
@@ -1828,11 +1842,18 @@ function largestInteriorGap(boxes) {
 
 // Group boxes into rows by vertical proximity, top-to-bottom.
 function groupRows(boxes) {
+  // Bucketed total order (see linesFromGlyphs): the pairwise "within 2pt" test
+  // is intransitive, so quantize the baseline and sort by (bucket desc, x asc).
+  // The half-height tolerance in the grouping loop below still merges rows that
+  // straddle a bucket edge.
   const sorted = boxes
     .slice()
-    .sort((a, b) =>
-      Math.abs(b.y0 - a.y0) > 2 ? b.y0 - a.y0 : a.x0 - b.x0
-    );
+    .sort((a, b) => {
+      const ay = Math.round(a.y0 / LINE_BUCKET);
+      const by = Math.round(b.y0 / LINE_BUCKET);
+      if (ay !== by) return by - ay;
+      return a.x0 - b.x0;
+    });
   const rows = [];
   for (const b of sorted) {
     const h = b.y1 - b.y0;
@@ -2029,10 +2050,22 @@ function qualifiesAsTable(rows) {
   return total > 0 && tabular / total >= 0.7;
 }
 
+// Make a cell's text safe to place between pipes: a literal "|" would shift
+// every later cell one column right (values mis-mapped to headers — the exact
+// "confidently wrong table" failure the corrupt-cell gate guards against), and a
+// stray "\n"/"\r" (from a broken ToUnicode map — these evade the C0 gate) would
+// split the row across physical lines and break the table for any parser.
+function tableCell(text) {
+  return String(text ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|");
+}
+
 function emitTable(rows) {
   const ncol = Math.max(...rows.map((r) => r.cells.length));
   const toRow = (cells) => {
-    const out = cells.map((c) => c.text);
+    const out = cells.map((c) => tableCell(c.text));
     while (out.length < ncol) out.push("");
     return "| " + out.join(" | ") + " |";
   };

@@ -26,7 +26,7 @@
 import * as mammothNs from "mammoth/mammoth.browser.js";
 import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
-import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline, escapeMarkerLabel } from "./xlsx.js";
 import { chartTablesFromZip } from "./chart.js";
 
 const mammoth = mammothNs.default ?? mammothNs;
@@ -49,7 +49,7 @@ export function stripDataUriImages(markdown) {
   let images = 0;
   const stripped = markdown.replace(/!\[([^\]]*)\]\(data:[^)]*\)/g, (_m, alt) => {
     images++;
-    const label = (alt || "").trim(); // whitespace-only alt → generic marker
+    const label = escapeMarkerLabel(alt); // whitespace-only alt → generic marker
     return label ? `[image omitted: ${label}]` : "[image omitted]";
   });
   return { markdown: stripped.replace(/\n{3,}/g, "\n\n").trim(), images };
@@ -183,7 +183,14 @@ export async function analyzeDocx(file) {
     { styleMap: STYLE_MAP }
   );
   // mammoth ignores chart parts entirely, so their cached data would be lost;
-  // recover it ourselves from the zip (Tier 1, SPEC §3.9).
-  const charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "word/charts");
+  // recover it ourselves from the zip (Tier 1, SPEC §3.9). Chart recovery is a
+  // bonus — if the zip re-open or chart scan fails, keep the good body rather
+  // than dropping the whole conversion to passthrough.
+  let charts = [];
+  try {
+    charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "word/charts");
+  } catch {
+    charts = [];
+  }
   return docxAnalysis(value, charts);
 }

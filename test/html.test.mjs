@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyzeHtml, htmlAnalysis } from "../src/convert/html.js";
+import { analyzeHtml, htmlAnalysis, decodeHtml } from "../src/convert/html.js";
 
 const PNG_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
 
@@ -71,4 +71,36 @@ test("analyzeHtml reads a File end-to-end", async () => {
   const res = await analyzeHtml(file);
   assert.equal(res.decision, "convert");
   assert.match(res.markdown, /^## From a file$/m);
+});
+
+test("a data-URI image alt with ] and | can't break the omission marker (L12)", () => {
+  const res = htmlAnalysis(
+    `<p>x</p><img src="${PNG_URI}" alt="a] b | c"><p>y</p>`
+  );
+  // The `]` must not close the marker early (which would leave residue that
+  // counts as real text); the `|` is escaped so it can't corrupt a GFM row.
+  assert.match(res.markdown, /\[image omitted: a b \\\| c\]/);
+  // Stripping the marker leaves only the surrounding prose.
+  assert.equal(
+    res.markdown.replace(/\[image omitted[^\]]*\]/g, "").replace(/\s+/g, " ").trim(),
+    "x y"
+  );
+});
+
+test("decodeHtml honors a declared windows-1252 charset (M4)", () => {
+  // 0x92 is a right single quote in windows-1252; in UTF-8 it's an invalid byte
+  // that decodes to U+FFFD. With the meta declaration it must come through as ’.
+  const bytes = new Uint8Array([
+    ...[...'<meta charset="windows-1252"><p>it'].map((c) => c.charCodeAt(0)),
+    0x92,
+    ...[...'s</p>'].map((c) => c.charCodeAt(0)),
+  ]);
+  const html = decodeHtml(bytes);
+  assert.match(html, /it’s/);
+  assert.doesNotMatch(html, /�/);
+});
+
+test("decodeHtml keeps UTF-8 as the default for undeclared documents (M4)", () => {
+  const bytes = new TextEncoder().encode("<p>café — déjà</p>");
+  assert.match(decodeHtml(bytes), /café — déjà/);
 });

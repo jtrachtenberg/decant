@@ -106,6 +106,26 @@ test("parseChartXml returns null when there's no usable cached data", () => {
   assert.equal(parseChartXml("<c:chartSpace><c:ser></c:ser></c:chartSpace>"), null);
 });
 
+test("chartTablesFromZip isolates a part whose read throws (M2)", async () => {
+  // A corrupt deflate stream rejects on read; one bad part must not abort the
+  // whole recovery and discard an otherwise-good conversion.
+  const ser = (v) =>
+    `<c:ser><c:val><c:numCache><c:pt idx="0"><c:v>${v}</c:v></c:pt></c:numCache></c:val></c:ser>`;
+  const mockZip = {
+    files: { "xl/charts/chart1.xml": {}, "xl/charts/chart2.xml": {} },
+    file(p) {
+      return {
+        async: async () => {
+          if (p.endsWith("chart1.xml")) throw new Error("corrupt deflate stream");
+          return chartPart("Second", ser(2));
+        },
+      };
+    },
+  };
+  const tables = await chartTablesFromZip(mockZip, "xl/charts");
+  assert.deepEqual(tables.map((t) => t.title), ["Second"]); // chart1 skipped, not fatal
+});
+
 test("chartTablesFromZip enumerates chart parts in order, skips unparseable", async () => {
   const zip = new JSZip();
   const ser = (v) =>

@@ -1,15 +1,28 @@
 # Decant — full code review (2026-07)
 
 Scope: the entire extension source under `src/`, plus `manifest.json` and
-`build.mjs`. Baseline: all 251 tests pass (`npm test`). This review was done by
-reading every module and tracing data flow; each finding was verified against
-the code, and the highest-severity ones were reproduced or demonstrated.
+`build.mjs`. Baseline at review time: 251 tests pass; after the fixes in this
+branch the suite is at 264 (`npm test`). This review was done by reading every
+module and tracing data flow; each finding was verified against the code, and
+the highest-severity ones were reproduced or demonstrated.
 
 The codebase is careful and well-documented — the security posture in
 particular is strong (see "What's solid" at the end). The findings below are
-ordered by severity. Items marked **[fixed]** were addressed in the accompanying
-commit; the rest are recommendations, mostly in the delicate PDF-reconstruction
-engine where a fix needs fixture validation before it's safe to land.
+ordered by severity. Items marked **[fixed]** were addressed in this branch;
+each fix ships with tests where the code is reachable from the Node suite.
+
+**Status (2026-07):** every high and medium finding has been resolved or, in two
+cases, deliberately left as-is after re-examination (H6 and part of M12 —
+see their entries). Most low items are fixed too. Still open, by design or as
+future work: **L2** (options live-sync — skipped to avoid a self-write render
+loop), **L3** (endpoint URLs → `storage.local`; a storage migration, needs a
+deliberate schema change), **L6** (import drop-count feedback — needs the
+normalizer to report drops), **L7** (imported-enabled-without-permission
+indicator — needs async permission-aware host rendering), **L8** (legacy XLSX
+MIME also matching Windows CSVs — a defaults + migration change), **L14**
+(figures flow re-opens the PDF ~4×; a perf refactor), and **L15** (raw
+input-size / zip-bomb ceiling — needs a size-cap policy decision). These are
+tracked below with their original detail.
 
 ---
 
@@ -115,7 +128,7 @@ re-widening rail membership (which would trip the ADR-0014 guard).
 
 ## Medium severity
 
-### M1. Endpoint fetch has no timeout — a hung endpoint blocks the upload indefinitely
+### M1. Endpoint fetch has no timeout — a hung endpoint blocks the upload indefinitely **[fixed]**
 `src/convert/http.js:20-26`
 
 `httpConvert` awaits `fetch(endpoint, …)` with no `AbortController`/timeout, and
@@ -127,7 +140,7 @@ Chrome's network stack or MV3 worker termination gives up (minutes). The
 settles. Fix: wrap in an `AbortController` with a bounded timeout and treat the
 abort as an engine error so the existing fallback runs.
 
-### M2. Chart recovery is not error-isolated — one bad zip entry discards a good conversion
+### M2. Chart recovery is not error-isolated — one bad zip entry discards a good conversion **[fixed]**
 `src/convert/docx.js:162`, `src/convert/xlsx.js:106`, `src/convert/pptx.js:156`
 
 `chartTablesFromZip` / `parseChartXml` run without a try/catch, so a single
@@ -137,7 +150,7 @@ conversion falls to passthrough. The upload survives, but a good conversion is
 needlessly thrown away for a broken *auxiliary* feature. Fix: wrap chart
 recovery per-document (or per-part) and treat failure as "no charts recovered".
 
-### M3. `decodeEntities` throws `RangeError` on out-of-range numeric entities
+### M3. `decodeEntities` throws `RangeError` on out-of-range numeric entities **[fixed]**
 `src/convert/chart.js:12-18`
 
 `String.fromCodePoint(code)` throws for any numeric entity above `0x10FFFF`
@@ -146,7 +159,7 @@ recovery per-document (or per-part) and treat failure as "no charts recovered".
 conversion to passthrough. Fix: guard the code point (or try/catch per entity)
 and fall back to the raw match.
 
-### M4. HTML converter ignores declared charset — legacy encodings become mojibake
+### M4. HTML converter ignores declared charset — legacy encodings become mojibake **[fixed]**
 `src/convert/html.js:76` + `src/convert/read-file.js:30-36`
 
 `analyzeHtml` reads the file with `blob.text()`, which always decodes UTF-8 and
@@ -157,7 +170,7 @@ the upload. Fix: sniff the BOM / `<meta charset>` and decode with a matching
 `TextDecoder`, or fall back to passthrough when the decode produces a high
 U+FFFD ratio.
 
-### M5. pdf.js loading tasks leak a worker on load failure
+### M5. pdf.js loading tasks leak a worker on load failure **[fixed]**
 `src/convert/inbrowser.js:75-76`, `src/convert/pdf-figures.js:83-86, 205-207, 254-256, 368-370`
 
 In all five sites, `await loadingTask.promise` sits *outside* the try/finally
@@ -167,7 +180,7 @@ PDF) nothing tears it down without an explicit `destroy()`. Repeated attempts
 accumulate zombie workers plus the transferred file bytes. Fix: `destroy()` the
 loading task in a `catch`/`finally` that also covers the `.promise` await.
 
-### M6. Concurrent uploads aren't serialized — the second injection can overwrite the first
+### M6. Concurrent uploads aren't serialized — the second injection can overwrite the first **[fixed]**
 `src/content/intercept.js:188, 466-482`
 
 The module carefully makes injection all-or-nothing *within* a batch because a
@@ -189,7 +202,7 @@ escape means the user gets neither the original upload nor a failure notice.
 Fixed by adding `.catch(() => showAttachFailureNotice(names))` at all three call
 sites.
 
-### M8. Paste handler hijacks Office cell copies, dropping the intended text
+### M8. Paste handler hijacks Office cell copies, dropping the intended text **[fixed]**
 `src/content/intercept.js:593-632`
 
 The paste handler intercepts whenever `clipboardData.files` is non-empty. Copying
@@ -199,7 +212,7 @@ passthrough attachment while the table text the user meant to paste never
 reaches the composer. Fix: only intercept when at least one file would actually
 be routed to conversion, or when the clipboard carries no text representation.
 
-### M9. Background relay POSTs to an unvalidated endpoint
+### M9. Background relay POSTs to an unvalidated endpoint **[fixed]**
 `src/background.js:89-99`
 
 The relay fetches `msg.rule.endpoint` verbatim with the extension's host
@@ -211,7 +224,7 @@ ever added. Defense-in-depth: re-load config in the worker and only honour
 endpoints present in the stored, already-validated routing rules; also enforce
 `MAX_RELAY_BYTES` here, not only on the sending side.
 
-### M10. Sort comparators don't establish a total order
+### M10. Sort comparators don't establish a total order **[fixed]**
 `src/convert/classify.js:1319-1323, 1820-1824`
 
 `(a,b) => Math.abs(dy) > 2 ? dy : xOrder` is intransitive (A<B, B<C, C<A for
@@ -221,7 +234,7 @@ come out of reading order and split one visual line into several. Fix: sort by a
 consistent key — quantise the baseline into line buckets first, then sort by
 `(bucket, x)`.
 
-### M11. `emitTable` doesn't escape `|` in cell text
+### M11. `emitTable` doesn't escape `|` in cell text **[fixed]**
 `src/convert/classify.js:2021-2031`
 
 Cells are joined raw with `" | "`. A cell containing a literal pipe (common in
@@ -233,7 +246,7 @@ ToUnicode map leak into cells the same way — the C0 gate at classify.js:1119
 exempts them on the assumption line reconstruction strips them, which
 classify.js:1416 does not.)
 
-### M12. `xlsx.js` cell-cap check runs *after* full conversion; `Math.max(...)` can overflow the stack **[fixed]**
+### M12. `xlsx.js` cell-cap check runs *after* full conversion; `Math.max(...)` can overflow the stack **[fixed — both parts]**
 `src/convert/xlsx.js:65, 85-120`
 
 Two issues: (1) `Math.max(0, ...grid.map(r => r.length))` spreads one argument
@@ -242,14 +255,15 @@ rows — *before* the `MAX_CELLS` guard, so an oversized workbook exits via the
 generic error path instead of the intended `"too-large"` passthrough. (2) The
 `MAX_CELLS` decision is made only after every sheet has been fully converted to
 Markdown, so a 100 MB workbook is parsed and stringified in full just to be
-discarded. Fixed the overflow (finding 1) with a reduce; the early-out
-(finding 2) is left as a recommendation since it changes control flow.
+discarded. Both are now fixed: the overflow via a `reduce`, and the early-out by
+counting cells first and returning the `"too-large"` passthrough (and stopping
+further parsing) before any Markdown table is composed.
 
 ---
 
 ## Low severity / polish
 
-- **L1. New routing rules are appended after enabled defaults and silently
+- **L1. [fixed] New routing rules are appended after enabled defaults and silently
   shadowed** (`options.js:307`, `route.js:18-27`). `routeFile` is
   first-enabled-match and `addRule` always pushes, so a user-added
   "pdf → endpoint" rule never fires while the default PDF-inbrowser rule sits at
@@ -262,9 +276,9 @@ discarded. Fixed the overflow (finding 1) with a reduce; the early-out
   auth field, an API key in the query string syncs across machines, and a
   remote-endpoint rule confirmed on one machine becomes active on another with
   no warning shown there.
-- **L4. Stale-index mutation in `removeRule`/`toggleRule`** (`options.js:243-247`)
+- **L4. [fixed] Stale-index mutation in `removeRule`/`toggleRule`** (`options.js:243-247`)
   — a double-click during a slow `storage.sync` write can splice the wrong rule.
-- **L5. Endpoint host permissions are requested but never removed**
+- **L5. [fixed] Endpoint host permissions are requested but never removed**
   (`options.js:328-362`) — deleting/replacing a rule leaves `https://old-host/*`
   granted forever.
 - **L6. `importJson` gives no feedback when `normalizeRule` silently drops rules**
@@ -276,21 +290,21 @@ discarded. Fixed the overflow (finding 1) with a reduce; the early-out
 - **L8. Default XLSX rule matches `application/vnd.ms-excel`** (`defaults.js:51,66`),
   which Windows reports for `.csv`/`.tsv`; `routeFile` matches on MIME alone, so
   CSV uploads get silently converted by SheetJS on those machines.
-- **L9. `isEvalSupported` not set on `getDocument`** (`inbrowser.js:65-69`) —
+- **L9. [fixed] `isEvalSupported` not set on `getDocument`** (`inbrowser.js:65-69`) —
   MV3 CSP already blocks eval so pdf.js falls back safely, but setting
   `isEvalSupported: false` makes the intent explicit.
-- **L10. Upload/hotkey listeners don't check `event.isTrusted`**
+- **L10. [fixed] Upload/hotkey listeners don't check `event.isTrusted`**
   (`intercept.js:485-632`, `passthrough.js:64-94`) — a whitelisted page can
   synthesize `change`/`drop`/`paste`/hotkey events. Low impact (the page already
   owns the content and can't reach a remote endpoint), but a one-line guard is
   cheap defense-in-depth.
-- **L11. Output filename collisions** (`result.js:10`, `http.js:81`) — `a.pdf`
+- **L11. [fixed] Output filename collisions** (`result.js:10`, `http.js:81`) — `a.pdf`
   and `a.docx` both become `a.md` in one batch with no dedup.
-- **L12. Image alt/`descr` text flows into `[image omitted: …]` markers and
+- **L12. [fixed] Image alt/`descr` text flows into `[image omitted: …]` markers and
   table cells unescaped** (`docx.js:53`, `html.js:48`, `pptx.js:59-62`) — a `]`
   defeats the marker-stripping regex; a `|` corrupts a GFM row; a decoded
   newline injects a structural line.
-- **L13. `manifest.json` install prompt claim is stale** — the background
+- **L13. [fixed] `manifest.json` install prompt claim is stale** — the background
   comment / ADR-0003 say "only claude.ai is a required host permission" but the
   manifest now requires four; worth reconciling before store review.
 - **L14. Figures flow re-opens the PDF up to 4× sequentially**
