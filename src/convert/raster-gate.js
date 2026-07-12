@@ -130,10 +130,14 @@ const shouldMerge = (a, b) =>
 // [{ box, xobject|null }] — xobject carries the scan entry (objId, intrinsic
 // dims) so decode gating can still reason per-XObject. Merging goes by the
 // MEMBER boxes (not the growing union), so a component can't leak across a
-// gap via its own bounding box.
-export function figureComponents(scan, view = null) {
+// gap via its own bounding box. Cross-page repeated images (isRepeatedImage —
+// background art, letterheads) are dropped before merging: they aren't figure
+// material, and keeping them would glue their footprint onto any real figure
+// they abut.
+export function figureComponents(scan, view = null, repeatedDims = null) {
   const members = [];
   for (const x of scan.xobjects) {
+    if (isRepeatedImage(x, repeatedDims)) continue;
     const box = clampBoxToView(x.box, view);
     if (box) members.push({ box, xobject: x });
   }
@@ -190,6 +194,56 @@ export const BACKGROUND_TEXT_FRACTION = 0.85;
 // number centered on a full-page photo shouldn't demote it — the bleed gate
 // judges those). Matches classify.js's MIN_TEXT_CHARS_PER_PAGE.
 export const BACKGROUND_MIN_TEXT_CHARS = 50;
+// Text-density demotion (the Discovery-report callout-box false positives):
+// design tools back text panels with subtle texture/gradient IMAGES — a
+// rounded callout box, a "principles" card column — and the text printed over
+// them reaches the text layer at normal body density. The whole-page
+// BACKGROUND_TEXT_FRACTION check never sees these (each panel holds 10–20% of
+// the page's text, nowhere near 85%), but density does: a box whose interior
+// carries text at a comparable per-area rate to the page overall is a text
+// backdrop, while a real raster figure is text-free inside (its labels are
+// pixels) save for a stray caption. Field calibration (Discovery climate
+// report): every text-backed panel scored 0.98–2.1× the page's density, every
+// genuine photo/chart/scan ≤0.39× — 0.7 splits them with margin on both
+// sides, biased high because this demotion REMOVES a figure (the costly
+// direction), so only clearly text-backed boxes may fire.
+export const BACKGROUND_TEXT_DENSITY_RATIO = 0.7;
+// Density floor: a caption inside a big photo is a few dozen chars — well
+// under body-panel territory (the calibrated panels held 389–1134 chars).
+export const BACKGROUND_TEXT_DENSITY_MIN_CHARS = 250;
+
+// --- Cross-page repeated-image demotion (the Discovery contents-page FPs) ---
+// The decode gate's G3 insight (ADR 0007) applied to significance itself: an
+// image painted on several pages is furniture — background art sets, gradient
+// strips, letterheads — never a content figure. Two forms, both per-XObject:
+// a `g_`-prefixed objId is pdf.js's own global cache saying it saw the object
+// on ≥2 pages, and a document-level intrinsic-dims census (built by
+// analyzePdf / inspect-pdf over the scanned pages, carried on the summary as
+// repeatedImageDims) catches the FIRST page such an image paints on, where
+// the id is still page-local. Judged per member BEFORE component merging, so
+// a decoration tile can't glue itself to a real figure. Accepted risk: a
+// genuine figure deliberately repeated on two pages demotes too — across the
+// graded corpus every exact-dims cross-page repeat was decoration, and the
+// photos this could cost grade as marginal attachments anyway.
+export const REPEATED_DIMS_MIN_PAGES = 2;
+
+// One fingerprint definition for census builders and the membership check.
+export const imageDimsKey = (w, h) => `${w}x${h}`;
+
+// Is this scan xobject a cross-page repeated image (page furniture)?
+// `repeatedDims` is the document census (Set of imageDimsKey strings) or
+// null/absent when the caller has no document scope — then only the g_
+// global-cache prefix can answer.
+export function isRepeatedImage(xobject, repeatedDims = null) {
+  if (!xobject) return false;
+  if (xobject.objId?.startsWith("g_")) return true;
+  return !!(
+    repeatedDims &&
+    xobject.w != null &&
+    xobject.h != null &&
+    repeatedDims.has(imageDimsKey(xobject.w, xobject.h))
+  );
+}
 
 // --- Vector-chart fill signal (the MSIM risk-matrix false negative) ---------
 // A chart that encodes its values as colored symbols (risk matrices, heatmap
@@ -555,6 +609,22 @@ export function isBackgroundImage(box, { view = null, textPoints = null } = {}) 
     ) {
       return true;
     }
+    // Text-density demotion: enough text INSIDE the box, at a per-area rate
+    // comparable to the page's own, means the image is a panel the text is
+    // printed over (see the constants above for the calibration). Needs the
+    // page view for the area comparison.
+    if (view && inBox >= BACKGROUND_TEXT_DENSITY_MIN_CHARS) {
+      const [vx0, vy0, vx1, vy1] = view;
+      const pageArea = (vx1 - vx0) * (vy1 - vy0);
+      const area = (box.x1 - box.x0) * (box.y1 - box.y0);
+      if (
+        area > 0 &&
+        pageArea > 0 &&
+        inBox / area >= BACKGROUND_TEXT_DENSITY_RATIO * (total / pageArea)
+      ) {
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -572,13 +642,18 @@ export function isBackgroundImage(box, { view = null, textPoints = null } = {}) 
 // the ambiguous prompt for: a logo/strip/icon fails here for the same
 // reasons in both places.
 //
-// `opts` ({ view, textPoints }, both optional) enables the view clamp and the
-// background demotion: full-bleed design art and under-text backdrops are
-// decoration no matter how big they are (the MSIM-report stock photos passed
-// every size gate). Callers without the geometry omit it — no clamping, and
-// only the size gates apply.
+// `opts` ({ view, textPoints, repeatedDims }, all optional) enables the view
+// clamp, the background/text-density demotions, and the cross-page repeated-
+// image demotion: full-bleed design art, under-text backdrops and reused
+// decoration sets are not figures no matter how big they are (the MSIM-report
+// stock photos passed every size gate). Callers without the geometry omit it
+// — no clamping, and only the size gates apply.
 export function significantFigureComponents(scan, pageArea = null, opts = {}) {
-  return figureComponents(scan, opts.view ?? null).filter((c) => {
+  return figureComponents(
+    scan,
+    opts.view ?? null,
+    opts.repeatedDims ?? null
+  ).filter((c) => {
     if (!figureSized(c)) return false;
     if (!claimsPageArea(c, pageArea)) return false;
     if (isBackgroundImage(c, opts)) return false;

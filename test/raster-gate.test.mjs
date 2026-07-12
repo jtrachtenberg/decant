@@ -43,6 +43,9 @@ import {
   BACKGROUND_MIN_BLEED_EDGES,
   BACKGROUND_TEXT_FRACTION,
   BACKGROUND_MIN_TEXT_CHARS,
+  BACKGROUND_TEXT_DENSITY_MIN_CHARS,
+  imageDimsKey,
+  isRepeatedImage,
 } from "../src/convert/raster-gate.js";
 import { IMAGE_OP_NAMES } from "../src/convert/classify.js";
 
@@ -343,6 +346,86 @@ test("background demotion flows through significance and decode", () => {
   ]);
   assert.equal(countSignificantImages(inline, AREA, { view: A4 }), 0);
   assert.equal(countSignificantImages(inline, AREA), 1);
+});
+
+test("a text-backed panel texture is a backdrop (density demotion)", () => {
+  const A4 = [0, 0, 595, 842]; // page area 500,990 pt²
+  // A callout-box texture: 12% of the page (the Discovery panels ran 6–23%).
+  const box = { x0: 100, y0: 100, x1: 300, y1: 400 };
+  const inside = (chars) => ({ x: 150, y: 200, chars });
+  const outside = (chars) => ({ x: 500, y: 800, chars });
+  // Body text over the panel at ~1.7× the page's own density → backdrop.
+  // (Well under the 85% whole-page fraction — that check never sees panels.)
+  assert.ok(
+    isBackgroundImage(box, {
+      view: A4,
+      textPoints: [inside(400), outside(1600)],
+    })
+  );
+  // The same chars inside a text-DENSE page (a caption-scale share) → figure.
+  assert.ok(
+    !isBackgroundImage(box, {
+      view: A4,
+      textPoints: [inside(400), outside(19600)],
+    })
+  );
+  // Below the char floor nothing fires, however dense the box reads.
+  assert.ok(
+    !isBackgroundImage(box, {
+      view: A4,
+      textPoints: [inside(BACKGROUND_TEXT_DENSITY_MIN_CHARS - 1), outside(700)],
+    })
+  );
+  // Density needs the page view for the area comparison.
+  assert.ok(
+    !isBackgroundImage(box, { textPoints: [inside(400), outside(1600)] })
+  );
+});
+
+test("cross-page repeated images are furniture, not figures", () => {
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  // The Discovery contents page: a background-art set painted with page-local
+  // ids on the FIRST page it decorates — only the document census (matching
+  // intrinsic dims on other pages) can demote it there.
+  const first = scanOf([
+    ...placeImage("img_p1_234", 0, 252, 367, 343, 775, 984),
+    ...placeImage("img_p1_236", 0, 100, 300, 150, 775, 214),
+  ]);
+  const census = new Set([imageDimsKey(775, 984), imageDimsKey(775, 214)]);
+  assert.equal(significantFigureComponents(first, AREA, { view: A4 }).length, 1);
+  assert.equal(
+    significantFigureComponents(first, AREA, { view: A4, repeatedDims: census })
+      .length,
+    0
+  );
+  // Later pages reference the same art through pdf.js's global cache: the g_
+  // prefix demotes with no census at all.
+  assert.ok(isRepeatedImage({ objId: "g_d0_img_p9_142", w: 543, h: 690 }));
+  const cached = scanOf(
+    placeImage("g_d0_img_p9_142", 100, 100, 400, 300, 543, 690)
+  );
+  assert.equal(significantFigureComponents(cached, AREA, { view: A4 }).length, 0);
+  // A one-off photo abutting a decoration tile: the tile is dropped BEFORE
+  // component merging, so the photo survives with its own box — a crop frames
+  // the photo, not the pair.
+  const mixed = scanOf([
+    ...placeImage("img_p3_141", 60, 60, 300, 250, 585, 514), // unique photo
+    ...placeImage("img_p3_137", 361, 60, 200, 250, 642, 591), // repeated tile
+  ]);
+  const tileCensus = new Set([imageDimsKey(642, 591)]);
+  const comps = significantFigureComponents(mixed, AREA, {
+    view: A4,
+    repeatedDims: tileCensus,
+  });
+  assert.equal(comps.length, 1);
+  assert.equal(comps[0].members[0].xobject.objId, "img_p3_141");
+  assert.equal(comps[0].x1, 360);
+  // Decode gating inherits the demotion through the same opts.
+  assert.equal(
+    decodeCandidate(mixed, AREA, { view: A4, repeatedDims: tileCensus })?.objId,
+    "img_p3_141"
+  );
 });
 
 // --- Tiled/full-bleed art reassembly -----------------------------------------

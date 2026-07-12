@@ -36,6 +36,8 @@ import {
   hasVectorChartFills,
   vectorChartBox,
   textPointsFromItems,
+  imageDimsKey,
+  REPEATED_DIMS_MIN_PAGES,
 } from "../src/convert/raster-gate.js";
 import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
@@ -75,13 +77,33 @@ const pdf = await pdfjs.getDocument({
 
 // Furniture pass, mirroring analyzePdf: running headers / nav rails repeated
 // at the same position across many pages are stripped before reconstruction.
+// The repeated-image census rides the same pass (intrinsic dims recurring
+// across pages mark decoration — raster-gate.js isRepeatedImage), sampled
+// exactly like the extension's image scan.
 const furnitureDetector = createFurnitureDetector();
+const dimsPages = new Map(); // imageDimsKey → Set of page numbers
 for (let n = 1; n <= pdf.numPages; n++) {
-  furnitureDetector.addPage(
-    (await (await pdf.getPage(n)).getTextContent()).items
-  );
+  const page = await pdf.getPage(n);
+  furnitureDetector.addPage((await page.getTextContent()).items);
+  if (!shouldScanImages(n, pdf.numPages)) continue;
+  try {
+    const ops = await page.getOperatorList();
+    const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
+    for (const x of scan.xobjects) {
+      if (x.w == null || x.h == null) continue;
+      const key = imageDimsKey(x.w, x.h);
+      if (!dimsPages.has(key)) dimsPages.set(key, new Set());
+      dimsPages.get(key).add(n);
+    }
+  } catch {
+    /* operator list unavailable — census just sees less */
+  }
 }
 const furnitureKeys = furnitureDetector.keys();
+const repeatedDims = new Set();
+for (const [key, pages] of dimsPages) {
+  if (pages.size >= REPEATED_DIMS_MIN_PAGES) repeatedDims.add(key);
+}
 const pageItems = async (n) =>
   stripFurniture(
     (await (await pdf.getPage(n)).getTextContent()).items,
@@ -210,9 +232,14 @@ for (let n = 1; n <= pdf.numPages; n++) {
       const [vx0, vy0, vx1, vy1] = page.view;
       const pageArea = (vx1 - vx0) * (vy1 - vy0);
       // Geometry for the background demotion, mirroring analyzePdf: page view
-      // for the full-bleed check, text anchor points (furniture stripped, as
-      // in the extension) for the under-text check.
-      const opts = { view: page.view, textPoints: textPointsFromItems(items) };
+      // for the full-bleed/text-density checks, text anchor points (furniture
+      // stripped, as in the extension) for the under-text checks, and the
+      // repeated-image census for the cross-page decoration demotion.
+      const opts = {
+        view: page.view,
+        textPoints: textPointsFromItems(items),
+        repeatedDims,
+      };
       // Significance (classification's single-figure ambiguity trigger).
       figureImages = countSignificantImages(scan, pageArea, opts);
       // Raster-decode eligibility (pdf-figures.js extractPdfRasterFigures):
@@ -298,7 +325,10 @@ const { decision, reason, summary } = classifyDocument(filled);
 console.log(
   `\nSummary: ${summary.contentPages}/${summary.pageCount} text pages, ` +
     `${summary.chartPages} chart pages, ${summary.totalChars} chars, ` +
-    `${summary.totalImages} images`
+    `${summary.totalImages} images` +
+    (repeatedDims.size
+      ? `\nRepeated-image census: ${repeatedDims.size} cross-page dims demoted as decoration`
+      : "")
 );
 console.log(`Decision: ${decision.toUpperCase()} (${reason})`);
 
