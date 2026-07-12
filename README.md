@@ -294,7 +294,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
     letter-chip tag rails (G/RM/S/MT pillar tags beside disclosure items)
     bind to their items as one table row per item, validated end-to-end by
     an LLM Q&A that previously failed on the converted output
-    ([ADR 0014](./docs/adr/0014-tag-rail-row-binding.md)).
+    ([ADR 0014](./docs/adr/0014-tag-rail-row-binding.md)); and decoration
+    stops attaching as figures — images reused across pages (background-art
+    sets, gradient strips) demote via a document-level census extending the
+    decode gate's repetition rule to classification, and panel textures the
+    page's text is printed over demote by text density, halving one corpus
+    doc's attachments to exactly its real photos/charts and un-breaking two
+    crops the panels had inflated to whole-page copies
+    ([ADR 0015](./docs/adr/0015-repeated-image-and-text-density-demotion.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

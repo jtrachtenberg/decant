@@ -52,6 +52,13 @@ export function pdfFiguresAvailable(meta) {
   return (meta?.chartPageNumbers?.length ?? 0) > 0;
 }
 
+// The repeated-image census analyzePdf rode on the summary, as the Set the
+// raster-gate opts take — so crop framing and decode gating demote the same
+// cross-page decoration classification did. Null when the summary carries
+// none (old metas, image-free docs).
+const repeatedDimsFromMeta = (meta) =>
+  meta?.repeatedImageDims?.length ? new Set(meta.repeatedImageDims) : null;
+
 // Render one page to an OffscreenCanvas at a capped scale.
 async function renderPage(page) {
   const base1 = page.getViewport({ scale: 1 });
@@ -126,12 +133,13 @@ const VECTOR_CHART_PAD_PT = 48;
 // Union of the page's significant figure components in user space, or null
 // when none qualify. The components are already view-clamped; the union is
 // what the page attached FOR, so it's what the crop should frame.
-async function figureBoxUserSpace(page, scan) {
+async function figureBoxUserSpace(page, scan, repeatedDims = null) {
   const [vx0, vy0, vx1, vy1] = page.view;
   const content = await page.getTextContent();
   const comps = significantFigureComponents(scan, (vx1 - vx0) * (vy1 - vy0), {
     view: page.view,
     textPoints: textPointsFromItems(content.items),
+    repeatedDims,
   });
   if (!comps.length) return null;
   return {
@@ -149,11 +157,11 @@ async function figureBoxUserSpace(page, scan) {
 // that paint no raster at all, previously always whole-page copies). Shared by
 // the raster crop (Chrome) and the vector box crop (Firefox) so both agree on
 // what and when to crop. Render-free — getOperatorList geometry only.
-async function paddedFigureBox(page) {
+async function paddedFigureBox(page, repeatedDims = null) {
   const [vx0, vy0, vx1, vy1] = page.view;
   const ops = await page.getOperatorList();
   const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
-  const box = await figureBoxUserSpace(page, scan);
+  const box = await figureBoxUserSpace(page, scan, repeatedDims);
   let padded = null;
   if (box) {
     // Pad for surrounding labels, clamp to the page box.
@@ -204,11 +212,12 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
+  const repeatedDims = repeatedDimsFromMeta(meta);
   try {
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const page = await pdf.getPage(n);
-      const padded = await paddedFigureBox(page);
+      const padded = await paddedFigureBox(page, repeatedDims);
       if (!padded) continue;
 
       const { canvas, viewport } = await renderPage(page);
@@ -253,10 +262,11 @@ export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
+  const repeatedDims = repeatedDimsFromMeta(meta);
   try {
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
-      const padded = await paddedFigureBox(await pdf.getPage(n));
+      const padded = await paddedFigureBox(await pdf.getPage(n), repeatedDims);
       if (padded) boxes.set(n, padded);
     }
   } finally {
@@ -367,6 +377,7 @@ export async function extractPdfRasterFigures(file, meta) {
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const pdf = await loadingTask.promise;
+  const repeatedDims = repeatedDimsFromMeta(meta);
   try {
     // First pass: gate each page, resolve + intrinsic-check its candidate.
     const found = [];
@@ -382,7 +393,11 @@ export async function extractPdfRasterFigures(file, meta) {
       const cand = decodeCandidate(
         scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
         (vx1 - vx0) * (vy1 - vy0),
-        { view: page.view, textPoints: textPointsFromItems(content.items) }
+        {
+          view: page.view,
+          textPoints: textPointsFromItems(content.items),
+          repeatedDims,
+        }
       );
       if (!cand) continue;
       // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —
