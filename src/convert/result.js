@@ -11,6 +11,33 @@ function markdownFile(original, markdown) {
   return new File([markdown], name, { type: "text/markdown" });
 }
 
+// Ensure every file in a batch has a distinct name before it's injected as one
+// FileList. Converting strips the extension and appends ".md", so "a.pdf" and
+// "a.docx" in one upload both become "a.md"; a site that keys attachments by
+// name may then drop or merge one. Later duplicates get a " (2)", " (3)", …
+// suffix inserted before the extension. Case-insensitive (filesystems and most
+// uploaders treat names that way). Pure — exported for direct unit testing.
+export function dedupeFileNames(files) {
+  const seen = new Set();
+  return files.map((f) => {
+    if (!seen.has(f.name.toLowerCase())) {
+      seen.add(f.name.toLowerCase());
+      return f;
+    }
+    const dot = f.name.lastIndexOf(".");
+    const stem = dot > 0 ? f.name.slice(0, dot) : f.name;
+    const ext = dot > 0 ? f.name.slice(dot) : "";
+    let k = 2;
+    let name;
+    do {
+      name = `${stem} (${k})${ext}`;
+      k++;
+    } while (seen.has(name.toLowerCase()));
+    seen.add(name.toLowerCase());
+    return new File([f], name, { type: f.type });
+  });
+}
+
 // `res` is an engine analysis result (analyzePdf / analyzeDocx), or null when
 // analysis threw — the caller logs the error and the file passes through
 // untouched with reason "error".

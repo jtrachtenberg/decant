@@ -28,7 +28,7 @@
 
 import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
-import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline, escapeMarkerLabel } from "./xlsx.js";
 import { decodeEntities, parseChartXml } from "./chart.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;
@@ -56,8 +56,8 @@ export function extractSlideText(xml) {
     const descr = /<p:cNvPr[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1];
     // Missing, empty, and whitespace-only descr/name all fall through to the
     // generic marker; descr (alt text) wins over name when both are real.
-    const label = decodeEntities(
-      (descr || "").trim() || (name || "").trim() || ""
+    const label = escapeMarkerLabel(
+      decodeEntities((descr || "").trim() || (name || "").trim() || "")
     );
     omitted.push(label ? `[image omitted: ${label}]` : "[image omitted]");
   }
@@ -153,7 +153,14 @@ export async function analyzePptx(file) {
       const targets = await slideChartTargets(zip, slidePath);
       for (const rId of slide.chartRefs) {
         const part = targets[rId] && zip.file(targets[rId]);
-        const parsed = part ? parseChartXml(await part.async("string")) : null;
+        // A bad chart part (corrupt deflate / unparseable XML) must not abort
+        // the whole deck: treat it as an omitted chart, like an unresolved ref.
+        let parsed = null;
+        try {
+          parsed = part ? parseChartXml(await part.async("string")) : null;
+        } catch {
+          parsed = null;
+        }
         if (parsed) {
           chartsRecovered++;
           const label = parsed.title ? `**${escapeMdInline(parsed.title)}**\n\n` : "";

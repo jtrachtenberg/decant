@@ -21,10 +21,42 @@
 
 import TurndownNs from "turndown";
 import * as gfmNs from "turndown-plugin-gfm";
-import { fileText } from "./read-file.js";
+import { fileBytes } from "./read-file.js";
+import { escapeMarkerLabel } from "./xlsx.js";
 
 const TurndownService = TurndownNs.default ?? TurndownNs;
 const { gfm } = gfmNs.default ?? gfmNs;
+
+// Decode HTML bytes the way a browser would: a BOM wins, otherwise the charset
+// declared in the document head, otherwise UTF-8. `blob.text()` (and a bare
+// TextDecoder) always assume UTF-8, so a windows-1252 "Save as Web Page" export
+// or a Shift_JIS / GBK page would decode to U+FFFD mojibake and silently
+// convert to garbage Markdown. Unlabeled input keeps the UTF-8 default (the vast
+// majority of modern pages), so this only changes behaviour for files that
+// declare a non-UTF-8 charset. Exported for direct unit testing.
+export function decodeHtml(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (u8.length >= 3 && u8[0] === 0xef && u8[1] === 0xbb && u8[2] === 0xbf)
+    return decodeWith("utf-8", u8);
+  if (u8.length >= 2 && u8[0] === 0xff && u8[1] === 0xfe)
+    return decodeWith("utf-16le", u8);
+  if (u8.length >= 2 && u8[0] === 0xfe && u8[1] === 0xff)
+    return decodeWith("utf-16be", u8);
+  // Scan the head as latin1 (every byte is a code point) for a charset label —
+  // this covers both <meta charset="…"> and the http-equiv Content-Type form.
+  let head = "";
+  for (let i = 0; i < Math.min(u8.length, 1024); i++) head += String.fromCharCode(u8[i]);
+  const label = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/i.exec(head)?.[1] || "utf-8";
+  return decodeWith(label, u8);
+}
+
+function decodeWith(label, u8) {
+  try {
+    return new TextDecoder(label).decode(u8);
+  } catch {
+    return new TextDecoder("utf-8").decode(u8); // unknown label → best effort
+  }
+}
 
 // Pure — exported for direct unit testing.
 export function htmlAnalysis(html) {
@@ -44,7 +76,7 @@ export function htmlAnalysis(html) {
       node.nodeName === "IMG" && /^data:/i.test(node.getAttribute("src") || ""),
     replacement: (_content, node) => {
       images++;
-      const alt = (node.getAttribute("alt") || "").trim();
+      const alt = escapeMarkerLabel(node.getAttribute("alt"));
       return alt ? `[image omitted: ${alt}]` : "[image omitted]";
     },
   });
@@ -73,5 +105,5 @@ export function htmlAnalysis(html) {
 }
 
 export async function analyzeHtml(file) {
-  return htmlAnalysis(await fileText(file));
+  return htmlAnalysis(decodeHtml(await fileBytes(file)));
 }

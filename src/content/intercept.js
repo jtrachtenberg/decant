@@ -30,7 +30,7 @@
 
 import { restrictedSandbox } from "./rs-shim.js"; // must precede the pdf.js import chain
 import { convertFile, convertViaCompanion } from "../convert/index.js";
-import { companionAvailable } from "../convert/result.js";
+import { companionAvailable, dedupeFileNames } from "../convert/result.js";
 import {
   extractFigures,
   figuresSupported,
@@ -420,7 +420,10 @@ async function resolveAndInject(preferredInput, fileArray) {
     }
   }
 
-  const files = [...immediate, ...chosen];
+  // Distinct names before injection: converting to ".md" can collide two
+  // same-stem uploads (a.pdf + a.docx → a.md), which some uploaders dedupe by
+  // dropping one.
+  const files = dedupeFileNames([...immediate, ...chosen]);
   if (files.length) injectViaInput(preferredInput, files);
 
   // Estimated token savings (the eliminated PDF page-image layer) — a brief

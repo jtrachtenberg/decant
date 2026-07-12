@@ -48,6 +48,22 @@ export function escapeMdInline(text) {
     .trim();
 }
 
+// Sanitize document-supplied text (image alt / drawing descr / name) for use
+// INSIDE an `[image omitted: …]` marker. Three hazards: a literal `]` closes
+// the marker early and defeats the `\[image omitted[^\]]*\]` stripping regex
+// (marker residue then counts as "real text", flipping a pure-image doc from
+// passthrough to convert); a newline injects a structural line (a decoded
+// `&#10;` in a DrawingML descr can smuggle a `# heading`); and a `|` breaks a
+// GFM row if the marker lands in a table cell. Brackets are dropped, newlines
+// collapse, pipes are escaped. Exported for direct unit testing.
+export function escapeMarkerLabel(text) {
+  return String(text ?? "")
+    .replace(/[[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
+}
+
 // Render one sheet's rows (array-of-arrays, as from sheet_to_json with
 // header:1) to a Markdown table. Pure — exported for direct unit testing.
 // The first row is treated as the header row, matching the overwhelmingly
@@ -82,8 +98,15 @@ export async function analyzeXlsx(file) {
   const buf = await fileBytes(file);
   const wb = XLSX.read(buf, { type: "array" });
 
-  const sections = [];
+  // First pass: parse each sheet and count populated cells only. Building the
+  // Markdown tables (rowsToMarkdownTable escapes every cell and materializes a
+  // second grid) is deferred until we know the workbook is under the cap — an
+  // over-cap workbook passes through whole, so composing its tables would be
+  // wasted work on exactly the largest inputs. Stop as soon as the cap is
+  // crossed rather than parsing every remaining sheet.
+  const parsed = [];
   let cellCount = 0;
+  let overCap = false;
   for (const name of wb.SheetNames) {
     const sheet = wb.Sheets[name];
     const rows = XLSX.utils.sheet_to_json(sheet, {
@@ -96,16 +119,36 @@ export async function analyzeXlsx(file) {
       (n, r) => n + r.filter((v) => String(v ?? "").trim()).length,
       0
     );
+    parsed.push({ name, rows });
+    if (cellCount > MAX_CELLS) {
+      overCap = true;
+      break;
+    }
+  }
+
+  if (overCap) {
+    return {
+      decision: "passthrough",
+      reason: "too-large",
+      summary: { sheets: wb.SheetNames.length, tables: 0, chartsRecovered: 0, cellCount },
+      markdown: null,
+    };
+  }
+
+  const sections = [];
+  for (const { name, rows } of parsed) {
     const table = rowsToMarkdownTable(rows);
     if (table) sections.push({ name, table });
   }
 
-  // Recover native charts (Tier 1). Skipped when the workbook is already
-  // over the cell cap — a too-large sheet passes through whole.
-  const charts =
-    cellCount > MAX_CELLS
-      ? []
-      : await chartTablesFromZip(await JSZip.loadAsync(buf), "xl/charts");
+  // Recover native charts (Tier 1). We're already known to be under the cell
+  // cap here (over-cap workbooks returned above).
+  let charts = [];
+  try {
+    charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "xl/charts");
+  } catch {
+    charts = []; // chart recovery is a bonus; never fail the whole workbook
+  }
   const chartBlocks = charts.map(
     (c) => `## Chart: ${escapeMdInline(c.title) || "(untitled)"}\n\n${rowsToMarkdownTable(c.rows)}`
   );
@@ -118,9 +161,6 @@ export async function analyzeXlsx(file) {
   };
   if (!sections.length && !chartBlocks.length) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
-  }
-  if (cellCount > MAX_CELLS) {
-    return { decision: "passthrough", reason: "too-large", summary, markdown: null };
   }
 
   // A lone sheet with no charts needs no heading; anything else gets one

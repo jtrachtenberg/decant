@@ -203,8 +203,10 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
 
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  const pdf = await loadingTask.promise;
   try {
+    // Open inside the try so a failed open (corrupt/locked PDF) still tears
+    // the worker down via the finally below.
+    const pdf = await loadingTask.promise;
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const page = await pdf.getPage(n);
@@ -252,8 +254,10 @@ export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
 
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  const pdf = await loadingTask.promise;
   try {
+    // Open inside the try so a failed open (corrupt/locked PDF) still tears
+    // the worker down via the finally below.
+    const pdf = await loadingTask.promise;
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const padded = await paddedFigureBox(await pdf.getPage(n));
@@ -366,8 +370,10 @@ export async function extractPdfRasterFigures(file, meta) {
 
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  const pdf = await loadingTask.promise;
   try {
+    // Open inside the try so a failed open (corrupt/locked PDF) still tears
+    // the worker down via the finally below.
+    const pdf = await loadingTask.promise;
     // First pass: gate each page, resolve + intrinsic-check its candidate.
     const found = [];
     const dimsPages = new Map(); // "WxH" → Set of page numbers (fingerprint)

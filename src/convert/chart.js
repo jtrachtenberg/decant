@@ -70,8 +70,16 @@ export async function chartTablesFromZip(zip, dir) {
     .sort((a, b) => Number(a.match(/\d+/g).at(-1)) - Number(b.match(/\d+/g).at(-1)));
   const tables = [];
   for (const p of paths) {
-    const parsed = parseChartXml(await zip.file(p).async("string"));
-    if (parsed) tables.push(parsed);
+    // Chart recovery is an auxiliary bonus, not the conversion itself: one part
+    // with a corrupt deflate stream (async rejects) or unparseable XML must not
+    // abort the whole engine and discard an otherwise-good document. Skip the
+    // bad part and keep going.
+    try {
+      const parsed = parseChartXml(await zip.file(p).async("string"));
+      if (parsed) tables.push(parsed);
+    } catch {
+      // ignore this chart part
+    }
   }
   return tables;
 }
