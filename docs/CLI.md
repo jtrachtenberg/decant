@@ -297,40 +297,53 @@ warn at runtime.
 
 The distribution requirement is "decantCC invokes a binary; no toolchain
 required." That points at **Node's built-in Single Executable Applications
-(SEA)**: bundle the CLI's JS into a blob, inject it into a copy of the `node`
-binary, and ship the result. SEA is the right pick because a *single build
-recipe* emits a `decant.exe` on Windows and native ELF/Mach-O binaries on
-Linux/macOS — the "Windows first, \*nix later" path is the *same* script run on
-another host, not a rewrite.
+(SEA)**: bundle the CLI's JS, embed the assets, and inject the SEA blob into a
+copy of the `node` binary. SEA is the right pick because a *single build recipe*
+emits a `decant.exe` on Windows and native ELF/Mach-O binaries on Linux/macOS.
 
-Steps and the honest sharp edges:
+`scripts/build-cli.mjs` (`npm run build:cli`) implements it:
 
-1. **Bundle** the CLI + engines into one file with esbuild (the repo already
-   builds with esbuild), externalizing nothing that Node can't resolve at
-   runtime.
+```sh
+npm run build:cli                                   # → build/cli/decant  (this OS)
+# cross-build a Windows .exe from any host: download the matching node.exe first
+node scripts/build-cli.mjs --node ./node-win.exe --platform win --out decant.exe
+```
+
+1. **Bundle** the CLI + engines into one CJS file with esbuild, `platform:node`
+   — which resolves `#pdfjs` to the legacy build (the `node` condition) and keeps
+   `node:` builtins (incl. `node:sea`) external.
 2. **Embed the assets** the pdf.js path needs — `pdf.worker.mjs`,
-   `standard_fonts/`, `wasm/` (JPX/JBIG2/qcms), `iccs/`. SEA supports named
-   asset embedding; the §3.1 resolver unpacks them to a temp dir (or reads them
-   from the SEA blob) and hands `getAssetUrl()` `file://` paths. This is the
-   fiddliest part — the WASM modules must be present or JPX/JBIG2 images silently
-   fail, so packaging needs a smoke test that converts a JPX-bearing PDF.
-3. **Emit the binary** with `postject` (the SEA-documented injector), producing
-   `decant.exe`. Code-signing is ordinary Authenticode for Windows distribution
-   — no kernel-driver attestation, because this is a plain user-mode executable
-   (a key advantage of the sanctioned-tool paradigm over the minifilter path in
+   `standard_fonts/`, `wasm/` (JPX/JBIG2/qcms), `iccs/` — as one `assets.zip` SEA
+   asset. At startup `sea-assets.js` unpacks it to a per-version temp dir and
+   points the §3.1 resolver there with **plain filesystem paths** (Node's `fetch`
+   has no `file://` scheme, so pdf.js reads fonts/WASM via `fs`).
+3. **Canvas globals.** pdf.js polyfills `DOMMatrix`/`Path2D` from
+   `@napi-rs/canvas` via a `createRequire` that a SEA bundle breaks. The CLI
+   never rasterizes (text + the render-free figures tier), so `sea-assets.js`
+   supplies a 2D-affine `DOMMatrix` and inert `Path2D`/`OffscreenCanvas` before
+   pdf.js loads — enough for module load and text/geometry, and a canvas-only
+   path (which the CLI never takes) fails loudly rather than mis-rendering.
+4. **Inject** the blob with `postject`. The fuse sentinel is **auto-detected**
+   from the target binary, so injecting a downloaded `win-x64` node.exe works
+   from a Linux host. Windows distribution then wants ordinary Authenticode
+   signing (postject invalidates node.exe's existing signature) — no
+   kernel-driver attestation, because this is a plain user-mode executable (a key
+   advantage of the sanctioned-tool paradigm over the minifilter path in
    `SURFACES.md`).
-4. **\*nix** reruns steps 1–3 on Linux/macOS hosts (or via cross-targeted CI).
-   No source changes; the asset resolver already speaks `file://`.
+
+**Cross-building note:** the `.exe` is produced by cross-injection, but running
+and signing it happen on Windows. Functional verification of the bundle + asset
+unpack is via the identical-pipeline Linux binary; the packaging smoke test that
+converts a JPX/JBIG2-bearing PDF should run on each target OS.
 
 Alternatives considered: `pkg` (Vercel, now archived — avoid for new work) and
 `nexe` (community, less current than SEA). SEA is chosen for being first-party,
 maintained, and uniformly cross-platform. Recorded in
 [ADR 0016](./adr/0016-cli-surface-for-test-input.md).
 
-A lighter interim option, if a full binary isn't needed on day one: ship the CLI
-as an `npx decant-cli`-style Node script for hosts that already have Node, and
-gate the SEA binary behind the milestone below. decantCC's own environment
-decides which it needs.
+A lighter option for hosts that already have Node: run the CLI directly
+(`node src/cli/decant.mjs …`, or the `decant` bin), skipping the binary
+entirely. decantCC's own environment decides which it needs.
 
 ---
 
@@ -345,11 +358,13 @@ decides which it needs.
   to `--out-dir` (zip media / cropped mini-PDF). `passthrough` is intentionally
   not a CLI mode (redundant). `companion` is deferred — it needs the direct-fetch
   transport (§3.2) and the non-localhost `--allow-remote` guardrail.
-- **C2 — Windows `.exe`.** SEA build with embedded assets + a JPX/JBIG2
-  packaging smoke test; Authenticode signing; a documented `decant.exe convert`
-  invocation.
-- **C3 — \*nix binaries.** Linux + macOS builds from the same recipe in CI;
-  publish alongside the Windows binary.
+- **C2 — SEA packaging. ✅ Done (`npm run build:cli`).** One-file bundle +
+  embedded `assets.zip` (unpacked at startup) + canvas globals + postject
+  injection with auto-detected fuse. Verified end-to-end on the Linux binary;
+  the `win-x64` `decant.exe` is produced by cross-injection (§7). Remaining for a
+  release: Authenticode signing and the per-OS JPX/JBIG2 smoke test.
+- **C3 — \*nix binaries & CI.** Linux + macOS binaries from the same recipe in
+  CI (the recipe already works; this is wiring + publishing), alongside Windows.
 - **Deferred:** batch/glob input, an end-user-friendly command surface, a
   long-lived server mode (avoid per-file process spawn on huge corpora) if
   decantCC's throughput ever needs it.

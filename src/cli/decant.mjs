@@ -20,6 +20,9 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { installNodeAssets } from "./node-assets.js";
 
+// Bumped so a packaged binary re-unpacks its embedded assets after an upgrade.
+const ASSET_VERSION = "0.1.2";
+
 const EXIT = {
   converted: 0,
   usage: 1,
@@ -292,12 +295,30 @@ function exitFor(action) {
   return EXIT.error;
 }
 
+// Pick the asset source: the embedded zip inside a SEA binary, else the
+// installed pdfjs-dist. node:sea is a builtin, kept external in the bundle.
+async function installAssets() {
+  let sea = null;
+  try {
+    sea = await import("node:sea");
+  } catch {
+    /* node:sea unavailable (older Node) — dev/npm path */
+  }
+  if (sea?.isSea?.()) {
+    const { installSeaAssets } = await import("./sea-assets.js");
+    await installSeaAssets(sea, ASSET_VERSION);
+  } else {
+    installNodeAssets();
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
   // Resolve pdf.js assets before importing the core: inbrowser.js reads its
-  // asset URLs at module load (CLI.md §3.1).
-  installNodeAssets();
+  // asset URLs at module load (CLI.md §3.1). A packaged binary (SEA) unpacks its
+  // embedded assets; a dev/npm run resolves them from node_modules.
+  await installAssets();
   const [index, savings] = await Promise.all([
     import("../convert/index.js"),
     import("../convert/savings.js"),

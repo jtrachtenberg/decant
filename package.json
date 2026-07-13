@@ -20,12 +20,14 @@
     "watch": "node build.mjs --watch",
     "watch:firefox": "node build.mjs --watch --firefox",
     "test": "node --test",
+    "build:cli": "node scripts/build-cli.mjs",
     "mock-endpoint": "node scripts/mock-endpoint.mjs",
     "inspect": "node scripts/inspect-pdf.mjs"
   },
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "postject": "1.0.0-alpha.6"
   },
   "dependencies": {
     "jszip": "^3.10.1",

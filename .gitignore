@@ -37,6 +37,9 @@ bower_components
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
 
+# CLI single-executable build output (scripts/build-cli.mjs)
+build/cli
+
 # Dependency directories
 node_modules/
 jspm_packages/
