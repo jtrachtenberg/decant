@@ -157,20 +157,21 @@ flag that **overrides the classifier verdict** and forces a specific output. Eac
 mode maps onto an existing decision-vocabulary outcome — no new conversion
 behavior is invented, the CLI just pins the choice:
 
-| `--mode` | Forces | Maps to | Output |
-|---|---|---|---|
-| `auto` (default) | nothing — run the classifier | `classifyDocument()` verdict | whatever the browser would emit |
-| `markdown` | text-only conversion, ignore the image layer | `decision: convert` (a.k.a. the `convert` ambiguous choice) | stripped Markdown, figures dropped/marked in place |
-| `figures` | convert **and** keep the figures | the `figures` ambiguous choice (extract-and-reference) | Markdown + extracted figure files / mini-PDF, per `ADR 0006` |
-| `companion` | high-fidelity conversion via the localhost companion | the `companion` ambiguous choice | companion's Markdown (OCR/Docling), per `ARCHITECTURE.md §3` |
-| `passthrough` | no conversion | `decision: passthrough` (the `original` choice) | the original file, unchanged |
+| `--mode` | Forces | Maps to | Output | Status |
+|---|---|---|---|---|
+| `auto` (default) | nothing — run the classifier | `classifyDocument()` verdict | whatever the browser would emit | ✅ |
+| `markdown` | text-only conversion, ignore the image layer | `decision: convert` (a.k.a. the `convert` ambiguous choice) | stripped Markdown, figures dropped/marked in place | ✅ |
+| `figures` | convert **and** keep the figures | the `figures` ambiguous choice (extract-and-reference) | Markdown + extracted figure files / mini-PDF, per `ADR 0006` | ✅ render-free tier |
+| `companion` | high-fidelity conversion via the localhost companion | the `companion` ambiguous choice | companion's Markdown (OCR/Docling), per `ARCHITECTURE.md §3` | deferred |
 
-These are precisely the `AMBIGUOUS_CHOICES`
+These are the text-producing `AMBIGUOUS_CHOICES`
 (`config/defaults.js`: `["ask","convert","figures","companion","original"]`)
-plus the two hard decisions, surfaced as a flag. Forcing a mode is the CLI's
-`ARCHITECTURE.md §5` manual override — the same capability the browser realizes
-as the ambiguous prompt and the passthrough hotkey. `ask` has no CLI analogue
-(no interactive prompt); its non-interactive equivalent is simply choosing
+surfaced as a flag. Forcing a mode is the CLI's `ARCHITECTURE.md §5` manual
+override — the same capability the browser realizes as the ambiguous prompt and
+the passthrough hotkey. Two of the browser's choices have no CLI mode:
+**`passthrough`/`original`** is redundant on a command line — "send the original"
+just means don't run `decant` on the file — and **`ask`** needs an interactive
+prompt; its non-interactive equivalent is simply choosing
 `auto` and reading the reported decision.
 
 ### 4.2 The decantCC two-pass recipe
@@ -192,17 +193,24 @@ when the harness has a companion running. Because the mode is forced, the corpus
 generation is deterministic and independent of whatever the classifier would have
 decided — decantCC controls the axis it's measuring.
 
+`figures` mode uses the **render-free** extraction tier — zip media entries for
+PPTX/DOCX, and for PDF a mini-PDF cropped to each figure's box (pdf.js geometry
++ pdf-lib, no canvas), i.e. the same artifact Firefox produces in-browser. The
+canvas-only tiers (full page renders, raster-XObject re-encode) need a Node
+canvas and are a later pass; a document that would use them still gets its text
+plus the cropped mini-PDF.
+
 ### 4.3 Other options
 
 - `--out <file>` / `--out-dir <dir>` — write output instead of stdout;
   `--out-dir` is required for `figures` mode (it emits sibling figure files).
 - `--config <file>` — a routing/profile config JSON (same shape as the options
   page export, `config/defaults.js`). Absent → `DEFAULT_CONFIG.routing`.
-- `--companion <url>` — companion endpoint for `--mode companion` (default
-  `http://127.0.0.1:8765`, the browser's default). Non-localhost triggers the
-  same privacy guardrail the extension enforces (`ARCHITECTURE.md §2.1`): the CLI
-  refuses unless `--allow-remote` is passed, so a document never silently leaves
-  the machine.
+- `--companion <url>` / `--allow-remote` *(deferred with `--mode companion`)* —
+  companion endpoint (default `http://127.0.0.1:8765`, the browser's default).
+  Non-localhost will trigger the same privacy guardrail the extension enforces
+  (`ARCHITECTURE.md §2.1`): the CLI refuses unless `--allow-remote` is passed, so
+  a document never silently leaves the machine.
 - `--json` — emit the JSON envelope (§5.2) instead of raw Markdown.
 - `--quiet` / `--verbose` — control the human-readable diagnostics on stderr
   (stdout stays clean for piping).
@@ -213,13 +221,15 @@ decided — decantCC controls the axis it's measuring.
 
 ### 5.1 Default (raw)
 
-- **Markdown modes** (`markdown`/`figures`/`companion`, and `auto` when it
-  converts): the Markdown goes to stdout (or `--out`). In `figures` mode the
-  sibling figure files land in `--out-dir`, referenced by name from the Markdown
-  exactly as the browser attaches them.
-- **Passthrough** (`--mode passthrough`, or `auto` when the classifier passes
-  through): nothing is written to stdout; the original is left as-is (or copied to
-  `--out`). The decision is reported on stderr and via exit code.
+- **`markdown` / `auto`-convert**: the Markdown goes to stdout (or `--out`).
+- **`figures`**: the Markdown (`<input>.md`) and one file per extracted figure
+  land in `--out-dir`, the figures referenced by name from the Markdown's
+  association note exactly as the browser attaches them. With `--json`, the
+  envelope goes to stdout and names the written paths.
+- **No usable conversion** (`auto` when the classifier passes through, or
+  `markdown`/`figures` on a no-text document): nothing is written to stdout; the
+  decision is reported on stderr and via exit code `10`. On the CLI "send the
+  original" is not a conversion — the caller just uses the input file itself.
 
 ### 5.2 `--json` envelope
 
@@ -287,58 +297,79 @@ warn at runtime.
 
 The distribution requirement is "decantCC invokes a binary; no toolchain
 required." That points at **Node's built-in Single Executable Applications
-(SEA)**: bundle the CLI's JS into a blob, inject it into a copy of the `node`
-binary, and ship the result. SEA is the right pick because a *single build
-recipe* emits a `decant.exe` on Windows and native ELF/Mach-O binaries on
-Linux/macOS — the "Windows first, \*nix later" path is the *same* script run on
-another host, not a rewrite.
+(SEA)**: bundle the CLI's JS, embed the assets, and inject the SEA blob into a
+copy of the `node` binary. SEA is the right pick because a *single build recipe*
+emits a `decant.exe` on Windows and native ELF/Mach-O binaries on Linux/macOS.
 
-Steps and the honest sharp edges:
+`scripts/build-cli.mjs` (`npm run build:cli`) implements it:
 
-1. **Bundle** the CLI + engines into one file with esbuild (the repo already
-   builds with esbuild), externalizing nothing that Node can't resolve at
-   runtime.
+```sh
+npm run build:cli                                   # → build/cli/decant  (this OS)
+# cross-build a Windows .exe from any host: download the matching node.exe first
+node scripts/build-cli.mjs --node ./node-win.exe --platform win --out decant.exe
+```
+
+1. **Bundle** the CLI + engines into one CJS file with esbuild, `platform:node`
+   — which resolves `#pdfjs` to the legacy build (the `node` condition) and keeps
+   `node:` builtins (incl. `node:sea`) external.
 2. **Embed the assets** the pdf.js path needs — `pdf.worker.mjs`,
-   `standard_fonts/`, `wasm/` (JPX/JBIG2/qcms), `iccs/`. SEA supports named
-   asset embedding; the §3.1 resolver unpacks them to a temp dir (or reads them
-   from the SEA blob) and hands `getAssetUrl()` `file://` paths. This is the
-   fiddliest part — the WASM modules must be present or JPX/JBIG2 images silently
-   fail, so packaging needs a smoke test that converts a JPX-bearing PDF.
-3. **Emit the binary** with `postject` (the SEA-documented injector), producing
-   `decant.exe`. Code-signing is ordinary Authenticode for Windows distribution
-   — no kernel-driver attestation, because this is a plain user-mode executable
-   (a key advantage of the sanctioned-tool paradigm over the minifilter path in
+   `standard_fonts/`, `wasm/` (JPX/JBIG2/qcms), `iccs/` — as one `assets.zip` SEA
+   asset. At startup `sea-assets.js` unpacks it to a per-version temp dir and
+   points the §3.1 resolver there with **plain filesystem paths** (Node's `fetch`
+   has no `file://` scheme, so pdf.js reads fonts/WASM via `fs`).
+3. **Canvas globals.** pdf.js polyfills `DOMMatrix`/`Path2D` from
+   `@napi-rs/canvas` via a `createRequire` that a SEA bundle breaks. The CLI
+   never rasterizes (text + the render-free figures tier), so `sea-assets.js`
+   supplies a 2D-affine `DOMMatrix` and inert `Path2D`/`OffscreenCanvas` before
+   pdf.js loads — enough for module load and text/geometry, and a canvas-only
+   path (which the CLI never takes) fails loudly rather than mis-rendering.
+4. **Inject** the blob with `postject`. The fuse sentinel is **auto-detected**
+   from the target binary, so injecting a downloaded `win-x64` node.exe works
+   from a Linux host. Windows distribution then wants ordinary Authenticode
+   signing (postject invalidates node.exe's existing signature) — no
+   kernel-driver attestation, because this is a plain user-mode executable (a key
+   advantage of the sanctioned-tool paradigm over the minifilter path in
    `SURFACES.md`).
-4. **\*nix** reruns steps 1–3 on Linux/macOS hosts (or via cross-targeted CI).
-   No source changes; the asset resolver already speaks `file://`.
+
+**Cross-building note:** the `.exe` is produced by cross-injection, but running
+and signing it happen on Windows. Functional verification of the bundle + asset
+unpack is via the identical-pipeline Linux binary; the packaging smoke test that
+converts a JPX/JBIG2-bearing PDF should run on each target OS.
 
 Alternatives considered: `pkg` (Vercel, now archived — avoid for new work) and
 `nexe` (community, less current than SEA). SEA is chosen for being first-party,
 maintained, and uniformly cross-platform. Recorded in
 [ADR 0016](./adr/0016-cli-surface-for-test-input.md).
 
-A lighter interim option, if a full binary isn't needed on day one: ship the CLI
-as an `npx decant-cli`-style Node script for hosts that already have Node, and
-gate the SEA binary behind the milestone below. decantCC's own environment
-decides which it needs.
+A lighter option for hosts that already have Node: run the CLI directly
+(`node src/cli/decant.mjs …`, or the `decant` bin), skipping the binary
+entirely. decantCC's own environment decides which it needs.
 
 ---
 
 ## 8. Milestones
 
-- **C0 — Headless parity.** Land the §3 seams (`getAssetUrl`, Node transport) so
-  `convertFile()` runs under Node over all five engines. Retarget
-  `bench-pdf.mjs` onto the shared path so it stops re-implementing the loop
-  (proves parity and kills the drift risk). `--mode auto`, Markdown to stdout,
-  exit codes.
-- **C1 — Forced modes & contract.** `--mode markdown|figures|companion|
-  passthrough`, `--out`/`--out-dir`, `--json` envelope, `--config`, the
-  non-localhost guardrail. This is the surface decantCC actually consumes.
-- **C2 — Windows `.exe`.** SEA build with embedded assets + a JPX/JBIG2
-  packaging smoke test; Authenticode signing; a documented `decant.exe convert`
-  invocation.
-- **C3 — \*nix binaries.** Linux + macOS builds from the same recipe in CI;
-  publish alongside the Windows binary.
+- **C0 — Headless parity. ✅ Done.** The §3 asset seam (`getAssetUrl` + `#pdfjs`
+  build split) lets `convertFile()` run under Node over all five engines;
+  `bench-pdf.mjs` is retargeted onto the shared path (proves parity, kills the
+  drift risk). `--mode auto`, Markdown to stdout, `--json`, `--config`, exit codes.
+- **C1 — Forced modes. ✅ `markdown` + `figures`.** `--mode markdown` forces
+  text-only; `--mode figures` writes the Markdown plus render-free figure files
+  to `--out-dir` (zip media / cropped mini-PDF). `passthrough` is intentionally
+  not a CLI mode (redundant). `companion` is deferred — it needs the direct-fetch
+  transport (§3.2) and the non-localhost `--allow-remote` guardrail.
+- **C2 — SEA packaging. ✅ Done (`npm run build:cli`).** One-file bundle +
+  embedded `assets.zip` (unpacked at startup) + canvas globals + postject
+  injection with auto-detected fuse. Verified end-to-end on the Linux binary;
+  the `win-x64` `decant.exe` is produced by cross-injection (§7). Remaining for a
+  release: Authenticode signing and the per-OS JPX/JBIG2 smoke test.
+- **C3 — CI binaries. ✅ Done.** `.github/workflows/release-cli.yml` builds the
+  binary natively on Linux/macOS/Windows (each runner builds and smoke-tests its
+  own OS's binary — real per-platform coverage), uploads artifacts every run, and
+  on a `v*` tag attaches them to the GitHub Release. `ci.yml` runs the test suite
+  + browser build on push/PR. Remaining for a signed release: Authenticode
+  (Windows) and Developer-ID/notarization (macOS) secrets, which need real
+  certs — the workflow ad-hoc-signs macOS so CI can run the binary.
 - **Deferred:** batch/glob input, an end-user-friendly command surface, a
   long-lived server mode (avoid per-file process spawn on huge corpora) if
   decantCC's throughput ever needs it.

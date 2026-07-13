@@ -1,0 +1,84 @@
+name: Build CLI binaries
+
+# Builds the single-executable CLI (CLI.md §7) natively on each OS — a native
+# runner produces its own OS's binary and can actually run it, so the smoke test
+# is real per-platform coverage (no cross-injection needed here; that path stays
+# for local/ad-hoc builds). Artifacts on every run; on a v* tag, attached to the
+# GitHub Release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: decant-linux-x64
+          - os: macos-latest
+            asset: decant-macos-arm64
+          - os: windows-latest
+            asset: decant-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run build:cli
+
+      - name: Locate binary
+        shell: bash
+        run: |
+          bin=build/cli/decant
+          [ "${{ runner.os }}" = "Windows" ] && bin=build/cli/decant.exe
+          echo "BIN=$bin" >> "$GITHUB_ENV"
+
+      # macOS (arm64) refuses to run an unsigned binary; postject strips the
+      # signature, so ad-hoc re-sign before the smoke test.
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --sign - --force "$BIN"
+
+      - name: Smoke test — convert a fixture end-to-end
+        shell: bash
+        run: |
+          out=$("$BIN" convert test/fixtures/tables/two_col_table.pdf --quiet)
+          echo "$out" | head -3
+          echo "$out" | grep -q "Reason for exclusion" || { echo "smoke failed: unexpected output"; exit 1; }
+
+      - name: Stage asset
+        shell: bash
+        run: cp "$BIN" "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bins
+          merge-multiple: true
+      - name: Publish to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" bins/* -R "$REPO" --title "$TAG" --generate-notes \
+            || gh release upload "$TAG" bins/* -R "$REPO" --clobber

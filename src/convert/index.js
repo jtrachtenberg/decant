@@ -121,23 +121,36 @@ async function convertViaBackground(file, rule) {
 // Shape A: the in-browser engines, picked by type — PDF (pdf.js + the
 // classifier), DOCX (mammoth), XLSX/XLS (SheetJS), and PPTX (jszip +
 // DrawingML extraction). Anything else routed here passes through untouched.
-async function inbrowser(file) {
-  let engine = null;
+//
+// engineFor is the single type→engine mapping: convertFile uses it, and the CLI
+// surface (CLI.md §4) uses it to run the raw analysis when forcing a mode —
+// so the two can't drift on which types have an engine. Returns the analysis
+// function ({decision, reason, summary, markdown}) or null for an unhandled type.
+export function engineFor(file) {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-    engine = analyzePdf;
-  } else if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
-    engine = analyzeDocx;
-  } else if (
+    return analyzePdf;
+  }
+  if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
+    return analyzeDocx;
+  }
+  if (
     file.type === XLSX_MIME ||
     file.type === XLS_MIME ||
     /\.xlsx?$/i.test(file.name)
   ) {
-    engine = analyzeXlsx;
-  } else if (file.type === PPTX_MIME || /\.pptx$/i.test(file.name)) {
-    engine = analyzePptx;
-  } else if (file.type === "text/html" || /\.html?$/i.test(file.name)) {
-    engine = analyzeHtml;
+    return analyzeXlsx;
   }
+  if (file.type === PPTX_MIME || /\.pptx$/i.test(file.name)) {
+    return analyzePptx;
+  }
+  if (file.type === "text/html" || /\.html?$/i.test(file.name)) {
+    return analyzeHtml;
+  }
+  return null;
+}
+
+async function inbrowser(file) {
+  const engine = engineFor(file);
   if (!engine) {
     return { action: "passthrough", file, reason: "no-engine" };
   }
