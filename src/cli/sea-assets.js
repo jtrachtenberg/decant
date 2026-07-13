@@ -12,6 +12,7 @@
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import JSZipNs from "jszip";
 import { setAssetResolver } from "../convert/assets.js";
 
@@ -99,9 +100,14 @@ export async function installSeaAssets(sea, version) {
     writeFileSync(stamp, "");
   }
 
-  // rel is browser-flat ("pdf.worker.mjs", "standard_fonts/", …). pdf.js appends
-  // the filename to the dir assets, so keep their trailing slash (join strips it).
-  setAssetResolver((rel) =>
-    rel.endsWith("/") ? join(dir, rel) + "/" : join(dir, rel)
-  );
+  // rel is browser-flat ("pdf.worker.mjs", "standard_fonts/", …). The worker is
+  // loaded with ESM import(), which on Windows needs a file:// URL (a bare
+  // "C:\…" path is rejected as scheme "c:"); the font/WASM dirs are read from
+  // disk by pdf.js via fs, so they must stay plain paths (Node fetch has no
+  // file:// scheme). pdf.js appends the filename to the dir assets, so keep
+  // their trailing slash (join strips it).
+  setAssetResolver((rel) => {
+    if (rel === "pdf.worker.mjs") return pathToFileURL(join(dir, rel)).href;
+    return rel.endsWith("/") ? join(dir, rel) + "/" : join(dir, rel);
+  });
 }

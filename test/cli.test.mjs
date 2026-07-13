@@ -56,6 +56,18 @@ test("convertFile runs under Node via the asset seam (PDF → Markdown)", async 
   assert.equal(res.file.name, "two_col_table.md");
 });
 
+test("the worker asset resolves to a file:// URL, dir assets to plain paths", async () => {
+  // pdf.js loads the worker with ESM import(), which on Windows rejects a bare
+  // "C:\…" path (read as scheme "c:") — it must be a file:// URL. The font/WASM
+  // dirs, by contrast, are read via fs and must stay plain paths (Node fetch has
+  // no file:// scheme). Regression guard for the "fake worker failed" bug.
+  const { installNodeAssets } = await import("../src/cli/node-assets.js");
+  const { getAssetUrl } = await import("../src/convert/assets.js");
+  installNodeAssets();
+  assert.match(getAssetUrl("pdf.worker.mjs"), /^file:\/\//);
+  assert.doesNotMatch(getAssetUrl("standard_fonts/"), /^file:/);
+});
+
 test("convertFile passes an empty document through", async () => {
   const { installNodeAssets } = await import("../src/cli/node-assets.js");
   installNodeAssets();
