@@ -363,8 +363,13 @@ entirely. decantCC's own environment decides which it needs.
   injection with auto-detected fuse. Verified end-to-end on the Linux binary;
   the `win-x64` `decant.exe` is produced by cross-injection (§7). Remaining for a
   release: Authenticode signing and the per-OS JPX/JBIG2 smoke test.
-- **C3 — \*nix binaries & CI.** Linux + macOS binaries from the same recipe in
-  CI (the recipe already works; this is wiring + publishing), alongside Windows.
+- **C3 — CI binaries. ✅ Done.** `.github/workflows/release-cli.yml` builds the
+  binary natively on Linux/macOS/Windows (each runner builds and smoke-tests its
+  own OS's binary — real per-platform coverage), uploads artifacts every run, and
+  on a `v*` tag attaches them to the GitHub Release. `ci.yml` runs the test suite
+  + browser build on push/PR. Remaining for a signed release: Authenticode
+  (Windows) and Developer-ID/notarization (macOS) secrets, which need real
+  certs — the workflow ad-hoc-signs macOS so CI can run the binary.
 - **Deferred:** batch/glob input, an end-user-friendly command surface, a
   long-lived server mode (avoid per-file process spawn on huge corpora) if
   decantCC's throughput ever needs it.

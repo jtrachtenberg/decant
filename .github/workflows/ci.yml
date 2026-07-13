@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm install (not ci): the committed lockfile can't be regenerated in the
+      # dev environment that added postject, so it may lag package.json.
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
