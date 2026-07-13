@@ -1,7 +1,9 @@
-// CLI surface / headless-parity tests (CLI.md, C0). Two layers:
+// CLI surface / headless-parity tests (CLI.md). Three layers:
 //   1. The shared convertFile() runs under Node — the whole point of the §3
 //      de-browserifying seams. Exercises the real engines, not a stub.
-//   2. The `decant` binary's contract: stdout payload and the scriptable exit
+//   2. The forced modes (--mode markdown | figures) — decantCC generates each
+//      variant in its own pass (CLI.md §4).
+//   3. The `decant` binary's contract: stdout payload and the scriptable exit
 //      codes decantCC branches on.
 //
 //   node --test
@@ -9,14 +11,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import JSZipNs from "jszip";
 
+const JSZip = JSZipNs.default ?? JSZipNs;
 const fixture = (rel) => fileURLToPath(new URL(`./fixtures/${rel}`, import.meta.url));
 const CLI = fileURLToPath(new URL("../src/cli/decant.mjs", import.meta.url));
 
 const fileOf = async (rel, type) =>
   new File([await readFile(fixture(rel))], rel.split("/").pop(), { type });
+
+// A minimal .pptx with one text slide AND a real embedded media part (≥ the 4KB
+// junk filter) — the fixtures reference images without embedding the bytes, so
+// figure extraction needs its own. Written to a temp file for the binary tests.
+async function makePptxWithImage() {
+  const z = new JSZip();
+  z.file("[Content_Types].xml", `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>`);
+  z.file("_rels/.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`);
+  z.file("ppt/presentation.xml", `<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`);
+  z.file("ppt/slides/slide1.xml", `<?xml version="1.0"?><p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>Quarterly Review</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`);
+  // A PNG signature + padding to clear MIN_FIGURE_BYTES; extractFigures gates on
+  // extension + size, not pixel validity.
+  z.file("ppt/media/image1.png", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(5000, 7)]));
+  return z.generateAsync({ type: "nodebuffer" });
+}
 
 // --- Layer 1: convertFile() headless over the real engines -----------------
 
@@ -49,7 +70,25 @@ test("convertFile passes an empty document through", async () => {
   assert.equal(res.action, "passthrough");
 });
 
-// --- Layer 2: the binary's stdout + exit-code contract ---------------------
+// --- Layer 2: forced modes -------------------------------------------------
+
+test("assembleFigures pulls a PPTX's embedded media as a sibling file", async () => {
+  const { installNodeAssets } = await import("../src/cli/node-assets.js");
+  installNodeAssets();
+  const { assembleFigures } = await import("../src/cli/figures.js");
+  const { engineFor } = await import("../src/convert/index.js");
+
+  const file = new File([await makePptxWithImage()], "deck.pptx", {
+    type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  });
+  const analysis = await engineFor(file)(file);
+  const { files, note } = await assembleFigures(file, analysis.summary);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].name, "deck-fig1.png");
+  assert.match(note, /attached as separate files/);
+});
+
+// --- Layer 3: the binary's stdout + exit-code contract ---------------------
 
 const run = (...args) =>
   spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
@@ -66,6 +105,33 @@ test("passthrough exits 10 with clean stdout", () => {
   assert.equal(r.stdout, "");
 });
 
+test("--mode markdown forces text-only conversion (exit 0)", () => {
+  const r = run("convert", fixture("tables/two_col_table.pdf"), "--mode", "markdown", "--quiet");
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /Reason for exclusion/);
+});
+
+test("--mode figures writes Markdown + figure files to --out-dir", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "decant-cli-"));
+  const pptx = join(dir, "deck.pptx");
+  await writeFile(pptx, await makePptxWithImage());
+
+  const out = join(dir, "out");
+  const r = run("convert", pptx, "--mode", "figures", "--out-dir", out, "--quiet");
+  assert.equal(r.status, 0);
+
+  const written = (await readdir(out)).sort();
+  assert.deepEqual(written, ["deck-fig1.png", "deck.md"]);
+  const md = await readFile(join(out, "deck.md"), "utf8");
+  assert.match(md, /attached as separate files/); // association note appended
+});
+
+test("--mode figures requires --out-dir (usage error, exit 1)", () => {
+  const r = run("convert", fixture("tiny.pptx"), "--mode", "figures");
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /requires --out-dir/);
+});
+
 test("--json emits the envelope with decision + savings", () => {
   const r = run("convert", fixture("tables/two_col_table.pdf"), "--json", "--quiet");
   assert.equal(r.status, 0);
@@ -77,8 +143,8 @@ test("--json emits the envelope with decision + savings", () => {
   assert.equal(env.meta.pageCount, 2);
 });
 
-test("unimplemented forced modes fail with exit 1 (C1)", () => {
-  const r = run("convert", fixture("tiny.pptx"), "--mode", "figures");
+test("--mode companion is deferred (usage error, exit 1)", () => {
+  const r = run("convert", fixture("tiny.pptx"), "--mode", "companion");
   assert.equal(r.status, 1);
   assert.match(r.stderr, /not implemented/);
 });

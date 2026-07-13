@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 // Decant CLI surface (CLI.md) — headless conversion over the shared core.
 //
-//   decant convert <input> [--mode auto] [--out <file>] [--json]
-//                          [--config <file>] [--quiet|--verbose]
+//   decant convert <input> [--mode <mode>] [--out <file>|--out-dir <dir>]
+//                          [--config <file>] [--json] [--quiet|--verbose]
 //
-// This is the C0 milestone: --mode auto (run the classifier, do what the browser
-// would), Markdown to stdout, the --json envelope, and the scriptable exit codes
-// decantCC branches on. The forced modes (--mode markdown|figures|companion|
-// passthrough) are recognized so the surface shape is stable, but only `auto` is
-// wired here; the rest report "not yet implemented" until C1.
+// Modes (CLI.md §4) — the classifier verdict, or an override that forces a
+// specific variant so decantCC can generate each in its own pass:
+//   auto      run the classifier, do what the browser would (default)
+//   markdown  force text-only Markdown, whatever the verdict (figures dropped)
+//   figures   force convert + extract the document's figures as sibling files
+//             (requires --out-dir); the Markdown gains an association note
+//   companion high-fidelity via the localhost companion — deferred (later)
 //
-// stdout carries ONLY the payload (Markdown or the JSON envelope) so it pipes
-// cleanly; all diagnostics go to stderr.
+// stdout carries ONLY the payload (Markdown, or the JSON envelope) so it pipes
+// cleanly; all diagnostics go to stderr. Passthrough is intentionally not a mode
+// — on the CLI "send the original" just means don't run decant on the file.
 
-import { readFile, writeFile } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
 import { installNodeAssets } from "./node-assets.js";
 
 const EXIT = {
@@ -25,12 +28,11 @@ const EXIT = {
   ambiguous: 11,
 };
 
-// C1 will thread these through the core; today only `auto` is live.
-const MODES = new Set(["auto", "markdown", "figures", "companion", "passthrough"]);
+const MODES = new Set(["auto", "markdown", "figures", "companion"]);
 
 // Minimal MIME hints so a routed file carries a type as well as a name. The
-// router matches on either, and the engines dispatch on the extension too, so
-// this is belt-and-suspenders — but it keeps `meta.type` honest in --json.
+// router and engines dispatch on the extension too, so this is belt-and-braces —
+// it just keeps meta.type honest.
 const MIME = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -47,19 +49,20 @@ Usage:
   decant convert <input> [options]
 
 Options:
-  --mode <mode>     auto (default) | markdown | figures | companion | passthrough
-                    Only 'auto' is implemented in this build (C0); the forced
-                    modes land in C1.
-  --out <file>      write output to <file> instead of stdout
+  --mode <mode>     auto (default) | markdown | figures | companion
+  --out <file>      write Markdown to <file> instead of stdout
+  --out-dir <dir>   write output into <dir> (required for --mode figures:
+                    the Markdown plus one file per extracted figure)
   --config <file>   routing/profile config JSON (options-page export shape)
-  --json            emit a JSON envelope {action,reason,markdown,savings,meta}
+  --json            emit a JSON envelope {action,reason,markdown,figures,savings,meta}
   --quiet           suppress the stderr status line
   --verbose         extra stderr diagnostics
   -h, --help        show this help
 
 Exit codes:
   0  converted (Markdown produced)
-  10 passthrough (no usable conversion; original is the right answer)
+  10 passthrough / no usable conversion (auto: original is the answer;
+     markdown/figures: nothing to extract)
   11 ambiguous (auto only — the classifier wants a forced --mode)
   1  usage error
   2  conversion error
@@ -86,24 +89,13 @@ function parseArgs(argv) {
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     switch (a) {
-      case "--mode":
-        opts.mode = rest[++i];
-        break;
-      case "--out":
-        opts.out = rest[++i];
-        break;
-      case "--config":
-        opts.config = rest[++i];
-        break;
-      case "--json":
-        opts.json = true;
-        break;
-      case "--quiet":
-        opts.quiet = true;
-        break;
-      case "--verbose":
-        opts.verbose = true;
-        break;
+      case "--mode": opts.mode = rest[++i]; break;
+      case "--out": opts.out = rest[++i]; break;
+      case "--out-dir": opts.outDir = rest[++i]; break;
+      case "--config": opts.config = rest[++i]; break;
+      case "--json": opts.json = true; break;
+      case "--quiet": opts.quiet = true; break;
+      case "--verbose": opts.verbose = true; break;
       default:
         if (a.startsWith("-")) fail(EXIT.usage, `unknown option '${a}'`);
         positionals.push(a);
@@ -115,10 +107,13 @@ function parseArgs(argv) {
   }
   opts.input = positionals[0];
   if (!MODES.has(opts.mode)) {
-    fail(EXIT.usage, `unknown --mode '${opts.mode}' (auto|markdown|figures|companion|passthrough)`);
+    fail(EXIT.usage, `unknown --mode '${opts.mode}' (auto|markdown|figures|companion)`);
   }
-  if (opts.mode !== "auto") {
-    fail(EXIT.usage, `--mode ${opts.mode} is not implemented in this build yet (C1); use --mode auto`);
+  if (opts.mode === "companion") {
+    fail(EXIT.usage, "--mode companion is not implemented yet; use auto, markdown, or figures");
+  }
+  if (opts.mode === "figures" && !opts.outDir) {
+    fail(EXIT.usage, "--mode figures requires --out-dir (it emits the Markdown plus figure files)");
   }
   return opts;
 }
@@ -137,63 +132,157 @@ async function loadRouting(configPath) {
   return parsed?.routing ?? DEFAULT_CONFIG.routing;
 }
 
-async function main() {
-  const opts = parseArgs(process.argv.slice(2));
-
-  // Resolve pdf.js assets against the installed pdfjs-dist, THEN import the
-  // core: inbrowser.js reads its asset URLs at module load (CLI.md §3.1).
-  installNodeAssets();
-  const [{ convertFile }, { estimateSavings }] = await Promise.all([
-    import("../convert/index.js"),
-    import("../convert/savings.js"),
-  ]);
-
-  let buf;
-  try {
-    buf = await readFile(opts.input);
-  } catch (err) {
-    fail(EXIT.error, `cannot read ${opts.input}: ${err.message}`);
-  }
-  const name = basename(opts.input);
+function readInput(path) {
+  const name = basename(path);
   const ext = extname(name).slice(1).toLowerCase();
-  const file = new File([buf], name, { type: MIME[ext] ?? "application/octet-stream" });
+  return readFile(path)
+    .then((buf) => new File([buf], name, { type: MIME[ext] ?? "application/octet-stream" }))
+    .catch((err) => fail(EXIT.error, `cannot read ${path}: ${err.message}`));
+}
 
-  const routing = await loadRouting(opts.config);
+// --- Mode handlers: each returns a common result shape --------------------
+// { action, reason, markdown, figureFiles, attachedFigurePages, meta, savings }
 
-  let res;
-  try {
-    res = await convertFile(file, routing);
-  } catch (err) {
-    fail(EXIT.error, `conversion failed for ${name}: ${err.message}`);
-  }
-
+async function runAuto(file, routing, core) {
+  const res = await core.convertFile(file, routing);
   const markdown =
     res.action === "converted"
       ? await res.file.text()
       : res.action === "ambiguous" && res.converted
         ? await res.converted.text()
         : null;
+  return {
+    action: res.action,
+    reason: res.reason,
+    // On ambiguous the safe default is the original, so the text rides in
+    // `converted`, not the top-level `markdown`.
+    markdown: res.action === "converted" ? markdown : null,
+    converted: res.action === "ambiguous" ? markdown : undefined,
+    figureFiles: [],
+    attachedFigurePages: 0,
+    meta: res.meta ?? null,
+    savings: res.action === "converted" ? core.estimateSavings(res) : null,
+  };
+}
 
-  if (opts.json) {
-    const envelope = {
-      action: res.action,
-      reason: res.reason,
-      mode: opts.mode,
-      input: opts.input,
-      markdown: res.action === "converted" ? markdown : null,
-      // On ambiguous the safe default is the original, so the Markdown rides in
-      // its own field rather than the top-level `markdown`.
-      converted: res.action === "ambiguous" ? markdown : undefined,
-      savings: res.action === "converted" ? estimateSavings(res) : null,
-      meta: res.meta ?? null,
-    };
-    await emit(opts, JSON.stringify(envelope, null, 2) + "\n");
-  } else if (markdown != null && res.action === "converted") {
-    await emit(opts, markdown);
+// Force text-only conversion regardless of the classifier verdict. The engine
+// builds Markdown whenever any text exists (convert or ambiguous); a genuine
+// no-text scan yields none and is reported as passthrough.
+async function runMarkdown(file, core) {
+  const res = await analyze(file, core);
+  if (res.markdown == null) {
+    return { action: "passthrough", reason: res.reason, markdown: null, figureFiles: [], attachedFigurePages: 0, meta: res.summary };
+  }
+  return {
+    action: "converted",
+    reason: res.reason,
+    markdown: res.markdown,
+    figureFiles: [],
+    attachedFigurePages: 0,
+    meta: res.summary,
+    savings: core.estimateSavings({ meta: res.summary }),
+  };
+}
+
+// Force convert + attach figures: the text plus the document's figures as
+// sibling files, with an association note appended to the Markdown.
+async function runFigures(file, core) {
+  const res = await analyze(file, core);
+  if (res.markdown == null) {
+    return { action: "passthrough", reason: res.reason, markdown: null, figureFiles: [], attachedFigurePages: 0, meta: res.summary };
+  }
+  const { assembleFigures } = await import("./figures.js");
+  const { files, note, attachedFigurePages } = await assembleFigures(file, res.summary);
+  const markdown = note
+    ? `${res.markdown.trimEnd()}\n\n---\n\n${note}\n`
+    : res.markdown;
+  return {
+    action: "converted",
+    reason: res.reason,
+    markdown,
+    figureFiles: files,
+    attachedFigurePages,
+    meta: res.summary,
+    savings: core.estimateSavings({ meta: res.summary, attachedFigurePages }),
+  };
+}
+
+// Run the raw engine analysis for a forced mode; a type with no engine can't be
+// forced to Markdown, so that's a conversion error, not a silent passthrough.
+async function analyze(file, core) {
+  const engine = core.engineFor(file);
+  if (!engine) fail(EXIT.error, `no engine for ${file.name} — cannot force this mode`);
+  try {
+    return await engine(file);
+  } catch (err) {
+    fail(EXIT.error, `conversion failed for ${file.name}: ${err.message}`);
+  }
+}
+
+// --- Output ----------------------------------------------------------------
+
+async function output(opts, result) {
+  const base = basename(opts.input, extname(opts.input));
+
+  if (opts.mode === "figures") {
+    await mkdir(opts.outDir, { recursive: true });
+    const paths = [];
+    if (result.markdown != null) {
+      const mdPath = join(opts.outDir, `${base}.md`);
+      await writeFile(mdPath, result.markdown);
+      paths.push(mdPath);
+    }
+    for (const f of result.figureFiles) {
+      const p = join(opts.outDir, f.name);
+      await writeFile(p, Buffer.from(await f.arrayBuffer()));
+      paths.push(p);
+    }
+    if (opts.json) process.stdout.write(envelope(opts, result, paths) + "\n");
+    return;
   }
 
-  status(opts, res);
-  process.exit(exitFor(res.action));
+  // auto / markdown: Markdown (or the envelope) to --out or stdout.
+  if (opts.json) {
+    await emit(opts, envelope(opts, result, opts.out ? [opts.out] : []) + "\n");
+  } else if (result.action === "converted" && result.markdown != null) {
+    await emit(opts, result.markdown);
+  }
+}
+
+async function emit(opts, text) {
+  if (opts.out) await writeFile(opts.out, text);
+  else process.stdout.write(text);
+}
+
+function envelope(opts, result, paths) {
+  return JSON.stringify(
+    {
+      action: result.action,
+      reason: result.reason,
+      mode: opts.mode,
+      input: opts.input,
+      output: paths.length ? paths : null,
+      markdown: result.action === "converted" ? result.markdown : null,
+      converted: result.converted,
+      figures: result.figureFiles.map((f) => f.name),
+      attachedFigurePages: result.attachedFigurePages,
+      savings: result.savings ?? null,
+      meta: result.meta ?? null,
+    },
+    null,
+    2
+  );
+}
+
+function status(opts, result) {
+  if (opts.quiet) return;
+  const figs = result.figureFiles.length ? `, ${result.figureFiles.length} figure(s)` : "";
+  let where = "";
+  if (opts.mode === "figures") where = ` → ${opts.outDir}/`;
+  else if (opts.out) where = ` → ${opts.out}`;
+  let line = `${result.action} (${result.reason})${figs}${where}`;
+  if (result.action === "ambiguous") line += " — rerun with --mode markdown or --mode figures";
+  process.stderr.write(`decant: ${line}\n`);
 }
 
 function exitFor(action) {
@@ -203,22 +292,37 @@ function exitFor(action) {
   return EXIT.error;
 }
 
-async function emit(opts, text) {
-  if (opts.out) {
-    await writeFile(opts.out, text);
-  } else {
-    process.stdout.write(text);
-  }
-}
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
 
-function status(opts, res) {
-  if (opts.quiet) return;
-  const where = opts.out ? ` → ${opts.out}` : "";
-  let line = `${res.action} (${res.reason})${where}`;
-  if (res.action === "ambiguous") {
-    line += " — rerun with a forced --mode to pick a variant";
+  // Resolve pdf.js assets before importing the core: inbrowser.js reads its
+  // asset URLs at module load (CLI.md §3.1).
+  installNodeAssets();
+  const [index, savings] = await Promise.all([
+    import("../convert/index.js"),
+    import("../convert/savings.js"),
+  ]);
+  const core = {
+    convertFile: index.convertFile,
+    engineFor: index.engineFor,
+    estimateSavings: savings.estimateSavings,
+  };
+
+  const file = await readInput(opts.input);
+
+  let result;
+  if (opts.mode === "auto") {
+    const routing = await loadRouting(opts.config);
+    result = await runAuto(file, routing, core);
+  } else if (opts.mode === "markdown") {
+    result = await runMarkdown(file, core);
+  } else {
+    result = await runFigures(file, core);
   }
-  process.stderr.write(`decant: ${line}\n`);
+
+  await output(opts, result);
+  status(opts, result);
+  process.exit(exitFor(result.action));
 }
 
 main().catch((err) => fail(EXIT.error, err?.stack || String(err)));

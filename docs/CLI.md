@@ -157,20 +157,21 @@ flag that **overrides the classifier verdict** and forces a specific output. Eac
 mode maps onto an existing decision-vocabulary outcome — no new conversion
 behavior is invented, the CLI just pins the choice:
 
-| `--mode` | Forces | Maps to | Output |
-|---|---|---|---|
-| `auto` (default) | nothing — run the classifier | `classifyDocument()` verdict | whatever the browser would emit |
-| `markdown` | text-only conversion, ignore the image layer | `decision: convert` (a.k.a. the `convert` ambiguous choice) | stripped Markdown, figures dropped/marked in place |
-| `figures` | convert **and** keep the figures | the `figures` ambiguous choice (extract-and-reference) | Markdown + extracted figure files / mini-PDF, per `ADR 0006` |
-| `companion` | high-fidelity conversion via the localhost companion | the `companion` ambiguous choice | companion's Markdown (OCR/Docling), per `ARCHITECTURE.md §3` |
-| `passthrough` | no conversion | `decision: passthrough` (the `original` choice) | the original file, unchanged |
+| `--mode` | Forces | Maps to | Output | Status |
+|---|---|---|---|---|
+| `auto` (default) | nothing — run the classifier | `classifyDocument()` verdict | whatever the browser would emit | ✅ |
+| `markdown` | text-only conversion, ignore the image layer | `decision: convert` (a.k.a. the `convert` ambiguous choice) | stripped Markdown, figures dropped/marked in place | ✅ |
+| `figures` | convert **and** keep the figures | the `figures` ambiguous choice (extract-and-reference) | Markdown + extracted figure files / mini-PDF, per `ADR 0006` | ✅ render-free tier |
+| `companion` | high-fidelity conversion via the localhost companion | the `companion` ambiguous choice | companion's Markdown (OCR/Docling), per `ARCHITECTURE.md §3` | deferred |
 
-These are precisely the `AMBIGUOUS_CHOICES`
+These are the text-producing `AMBIGUOUS_CHOICES`
 (`config/defaults.js`: `["ask","convert","figures","companion","original"]`)
-plus the two hard decisions, surfaced as a flag. Forcing a mode is the CLI's
-`ARCHITECTURE.md §5` manual override — the same capability the browser realizes
-as the ambiguous prompt and the passthrough hotkey. `ask` has no CLI analogue
-(no interactive prompt); its non-interactive equivalent is simply choosing
+surfaced as a flag. Forcing a mode is the CLI's `ARCHITECTURE.md §5` manual
+override — the same capability the browser realizes as the ambiguous prompt and
+the passthrough hotkey. Two of the browser's choices have no CLI mode:
+**`passthrough`/`original`** is redundant on a command line — "send the original"
+just means don't run `decant` on the file — and **`ask`** needs an interactive
+prompt; its non-interactive equivalent is simply choosing
 `auto` and reading the reported decision.
 
 ### 4.2 The decantCC two-pass recipe
@@ -192,17 +193,24 @@ when the harness has a companion running. Because the mode is forced, the corpus
 generation is deterministic and independent of whatever the classifier would have
 decided — decantCC controls the axis it's measuring.
 
+`figures` mode uses the **render-free** extraction tier — zip media entries for
+PPTX/DOCX, and for PDF a mini-PDF cropped to each figure's box (pdf.js geometry
++ pdf-lib, no canvas), i.e. the same artifact Firefox produces in-browser. The
+canvas-only tiers (full page renders, raster-XObject re-encode) need a Node
+canvas and are a later pass; a document that would use them still gets its text
+plus the cropped mini-PDF.
+
 ### 4.3 Other options
 
 - `--out <file>` / `--out-dir <dir>` — write output instead of stdout;
   `--out-dir` is required for `figures` mode (it emits sibling figure files).
 - `--config <file>` — a routing/profile config JSON (same shape as the options
   page export, `config/defaults.js`). Absent → `DEFAULT_CONFIG.routing`.
-- `--companion <url>` — companion endpoint for `--mode companion` (default
-  `http://127.0.0.1:8765`, the browser's default). Non-localhost triggers the
-  same privacy guardrail the extension enforces (`ARCHITECTURE.md §2.1`): the CLI
-  refuses unless `--allow-remote` is passed, so a document never silently leaves
-  the machine.
+- `--companion <url>` / `--allow-remote` *(deferred with `--mode companion`)* —
+  companion endpoint (default `http://127.0.0.1:8765`, the browser's default).
+  Non-localhost will trigger the same privacy guardrail the extension enforces
+  (`ARCHITECTURE.md §2.1`): the CLI refuses unless `--allow-remote` is passed, so
+  a document never silently leaves the machine.
 - `--json` — emit the JSON envelope (§5.2) instead of raw Markdown.
 - `--quiet` / `--verbose` — control the human-readable diagnostics on stderr
   (stdout stays clean for piping).
@@ -213,13 +221,15 @@ decided — decantCC controls the axis it's measuring.
 
 ### 5.1 Default (raw)
 
-- **Markdown modes** (`markdown`/`figures`/`companion`, and `auto` when it
-  converts): the Markdown goes to stdout (or `--out`). In `figures` mode the
-  sibling figure files land in `--out-dir`, referenced by name from the Markdown
-  exactly as the browser attaches them.
-- **Passthrough** (`--mode passthrough`, or `auto` when the classifier passes
-  through): nothing is written to stdout; the original is left as-is (or copied to
-  `--out`). The decision is reported on stderr and via exit code.
+- **`markdown` / `auto`-convert**: the Markdown goes to stdout (or `--out`).
+- **`figures`**: the Markdown (`<input>.md`) and one file per extracted figure
+  land in `--out-dir`, the figures referenced by name from the Markdown's
+  association note exactly as the browser attaches them. With `--json`, the
+  envelope goes to stdout and names the written paths.
+- **No usable conversion** (`auto` when the classifier passes through, or
+  `markdown`/`figures` on a no-text document): nothing is written to stdout; the
+  decision is reported on stderr and via exit code `10`. On the CLI "send the
+  original" is not a conversion — the caller just uses the input file itself.
 
 ### 5.2 `--json` envelope
 
@@ -326,14 +336,15 @@ decides which it needs.
 
 ## 8. Milestones
 
-- **C0 — Headless parity.** Land the §3 seams (`getAssetUrl`, Node transport) so
-  `convertFile()` runs under Node over all five engines. Retarget
-  `bench-pdf.mjs` onto the shared path so it stops re-implementing the loop
-  (proves parity and kills the drift risk). `--mode auto`, Markdown to stdout,
-  exit codes.
-- **C1 — Forced modes & contract.** `--mode markdown|figures|companion|
-  passthrough`, `--out`/`--out-dir`, `--json` envelope, `--config`, the
-  non-localhost guardrail. This is the surface decantCC actually consumes.
+- **C0 — Headless parity. ✅ Done.** The §3 asset seam (`getAssetUrl` + `#pdfjs`
+  build split) lets `convertFile()` run under Node over all five engines;
+  `bench-pdf.mjs` is retargeted onto the shared path (proves parity, kills the
+  drift risk). `--mode auto`, Markdown to stdout, `--json`, `--config`, exit codes.
+- **C1 — Forced modes. ✅ `markdown` + `figures`.** `--mode markdown` forces
+  text-only; `--mode figures` writes the Markdown plus render-free figure files
+  to `--out-dir` (zip media / cropped mini-PDF). `passthrough` is intentionally
+  not a CLI mode (redundant). `companion` is deferred — it needs the direct-fetch
+  transport (§3.2) and the non-localhost `--allow-remote` guardrail.
 - **C2 — Windows `.exe`.** SEA build with embedded assets + a JPX/JBIG2
   packaging smoke test; Authenticode signing; a documented `decant.exe convert`
   invocation.
