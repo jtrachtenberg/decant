@@ -12,7 +12,7 @@
 //      Chrome/Node reads are already same-realm, so the `instanceof` guard makes
 //      it a zero-copy passthrough there.
 //
-//   2. Should a page-owned blob's native .arrayBuffer()/.text() ever throw (e.g.
+//   2. Should a page-owned blob's native .arrayBuffer() ever throw (e.g.
 //      a stricter Firefox build routing the read through the cross-compartment
 //      byte-stream path — bug 1757836 / pdf.js#15556), we fall back to breaking
 //      the wrapper chain with an object URL: URL.createObjectURL hands back a
@@ -23,15 +23,7 @@ export async function fileBytes(blob) {
   try {
     return sameRealm(await blob.arrayBuffer());
   } catch (err) {
-    return readViaObjectUrl(blob, "arrayBuffer", err);
-  }
-}
-
-export async function fileText(blob) {
-  try {
-    return await blob.text(); // strings are primitives — no realm concern
-  } catch (err) {
-    return readViaObjectUrl(blob, "text", err);
+    return readViaObjectUrl(blob, err);
   }
 }
 
@@ -45,14 +37,13 @@ function sameRealm(buf) {
   return out.buffer;
 }
 
-async function readViaObjectUrl(blob, method, cause) {
+async function readViaObjectUrl(blob, cause) {
   if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
     throw cause; // no object-URL escape hatch here — surface the original error
   }
   const url = URL.createObjectURL(blob);
   try {
     const res = await fetch(url); // read the body before revoking in finally
-    if (method === "text") return await res.text();
     return sameRealm(await res.arrayBuffer());
   } finally {
     URL.revokeObjectURL(url);

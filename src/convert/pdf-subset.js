@@ -135,3 +135,18 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
     pages,
   };
 }
+
+// One canonical wording for the chart-pages association note, shared by the
+// extension (content/intercept.js) and the CLI (cli/figures.js) so the
+// model-facing text can't drift between surfaces. Page references use the
+// document's printed labels when the PDF defines them — matching the in-page
+// stamps above and the "[images omitted — page N]" markers in the Markdown.
+export function chartPagesNote(subset, meta) {
+  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
+  return (
+    `The figures from this document are attached as "${subset.file.name}" ` +
+    `(${subset.pages
+      .map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`)
+      .join("; ")}).`
+  );
+}
