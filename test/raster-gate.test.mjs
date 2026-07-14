@@ -451,6 +451,40 @@ test("cross-page repeated images are furniture, not figures", () => {
   );
 });
 
+test("a page-dominant repeated image is content (scanned annex), not furniture", () => {
+  const A4 = [0, 0, 595, 842];
+  const AREA = 595 * 842;
+  // Distinct scanned pages routinely share the scanner's exact auto-crop pixel
+  // dimensions, so a scanned annex trips the dims census on genuine content.
+  // A repeated image that DOMINATES the page (≥ REPEATED_IMAGE_KEEP_PAGE_
+  // FRACTION) is a scan, never a logo/strip/thumbnail — it stays a figure.
+  const census = new Set([imageDimsKey(653, 472)]);
+  // ~56% of the page: over the keep threshold.
+  const bigScan = scanOf(placeImage("img_p68_1", 40, 40, 440, 600, 653, 472));
+  assert.equal(
+    significantFigureComponents(bigScan, AREA, { view: A4, repeatedDims: census })
+      .length,
+    1
+  );
+  // A small repeated image of the same dims (a reused logo, ~3% of the page)
+  // stays demoted — the footprint, not the dims, is what rescues a scan.
+  const logo = scanOf(placeImage("img_p68_2", 40, 40, 120, 90, 653, 472));
+  assert.equal(
+    significantFigureComponents(logo, AREA, { view: A4, repeatedDims: census })
+      .length,
+    0
+  );
+  // A page-dominant repeat that is ACTUALLY full-bleed decoration is still
+  // demoted downstream by the bleed gate (≥3 clamped edges), so exempting it
+  // from the census never forces a backdrop through as a figure.
+  const bleed = scanOf(placeImage("img_p68_3", -5, -5, 605, 852, 653, 472));
+  assert.equal(
+    significantFigureComponents(bleed, AREA, { view: A4, repeatedDims: census })
+      .length,
+    0
+  );
+});
+
 // --- Tiled/full-bleed art reassembly -----------------------------------------
 
 test("clampBoxToView trims off-page paint; fully off-page → null", () => {

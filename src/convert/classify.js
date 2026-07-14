@@ -2255,24 +2255,47 @@ export function classifyDocument(perPage) {
   // the figure is the only faithful representation) outrank the rest.
   const flattenedPageNumbers = [];
   const figurePageNumbers = [];
+  // Image-only figure pages (a scanned exhibit / full-page figure: significant
+  // image, no usable text layer). Tracked apart from figurePageNumbers because
+  // the attachment cap treats them differently — their content exists ONLY as
+  // the page image, so they are exempt from the cap that governs text-backed
+  // figures (selectChartPages). A subset of figurePageNumbers.
+  const scanPageNumbers = [];
   let figurePages = 0;
   perPage.forEach((p, i) => {
-    if (p.chars < MIN_TEXT_CHARS_PER_PAGE) return;
     // A flattened chart/figure page (perPage[i].flattened — Tier 2 column
     // convergence) is a chart page even with ZERO raster images: a pure
     // vector chart paints no raster, yet its Markdown carries the
     // flattened-figure warning — without attaching the page, the model is
     // told the values are unreliable and given nothing better to read.
     const flattened = p.flattened === true;
-    if (p.images >= 1 || flattened) {
-      chartPageNumbers.push(i + 1);
-      if (flattened) flattenedPageNumbers.push(i + 1);
-      else if ((p.figureImages ?? 0) >= 1) figurePageNumbers.push(i + 1);
-      // A flattened page counts as a significant figure for the prompt
-      // trigger: unreliable-text-with-a-real-chart is the exact case the
-      // ambiguous prompt exists for.
-      if ((p.figureImages ?? 0) >= 1 || flattened) figurePages++;
+    const significant = (p.figureImages ?? 0) >= 1;
+    const hasText = p.chars >= MIN_TEXT_CHARS_PER_PAGE;
+    // What makes page i a chart page depends on whether it carries usable
+    // text. A TEXT page painting any raster is a candidate (an incidental
+    // logo is filtered later by significance — selectChartPages). An
+    // IMAGE-ONLY page (below the text floor — a scanned exhibit, a full-page
+    // figure) qualifies only when it carries a SIGNIFICANT figure: its content
+    // exists solely as that image, so dropping it loses the whole page —
+    // unlike an incidental image on a text page, whose text still converts. A
+    // bare image-only page with no significant figure stays out (that's the
+    // document-level passthrough/convert decision's business), as does a
+    // flattened marker with no image behind it (nothing to attach).
+    const chartPage = hasText ? p.images >= 1 || flattened : significant;
+    if (!chartPage) return;
+    chartPageNumbers.push(i + 1);
+    if (flattened) flattenedPageNumbers.push(i + 1);
+    else if (significant) {
+      figurePageNumbers.push(i + 1);
+      if (!hasText) scanPageNumbers.push(i + 1);
     }
+    // The single-figure ambiguity TRIGGER stays text-page-only: one image-only
+    // figure shouldn't flip an otherwise-text document into the prompt (a lone
+    // scanned insert). MANY image-only figures instead push chartPages past
+    // MIN_CHART_PAGES_FOR_AMBIGUOUS and reach the prompt by volume — the
+    // scanned-appendix case (a born-digital report with a scanned annex) that
+    // must route into the figures flow so the scans attach.
+    if (hasText && (significant || flattened)) figurePages++;
   });
   const chartPages = chartPageNumbers.length;
   const totalChars = perPage.reduce((s, p) => s + p.chars, 0);
@@ -2284,6 +2307,7 @@ export function classifyDocument(perPage) {
     chartPageNumbers,
     flattenedPageNumbers,
     figurePageNumbers,
+    scanPageNumbers,
     figurePages,
     totalChars,
     totalImages,
@@ -2327,19 +2351,33 @@ export function classifyDocument(perPage) {
 // RETURNED set stays in ascending page order so mini-PDF stamps and the
 // association footer read in document order. Every figure path (mini-PDF,
 // crops, decodes, page renders) selects through here so they agree on the set.
+//
+// Image-only scans (scanPageNumbers) are EXEMPT from the cap: a scanned page's
+// content exists only as its image — dropping one loses the whole page, with
+// no text fallback — so the cap governs only the text-backed figures, which
+// stay readable as Markdown even when their render is dropped. This is why a
+// born-digital report with a 30-page scanned annex attaches the whole annex;
+// an all-scan document never reaches here (it classifies passthrough).
 export function selectChartPages(meta, cap) {
   const all = meta?.chartPageNumbers ?? [];
   const flattened = new Set(meta?.flattenedPageNumbers ?? []);
   const figures = new Set(meta?.figurePageNumbers ?? []);
+  const scans = new Set(meta?.scanPageNumbers ?? []);
   const strong = all.filter((n) => flattened.has(n) || figures.has(n));
   const pool = strong.length ? strong : all;
-  if (pool.length <= cap) return pool.slice();
+  // Scans always attach; the cap applies only to the text-backed remainder.
+  const scanPages = pool.filter((n) => scans.has(n));
+  const capped = pool.filter((n) => !scans.has(n));
   const rank = (n) => (flattened.has(n) ? 0 : figures.has(n) ? 1 : 2);
-  // Stable sort: equal ranks keep page order, so each tier fills front-first.
-  return pool
-    .map((n, i) => ({ n, i }))
-    .sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i)
-    .slice(0, cap)
-    .map((e) => e.n)
-    .sort((a, b) => a - b);
+  const kept =
+    capped.length <= cap
+      ? capped
+      : capped
+          // Stable sort: equal ranks keep page order, so each tier fills
+          // front-first.
+          .map((n, i) => ({ n, i }))
+          .sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i)
+          .slice(0, cap)
+          .map((e) => e.n);
+  return [...scanPages, ...kept].sort((a, b) => a - b);
 }

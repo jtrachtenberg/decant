@@ -69,6 +69,21 @@ test("page cap holds at MAX_SUBSET_PAGES, keeping the first pages", async () => 
   assert.equal(out.pages[0], 1); // capped from the front
 });
 
+test("image-only scans past the cap still make the mini-PDF", async () => {
+  // The scanned-annex case: MAX_SUBSET_PAGES+5 pages, all scans. They have no
+  // text fallback, so the cap must not drop any of them.
+  const n = MAX_SUBSET_PAGES + 5;
+  const src = await makePdf(n);
+  const all = Array.from({ length: n }, (_, i) => i + 1);
+  const out = await buildChartPagesPdf(src, {
+    chartPageNumbers: all,
+    figurePageNumbers: all,
+    scanPageNumbers: all,
+  });
+  assert.equal(out.pages.length, n); // every scan copied, cap exempt
+  assert.deepEqual(out.pages, all);
+});
+
 test("a cropped page embeds at the crop's size (plus stamp strip); others copy whole", async () => {
   const src = await makePdf(5);
   const crops = new Map([[2, { png: PNG_1x1, widthPt: 300, heightPt: 180 }]]);

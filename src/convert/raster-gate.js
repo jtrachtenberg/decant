@@ -111,6 +111,18 @@ export function clampBoxToView(box, view) {
   return c.x1 > c.x0 && c.y1 > c.y0 ? c : null;
 }
 
+// Does a (clamped) box cover at least REPEATED_IMAGE_KEEP_PAGE_FRACTION of the
+// page? Only answerable with page geometry — without a view, no dominance
+// claim, so the census applies unchanged.
+function dominatesPage(box, view) {
+  if (!view) return false;
+  const [vx0, vy0, vx1, vy1] = view;
+  const pageArea = (vx1 - vx0) * (vy1 - vy0);
+  if (!(pageArea > 0)) return false;
+  const boxAreaPt = (box.x1 - box.x0) * (box.y1 - box.y0);
+  return boxAreaPt / pageArea >= REPEATED_IMAGE_KEEP_PAGE_FRACTION;
+}
+
 const boxesTouch = (a, b) =>
   a.x0 <= b.x1 + FIGURE_TILE_GAP_PT &&
   b.x0 <= a.x1 + FIGURE_TILE_GAP_PT &&
@@ -137,9 +149,14 @@ const shouldMerge = (a, b) =>
 export function figureComponents(scan, view = null, repeatedDims = null) {
   const members = [];
   for (const x of scan.xobjects) {
-    if (isRepeatedImage(x, repeatedDims)) continue;
     const box = clampBoxToView(x.box, view);
-    if (box) members.push({ box, xobject: x });
+    if (!box) continue;
+    // Drop cross-page repeated images (furniture) before merging — UNLESS the
+    // image dominates the page, which furniture never does (a scanned page vs.
+    // a reused logo/strip; see REPEATED_IMAGE_KEEP_PAGE_FRACTION). A kept
+    // full-bleed decoration is still demoted by the background gates below.
+    if (isRepeatedImage(x, repeatedDims) && !dominatesPage(box, view)) continue;
+    members.push({ box, xobject: x });
   }
   for (const b of scan.otherImageBoxes) {
     const box = clampBoxToView(b, view);
@@ -242,6 +259,21 @@ export const DEBRIS_OVERLAP_RATIO = 4;
 // graded corpus every exact-dims cross-page repeat was decoration, and the
 // photos this could cost grade as marginal attachments anyway.
 export const REPEATED_DIMS_MIN_PAGES = 2;
+
+// Exception to the dims census: a repeated image that DOMINATES its page is
+// content, not furniture. A scanned document page's raster fills most of the
+// sheet, and distinct scans routinely share the scanner's exact auto-crop
+// pixel dimensions — so a scanned annex trips the dims census on genuine
+// pages (messy-scan corpus: 56–64% footprint scans demoted as "decoration").
+// Furniture the census legitimately kills — logos, gradient strips, letter-
+// heads, contents-page thumbnails — never claims this much page area (those
+// sit at a few percent). A repeated image big enough to clear this bar that
+// is ACTUALLY full-bleed decoration is still caught downstream by the
+// bleed/text-density gates in significantFigureComponents, so keeping it here
+// only defers the decision, never forces a decoration through.
+// NOTE: relaxes ADR-0009 — re-run the Discovery contents-page corpus to
+// confirm those FPs stay demoted (their thumbnails sit well under this bar).
+export const REPEATED_IMAGE_KEEP_PAGE_FRACTION = 0.4;
 
 // One fingerprint definition for census builders and the membership check.
 export const imageDimsKey = (w, h) => `${w}x${h}`;

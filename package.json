@@ -27,7 +27,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
     "esbuild": "^0.28.1",
-    "postject": "1.0.0-alpha.6"
+    "postject": "^1.0.0-alpha.6"
   },
   "dependencies": {
     "jszip": "^3.10.1",

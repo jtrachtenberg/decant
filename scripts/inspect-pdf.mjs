@@ -351,8 +351,11 @@ console.log(`Decision: ${decision.toUpperCase()} (${reason})`);
 // pages first, then significant-figure pages, then the rest.
 if (summary.chartPageNumbers.length) {
   const attached = selectChartPages(summary, MAX_SUBSET_PAGES);
+  const scanNote = summary.scanPageNumbers?.length
+    ? `, ${summary.scanPageNumbers.length} image-only scans cap-exempt`
+    : "";
   console.log(
-    `Attached (cap ${MAX_SUBSET_PAGES}): ${attached.length} of ` +
+    `Attached (cap ${MAX_SUBSET_PAGES}${scanNote}): ${attached.length} of ` +
       `${summary.chartPageNumbers.length} figure pages → ${attached.join(", ")}` +
       (summary.flattenedPageNumbers.length
         ? `
