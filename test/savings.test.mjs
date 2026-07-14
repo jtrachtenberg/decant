@@ -8,6 +8,7 @@ import {
   estimateTokens,
   estimateSavings,
   aggregateSavings,
+  formatTokens,
   IMAGE_TOKENS_PER_PAGE,
 } from "../src/convert/savings.js";
 
@@ -81,4 +82,12 @@ test("aggregateSavings returns null when nothing is estimable", () => {
 test("a text-light PDF shows a high savings percent (image-dominated)", () => {
   const agg = aggregateSavings([pdf(10, 400)]); // 100 md tokens, 5000 saved
   assert.ok(agg.percent >= 90, `expected high percent, got ${agg.percent}`);
+});
+
+test("formatTokens compacts thousands, one decimal below 10k", () => {
+  assert.equal(formatTokens(0), "0");
+  assert.equal(formatTokens(950), "950");
+  assert.equal(formatTokens(1500), "1.5k");
+  assert.equal(formatTokens(9999), "10.0k");
+  assert.equal(formatTokens(25000), "25k");
 });

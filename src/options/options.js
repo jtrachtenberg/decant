@@ -5,6 +5,8 @@
 
 import { browser } from "../browser.js";
 import { loadConfig, saveConfig } from "../config/config.js";
+import { loadStats, resetStats, onStatsChanged } from "../config/stats.js";
+import { formatTokens } from "../convert/savings.js";
 import {
   DEFAULT_CONFIG,
   normalizeConfig,
@@ -23,6 +25,7 @@ const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
 const showSavingsEl = document.getElementById("show-savings");
 const ambiguousDefaultEl = document.getElementById("ambiguous-default");
+const tokensSavedEl = document.getElementById("tokens-saved");
 const statusEl = document.getElementById("status");
 
 let config;
@@ -459,9 +462,34 @@ async function reset() {
   status("Reset to defaults.");
 }
 
+// -------------------------------------------------------- savings counter ---
+
+// The lifetime total lives in storage.local (see stats.js), separate from the
+// synced config, and grows from the chat tabs — onStatsChanged keeps this page
+// live while one of them saves in the background.
+function renderStats(stats) {
+  const n = stats.totalTokensSaved;
+  tokensSavedEl.textContent = n > 0 ? `~${formatTokens(n)} tokens` : "0 tokens";
+}
+
+async function resetSavingsCounter() {
+  try {
+    await resetStats();
+  } catch (err) {
+    status(`Reset failed — ${err.message}`);
+    return;
+  }
+  renderStats({ totalTokensSaved: 0 }); // onStatsChanged also fires; harmless
+  status("Savings counter reset.");
+}
+
 async function init() {
   config = await loadConfig();
   render();
+  // Stats load failure shows a dash, never blocks the settings themselves.
+  loadStats().then(renderStats).catch(() => (tokensSavedEl.textContent = "—"));
+  onStatsChanged(renderStats);
+  document.getElementById("reset-stats").addEventListener("click", resetSavingsCounter);
   document.getElementById("add-host").addEventListener("click", addHost);
   document.getElementById("new-host").addEventListener("keydown", (e) => {
     if (e.key === "Enter") addHost();
