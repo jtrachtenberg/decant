@@ -164,28 +164,43 @@ export function promptConvertChoice(results, options = {}) {
   });
 }
 
+// --- Status badges -----------------------------------------------------------
+//
+// The four small badges (passthrough / converting / savings / attach-failure)
+// share one shell: a fixed top-center pill in a shadow root so site CSS can't
+// reach it. mountBadge builds the host with the shared geometry; each badge
+// supplies only its colors and content. Callers append the host themselves,
+// after wiring listeners.
+const BADGE_BASE_CSS = `
+  :host { all: initial; }
+  .badge {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 2147483647;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 12.5px; font-weight: 600;
+    border-radius: 999px; padding: 7px 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.4);
+    display: flex; align-items: center; gap: 8px;
+  }
+`;
+
+function mountBadge(id, css, html) {
+  document.getElementById(id)?.remove();
+  const host = document.createElement("div");
+  host.id = id;
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `<style>${BADGE_BASE_CSS}${css}</style>${html}`;
+  return { host, root };
+}
+
 // Small persistent badge shown while the passthrough hotkey is armed. The
 // "Esc to cancel" text is a clickable link that also cancels (calls onCancel).
-// Returns a handle with remove(); styles live in a shadow root.
+// Returns a handle with remove().
 export function showPassthroughBadge(onCancel) {
-  document.getElementById(BADGE_ID)?.remove();
-
-  const host = document.createElement("div");
-  host.id = BADGE_ID;
-  const root = host.attachShadow({ mode: "open" });
-  root.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .badge {
-        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-        z-index: 2147483647;
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        font-size: 12.5px; font-weight: 600;
-        background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff;
-        border-radius: 999px; padding: 7px 14px;
-        box-shadow: 0 6px 24px rgba(0,0,0,.4);
-        display: flex; align-items: center; gap: 8px;
-      }
+  const { host, root } = mountBadge(
+    BADGE_ID,
+    `
+      .badge { background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b5cff; }
       .sep { color: #9aa0aa; }
       .cancel {
@@ -194,14 +209,16 @@ export function showPassthroughBadge(onCancel) {
         text-decoration: underline; text-underline-offset: 2px;
       }
       .cancel:hover { color: #fff; }
-    </style>
+    `,
+    `
     <div class="badge" role="status">
       <span class="dot"></span>
       <span>Decant: next upload sent as-is</span>
       <span class="sep">·</span>
       <button class="cancel" type="button">Esc to cancel</button>
     </div>
-  `;
+  `
+  );
   root.querySelector(".cancel").addEventListener("click", () => onCancel?.());
   document.body.appendChild(host);
   return { remove: () => host.remove() };
@@ -214,24 +231,10 @@ export function showPassthroughBadge(onCancel) {
 // ("converting" by default; the figures path passes its own — rendering chart
 // pages takes visibly longer than the text conversion that preceded it).
 export function showConvertingBadge(fileName, verb = "converting") {
-  document.getElementById(CONVERTING_ID)?.remove();
-
-  const host = document.createElement("div");
-  host.id = CONVERTING_ID;
-  const root = host.attachShadow({ mode: "open" });
-  root.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .badge {
-        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-        z-index: 2147483647;
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        font-size: 12.5px; font-weight: 600;
-        background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff;
-        border-radius: 999px; padding: 7px 14px;
-        box-shadow: 0 6px 24px rgba(0,0,0,.4);
-        display: flex; align-items: center; gap: 8px;
-      }
+  const { host, root } = mountBadge(
+    CONVERTING_ID,
+    `
+      .badge { background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff; }
       .spinner {
         width: 10px; height: 10px; flex: none;
         border: 2px solid #3a3a42; border-top-color: #6b5cff;
@@ -239,12 +242,14 @@ export function showConvertingBadge(fileName, verb = "converting") {
       }
       @keyframes spin { to { transform: rotate(360deg); } }
       .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    </style>
+    `,
+    `
     <div class="badge" role="status">
       <span class="spinner"></span>
       <span class="msg"></span>
     </div>
-  `;
+  `
+  );
   root.querySelector(".msg").textContent = `Decant: ${verb} “${fileName}”…`;
   document.body.appendChild(host);
   return { remove: () => host.remove() };
@@ -257,24 +262,10 @@ export function showConvertingBadge(fileName, verb = "converting") {
 const SAVINGS_TIMEOUT_MS = 6000;
 
 export function showSavingsBadge(savings) {
-  document.getElementById(SAVINGS_ID)?.remove();
-
-  const host = document.createElement("div");
-  host.id = SAVINGS_ID;
-  const root = host.attachShadow({ mode: "open" });
-  root.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .badge {
-        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-        z-index: 2147483647;
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        font-size: 12.5px; font-weight: 600;
-        background: #12241a; color: #eafff2; border: 1px solid #37b872;
-        border-radius: 999px; padding: 7px 14px;
-        box-shadow: 0 6px 24px rgba(0,0,0,.4);
-        display: flex; align-items: center; gap: 8px;
-      }
+  const { host, root } = mountBadge(
+    SAVINGS_ID,
+    `
+      .badge { background: #12241a; color: #eafff2; border: 1px solid #37b872; }
       .check { color: #37b872; flex: none; }
       .est { color: #7fbf9c; font-weight: 500; }
       .x {
@@ -282,14 +273,16 @@ export function showSavingsBadge(savings) {
         color: #7fbf9c; cursor: pointer; flex: none;
       }
       .x:hover { color: #eafff2; }
-    </style>
+    `,
+    `
     <div class="badge" role="status">
       <span class="check">✓</span>
       <span class="msg"></span>
       <span class="est">est.</span>
       <button class="x" type="button" aria-label="Dismiss">✕</button>
     </div>
-  `;
+  `
+  );
   const label =
     savings.percent >= 5
       ? `Decant saved ~${formatTokens(savings.savedTokens)} tokens (~${savings.percent}%)`
@@ -311,28 +304,14 @@ export function showSavingsBadge(savings) {
 const FAILURE_TIMEOUT_MS = 15000;
 
 export function showAttachFailureNotice(fileNames) {
-  document.getElementById(FAILURE_ID)?.remove();
-
-  const host = document.createElement("div");
-  host.id = FAILURE_ID;
-  const root = host.attachShadow({ mode: "open" });
   const label =
     fileNames.length === 1
       ? `Decant couldn't attach “${fileNames[0]}”`
       : `Decant couldn't attach ${fileNames.length} files`;
-  root.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .badge {
-        position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-        z-index: 2147483647;
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        font-size: 12.5px; font-weight: 600;
-        background: #2a1f1f; color: #f3f3f3; border: 1px solid #e05d5d;
-        border-radius: 999px; padding: 7px 14px;
-        box-shadow: 0 6px 24px rgba(0,0,0,.4);
-        display: flex; align-items: center; gap: 8px;
-      }
+  const { host, root } = mountBadge(
+    FAILURE_ID,
+    `
+      .badge { background: #2a1f1f; color: #f3f3f3; border: 1px solid #e05d5d; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: #e05d5d; flex: none; }
       .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .x {
@@ -340,13 +319,15 @@ export function showAttachFailureNotice(fileNames) {
         color: #9aa0aa; cursor: pointer;
       }
       .x:hover { color: #fff; }
-    </style>
+    `,
+    `
     <div class="badge" role="alert">
       <span class="dot"></span>
       <span class="msg"></span>
       <button class="x" type="button" aria-label="Dismiss">✕</button>
     </div>
-  `;
+  `
+  );
   root.querySelector(".msg").textContent = `${label} — please re-attach using the site's file picker (+/attach button).`;
   const timer = setTimeout(() => host.remove(), FAILURE_TIMEOUT_MS);
   root.querySelector(".x").addEventListener("click", () => {

@@ -36,6 +36,7 @@ import {
   extractFigures,
   figuresSupported,
   combineFiguresToSheet,
+  separateFilesNote,
   MAX_FIGURES,
 } from "../convert/figures.js";
 import {
@@ -45,7 +46,7 @@ import {
   extractPdfRasterFigures,
   pdfFiguresAvailable,
 } from "../convert/pdf-figures.js";
-import { buildChartPagesPdf } from "../convert/pdf-subset.js";
+import { buildChartPagesPdf, chartPagesNote } from "../convert/pdf-subset.js";
 import { aggregateSavings } from "../convert/savings.js";
 import {
   promptConvertChoice,
@@ -320,7 +321,7 @@ async function resolveAndInject(preferredInput, fileArray) {
                 console.log(TAG, `attaching ${figs.length} figure(s) for ${r.file.name}`);
               }
               if (!note && attachments.length) {
-                note = `The document's images are attached as separate files, in document order: ${attachments.map((f) => `"${f.name}"`).join(", ")}.`;
+                note = separateFilesNote(attachments);
               }
             } else {
               // PDF: one chart-pages-only mini-PDF. A document attachment
@@ -374,9 +375,7 @@ async function resolveAndInject(preferredInput, fileArray) {
                 if (subset) {
                   attachments.push(subset.file);
                   attachedFigurePages = subset.pages.length;
-                  note =
-                    `The figures from this document are attached as "${subset.file.name}" ` +
-                    `(${subset.pages.map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`).join("; ")}).`;
+                  note = chartPagesNote(subset, r.meta);
                   console.log(TAG, `attaching chart-pages PDF (${subset.pages.length} pages, ${(crops?.size ?? 0) + (boxes?.size ?? 0)} cropped) for ${r.file.name}`);
                 }
               } catch (err) {

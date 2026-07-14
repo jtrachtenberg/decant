@@ -89,6 +89,16 @@ export async function extractFigures(file) {
   return figures;
 }
 
+// One canonical wording for the "figures attached as separate files"
+// association note, shared by the extension (content/intercept.js) and the CLI
+// (cli/figures.js) so the model-facing text can't drift between surfaces.
+export function separateFilesNote(files) {
+  return (
+    `The document's images are attached as separate files, in document order: ` +
+    `${files.map((f) => `"${f.name}"`).join(", ")}.`
+  );
+}
+
 // --- Contact sheet: many figures → one labeled image ------------------------
 //
 // When a document yields more figures than the site accepts as attachments
