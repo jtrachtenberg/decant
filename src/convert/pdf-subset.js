@@ -39,6 +39,12 @@ export const MAX_SUBSET_PAGES = 20;
 export const STAMP_STRIP_PT = 16;
 const STAMP_FONT_PT = 10;
 
+// Page references speak the document's printed numbering when the PDF defines
+// page labels (physical page 17 of the WHO doc is printed "7" — its TOC and
+// cross-references say "page 7", so the model must too). Shared by the in-page
+// stamps and the Markdown association note so the two can't disagree.
+const pageLabel = (meta, n) => meta?.pageLabels?.[n - 1] ?? n;
+
 async function stamper(out) {
   const font = await out.embedFont(StandardFonts.Helvetica);
   // `box` (optional) frames a vector crop: positions the label at the top-left
@@ -99,19 +105,14 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
 
   const out = await PDFDocument.create();
   const stamp = await stamper(out);
-  // Stamps speak the document's printed numbering when the PDF defines page
-  // labels (physical page 17 of the WHO doc is printed "7" — its TOC and
-  // cross-references say "page 7", so the model must too).
-  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
+  const labelOf = (n) => pageLabel(meta, n);
   // Copy every vector page in ONE copyPages call: pdf-lib's object copier
   // dedupes shared refs only within a call, so per-page calls re-copy every
   // resource the chart pages share (fonts, form XObjects, ICC profiles) once
   // PER PAGE — a document with a heavily shared resource tree ballooned 4×
   // past its own source size that way, over the API's request ceiling.
   const vectorPages = pages.filter((n) => !crops?.get?.(n));
-  const copiedPages = vectorPages.length
-    ? await out.copyPages(src, vectorPages.map((n) => n - 1))
-    : [];
+  const copiedPages = await out.copyPages(src, vectorPages.map((n) => n - 1));
   const copiedByPage = new Map(vectorPages.map((n, i) => [n, copiedPages[i]]));
   for (const n of pages) {
     const crop = crops?.get?.(n);
@@ -176,14 +177,14 @@ function stripXmpMetadata(doc) {
 // One canonical wording for the chart-pages association note, shared by the
 // extension (content/intercept.js) and the CLI (cli/figures.js) so the
 // model-facing text can't drift between surfaces. Page references use the
-// document's printed labels when the PDF defines them — matching the in-page
-// stamps above and the "[images omitted — page N]" markers in the Markdown.
+// document's printed labels when the PDF defines them (pageLabel) — matching
+// the in-page stamps above and the "[images omitted — page N]" markers in the
+// Markdown.
 export function chartPagesNote(subset, meta) {
-  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
   return (
     `The figures from this document are attached as "${subset.file.name}" ` +
     `(${subset.pages
-      .map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`)
+      .map((p, i) => `its page ${i + 1} = document page ${pageLabel(meta, p)}`)
       .join("; ")}).`
   );
 }
