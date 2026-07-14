@@ -13,7 +13,15 @@
 // Built with pdf-lib (pure JS, no chrome.*), so unlike the pdf.js modules
 // this unit-tests in Node.
 
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFDict,
+  PDFName,
+  PDFRef,
+  PDFStream,
+  StandardFonts,
+  rgb,
+} from "pdf-lib";
 import { fileBytes } from "./read-file.js";
 import { selectChartPages } from "./classify.js";
 
@@ -30,6 +38,12 @@ export const MAX_SUBSET_PAGES = 20;
 // whole-page copies get the label overlaid in the top margin.
 export const STAMP_STRIP_PT = 16;
 const STAMP_FONT_PT = 10;
+
+// Page references speak the document's printed numbering when the PDF defines
+// page labels (physical page 17 of the WHO doc is printed "7" — its TOC and
+// cross-references say "page 7", so the model must too). Shared by the in-page
+// stamps and the Markdown association note so the two can't disagree.
+const pageLabel = (meta, n) => meta?.pageLabels?.[n - 1] ?? n;
 
 async function stamper(out) {
   const font = await out.embedFont(StandardFonts.Helvetica);
@@ -91,10 +105,15 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
 
   const out = await PDFDocument.create();
   const stamp = await stamper(out);
-  // Stamps speak the document's printed numbering when the PDF defines page
-  // labels (physical page 17 of the WHO doc is printed "7" — its TOC and
-  // cross-references say "page 7", so the model must too).
-  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
+  const labelOf = (n) => pageLabel(meta, n);
+  // Copy every vector page in ONE copyPages call: pdf-lib's object copier
+  // dedupes shared refs only within a call, so per-page calls re-copy every
+  // resource the chart pages share (fonts, form XObjects, ICC profiles) once
+  // PER PAGE — a document with a heavily shared resource tree ballooned 4×
+  // past its own source size that way, over the API's request ceiling.
+  const vectorPages = pages.filter((n) => !crops?.get?.(n));
+  const copiedPages = await out.copyPages(src, vectorPages.map((n) => n - 1));
+  const copiedByPage = new Map(vectorPages.map((n, i) => [n, copiedPages[i]]));
   for (const n of pages) {
     const crop = crops?.get?.(n);
     const box = boxes?.get?.(n);
@@ -116,17 +135,16 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
       // Vector crop: copy the whole page, then clamp its CropBox to the figure
       // box so only the figure shows. The label overlays the top of that box
       // (no room to grow a strip within a fixed page).
-      const [copied] = await out.copyPages(src, [n - 1]);
-      const page = out.addPage(copied);
+      const page = out.addPage(copiedByPage.get(n));
       page.setCropBox(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
       stamp(page, labelOf(n), { strip: false, box });
     } else {
       // Whole-page copies can't grow, so the label overlays the top margin.
-      const [copied] = await out.copyPages(src, [n - 1]);
-      const page = out.addPage(copied);
+      const page = out.addPage(copiedByPage.get(n));
       stamp(page, labelOf(n), { strip: false });
     }
   }
+  stripXmpMetadata(out);
   const bytes = await out.save();
 
   const base = file.name.replace(/\.[a-z0-9]+$/i, "");
@@ -136,17 +154,37 @@ export async function buildChartPagesPdf(file, meta, crops = null, boxes = null)
   };
 }
 
+// Copied resources drag their XMP packets along: every /Metadata key on a
+// page, image, or form XObject points at an /XML stream (tens of KB each —
+// 1.3 MB across one 10-page subset) that no viewer needs to render the
+// figure. Delete the keys AND their target streams: pdf-lib serializes every
+// indirect object it holds, reachable or not, so orphaning the stream alone
+// wouldn't shrink the file.
+function stripXmpMetadata(doc) {
+  const metadataKey = PDFName.of("Metadata");
+  const doomed = [];
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    const dict =
+      obj instanceof PDFDict ? obj : obj instanceof PDFStream ? obj.dict : null;
+    const target = dict?.get(metadataKey);
+    if (!target) continue;
+    dict.delete(metadataKey);
+    if (target instanceof PDFRef) doomed.push(target);
+  }
+  for (const ref of doomed) doc.context.delete(ref);
+}
+
 // One canonical wording for the chart-pages association note, shared by the
 // extension (content/intercept.js) and the CLI (cli/figures.js) so the
 // model-facing text can't drift between surfaces. Page references use the
-// document's printed labels when the PDF defines them — matching the in-page
-// stamps above and the "[images omitted — page N]" markers in the Markdown.
+// document's printed labels when the PDF defines them (pageLabel) — matching
+// the in-page stamps above and the "[images omitted — page N]" markers in the
+// Markdown.
 export function chartPagesNote(subset, meta) {
-  const labelOf = (n) => meta?.pageLabels?.[n - 1] ?? n;
   return (
     `The figures from this document are attached as "${subset.file.name}" ` +
     `(${subset.pages
-      .map((p, i) => `its page ${i + 1} = document page ${labelOf(p)}`)
+      .map((p, i) => `its page ${i + 1} = document page ${pageLabel(meta, p)}`)
       .join("; ")}).`
   );
 }
