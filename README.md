@@ -11,7 +11,7 @@ The first surface implemented is a browser extension that catches an upload in a
 supported file format as you attach it to an LLM chat and swaps in the Markdown
 version in place —
 built from one source for **Chromium** (Chrome, Brave, Edge) and **Firefox**.
-Further surfaces (a Claude Desktop MCP server, native
+Further surfaces (a command-line converter, a Claude Desktop MCP server, native
 desktop, mobile) are mapped in [`docs/SURFACES.md`](./docs/SURFACES.md).
 
 The name is a metaphor: pour the document into a lighter, cleaner vessel and
@@ -329,6 +329,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
   strategy.
 - [`SPEC.md`](./SPEC.md) — the **browser-extension surface**: Manifest V3
   interception mechanics, the config model, and the M0–M3 milestones.
+- [`docs/CLI.md`](./docs/CLI.md) — the **command-line surface**: the headless
+  reuse of the conversion core that generates decantCC's test input, its forced
+  `--mode` flags, and the Windows-`.exe`-first packaging path.
 - [`docs/adr/`](./docs/adr/) — the decision log (architecture decision records).
 - [`docs/QA-fidelity-check.md`](./docs/QA-fidelity-check.md) — how to check a
   conversion for information loss and file a triageable bug report.

@@ -12,13 +12,14 @@
 // XObject's own pixels are decoded and re-encoded (extractPdfRasterFigures)
 // instead of re-rasterizing a 2× page render — native resolution, render-free.
 //
-// Browser-only: pdf.js's module import touches chrome.runtime (like
-// inbrowser.js) and rendering needs OffscreenCanvas, so there are no Node
-// tests — the smoke checklist covers it. Callers catch and degrade to the
-// text-only conversion.
+// The module now loads under Node (it resolves pdf.js and its assets through the
+// same #pdfjs / getAssetUrl seams as inbrowser.js — CLI.md §3.1), but figure
+// *rendering* still needs OffscreenCanvas, so extraction stays browser-only for
+// now; the CLI's --mode figures (C1) will supply a Node canvas. No Node tests
+// yet — the smoke checklist covers it. Callers catch and degrade to text-only.
 
-import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
-import { browser } from "../browser.js";
+import * as pdfjsLib from "#pdfjs";
+import { getAssetUrl } from "./assets.js";
 import { PDFJS_DOC_OPTIONS } from "./inbrowser.js";
 import { fileBytes } from "./read-file.js";
 import { selectChartPages } from "./classify.js";
@@ -33,7 +34,7 @@ import {
   textPointsFromItems,
 } from "./raster-gate.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
+pdfjsLib.GlobalWorkerOptions.workerSrc = getAssetUrl("pdf.worker.mjs");
 
 // Same page cap as the zip extractor's MAX_FIGURES: past the site's own
 // attachment limit the caller slices — page renders don't contact-sheet well

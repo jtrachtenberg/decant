@@ -112,15 +112,35 @@ test("perPage without the figureImages field behaves exactly as before", () => {
   assert.equal(res.reason, "text-incidental-image");
 });
 
-test("a significant figure on a NO-text page doesn't trigger the prompt", () => {
-  // Image-only page (below the char floor) isn't a chart page — the
-  // passthrough/convert logic owns that case, not the figure trigger.
+test("a LONE significant figure on a NO-text page doesn't trigger the prompt", () => {
+  // One image-only page (below the char floor) carrying a significant figure
+  // registers as a chart page — its content exists only as the image, so the
+  // figures flow must be able to reach it — but a SINGLE such page doesn't
+  // flip an otherwise-text document into the ambiguous prompt (a lone scanned
+  // insert). The figure trigger stays text-page-only; a lone image-only chart
+  // page is below MIN_CHART_PAGES_FOR_AMBIGUOUS, so the decision stays convert.
   const res = classifyDocument([
     { chars: 2000, images: 0 },
     { chars: 10, images: 1, figureImages: 1 },
   ]);
   assert.equal(res.decision, "convert");
-  assert.equal(res.reason, "text");
+  assert.equal(res.reason, "text-incidental-image");
+  assert.deepEqual(res.summary.chartPageNumbers, [2]);
+  assert.equal(res.summary.figurePages, 0);
+});
+
+test("MANY significant figures on no-text pages → ambiguous by volume", () => {
+  // A born-digital report with a scanned appendix: text-dominant front matter
+  // then several image-only pages, each a significant figure. Individually
+  // each is a lone insert, but together they cross MIN_CHART_PAGES_FOR_AMBIGUOUS
+  // and route into the figures flow so the scans attach instead of vanishing.
+  const pages = [{ chars: 2000, images: 0 }];
+  for (let i = 0; i < 4; i++)
+    pages.push({ chars: 2, images: 1, figureImages: 1 });
+  const res = classifyDocument(pages);
+  assert.equal(res.decision, "ambiguous");
+  assert.deepEqual(res.summary.chartPageNumbers, [2, 3, 4, 5]);
+  assert.deepEqual(res.summary.figurePageNumbers, [2, 3, 4, 5]);
 });
 
 test("sparse text just over the per-page floor still counts as content", () => {
@@ -341,6 +361,31 @@ test("selectChartPages: missing rank arrays degrade to page-order slice", () => 
   const meta = { chartPageNumbers: [2, 4, 6, 8] };
   assert.deepEqual(selectChartPages(meta, 2), [2, 4]);
   assert.deepEqual(selectChartPages(null, 2), []);
+});
+
+test("selectChartPages: image-only scans are exempt from the cap", () => {
+  // A born-digital report with a scanned annex: the scans (their content
+  // exists only as the image) all attach regardless of the cap, while the
+  // text-backed figures stay capped. Scans past the cap must NOT be dropped.
+  const meta = {
+    chartPageNumbers: [3, 5, 40, 41, 42, 43, 44],
+    figurePageNumbers: [3, 5, 40, 41, 42, 43, 44],
+    scanPageNumbers: [40, 41, 42, 43, 44],
+  };
+  // cap 2 caps the two text-backed figures (3, 5) but keeps all five scans.
+  assert.deepEqual(selectChartPages(meta, 2), [3, 5, 40, 41, 42, 43, 44]);
+  // Even cap 1 keeps every scan; only the text-backed pool is squeezed.
+  assert.deepEqual(selectChartPages(meta, 1), [3, 40, 41, 42, 43, 44]);
+});
+
+test("selectChartPages: without scanPageNumbers, the cap is unchanged", () => {
+  // Back-compat: metas/producers that don't mark scans behave exactly as
+  // before — every strong page counts against the cap.
+  const meta = {
+    chartPageNumbers: [2, 3, 4, 5, 6],
+    figurePageNumbers: [2, 3, 4, 5, 6],
+  };
+  assert.deepEqual(selectChartPages(meta, 3), [2, 3, 4]);
 });
 
 // --- Repeated text furniture (running headers, nav rails) --------------------

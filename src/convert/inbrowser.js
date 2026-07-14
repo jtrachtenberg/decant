@@ -13,8 +13,13 @@
 // sampled (every IMAGE_SAMPLE_INTERVAL-th page, extrapolated by classify.js)
 // while text is still extracted from every page.
 
-import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
-import { browser } from "../browser.js";
+// #pdfjs resolves to the modern pdf.js build under the browser bundle (esbuild's
+// "browser" condition) and to the legacy build under Node (the CLI surface,
+// tests, bench) — the modern build references DOMMatrix at module load and can't
+// be imported outside a DOM (CLI.md §3.1). The subpath is declared in
+// package.json "imports".
+import * as pdfjsLib from "#pdfjs";
+import { getAssetUrl } from "./assets.js";
 import { fileBytes } from "./read-file.js";
 import {
   reconstructPage,
@@ -43,7 +48,7 @@ import {
   REPEATED_DIMS_MIN_PAGES,
 } from "./raster-gate.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs");
+pdfjsLib.GlobalWorkerOptions.workerSrc = getAssetUrl("pdf.worker.mjs");
 
 // pdf.js needs the metrics for the 14 standard PDF fonts when a document uses
 // one without embedding it; without this it warns ("Ensure that the
@@ -51,7 +56,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL("pdf.worker.mjs"
 // pdf.js's own standard_fonts/ (see build.mjs) and point at it via the dynamic
 // extension URL (trailing slash required — pdf.js appends the font filename).
 // Exported for pdf-figures.js, which re-opens the document to render pages.
-export const STANDARD_FONT_DATA_URL = browser.runtime.getURL("standard_fonts/");
+export const STANDARD_FONT_DATA_URL = getAssetUrl("standard_fonts/");
 
 // pdf.js decodes JPXDecode (JPEG2000) images with an OpenJPEG WASM module it
 // fetches from wasmUrl at render time — without it every JPX image throws
@@ -60,8 +65,8 @@ export const STANDARD_FONT_DATA_URL = browser.runtime.getURL("standard_fonts/");
 // serves jbig2.wasm (scanned docs) and qcms_bg.wasm (ICC color management);
 // iccUrl adds the CMYK ICC profile. Shipped by build.mjs like standard_fonts/.
 // Trailing slashes required — pdf.js appends the filename.
-export const WASM_URL = browser.runtime.getURL("wasm/");
-export const ICC_URL = browser.runtime.getURL("iccs/");
+export const WASM_URL = getAssetUrl("wasm/");
+export const ICC_URL = getAssetUrl("iccs/");
 
 // The document-open options every getDocument() call here and in
 // pdf-figures.js shares, so no path drifts to an asset-less pdf.js.
