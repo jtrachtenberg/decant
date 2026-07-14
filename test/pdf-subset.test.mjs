@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRawStream, PDFDict } from "pdf-lib";
 import {
   buildChartPagesPdf,
   MAX_SUBSET_PAGES,
@@ -110,6 +110,63 @@ const JPG_1x1 = Uint8Array.from(
   ),
   (c) => c.charCodeAt(0)
 );
+
+test("resources shared across copied pages land once, not once per page", async () => {
+  // The 28 MB regression: per-page copyPages calls re-copied every shared
+  // resource for each page (pdf-lib dedupes only within one call), so a
+  // document with a shared resource tree quadrupled past its own size.
+  const doc = await PDFDocument.create();
+  const img = await doc.embedPng(PNG_1x1); // one XObject, shared by all pages
+  for (let i = 1; i <= 4; i++) {
+    const page = doc.addPage([100 + i, 200]);
+    page.drawImage(img, { x: 0, y: 0, width: 50, height: 50 });
+  }
+  const src = new File([await doc.save()], "shared.pdf", { type: "application/pdf" });
+
+  const countImages = async (bytes) => {
+    const d = await PDFDocument.load(bytes);
+    let images = 0;
+    for (const [, obj] of d.context.enumerateIndirectObjects()) {
+      if (
+        obj instanceof PDFRawStream &&
+        obj.dict.get(PDFName.of("Subtype")) === PDFName.of("Image")
+      ) {
+        images++;
+      }
+    }
+    return images;
+  };
+
+  const out = await buildChartPagesPdf(src, { chartPageNumbers: [1, 2, 3, 4] });
+  // As many image streams as the source holds (image + its SMask) — copying
+  // 4 pages must not have multiplied them.
+  assert.equal(
+    await countImages(await out.file.arrayBuffer()),
+    await countImages(await src.arrayBuffer())
+  );
+});
+
+test("XMP metadata streams are stripped from copied pages", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([101, 200]);
+  const xmp = doc.context.stream("<x:xmpmeta/>", {
+    Type: "Metadata",
+    Subtype: "XML",
+  });
+  page.node.set(PDFName.of("Metadata"), doc.context.register(xmp));
+  const src = new File([await doc.save()], "meta.pdf", { type: "application/pdf" });
+
+  const out = await buildChartPagesPdf(src, { chartPageNumbers: [1] });
+  const built = await PDFDocument.load(await out.file.arrayBuffer());
+  for (const [, obj] of built.context.enumerateIndirectObjects()) {
+    const dict =
+      obj instanceof PDFDict ? obj : obj instanceof PDFRawStream ? obj.dict : null;
+    assert.equal(dict?.get(PDFName.of("Metadata")), undefined);
+    if (dict) {
+      assert.notEqual(dict.get(PDFName.of("Subtype")), PDFName.of("XML"));
+    }
+  }
+});
 
 test("a decoded raster figure (jpg) embeds like a crop", async () => {
   const src = await makePdf(5);
