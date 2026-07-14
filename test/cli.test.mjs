@@ -138,6 +138,24 @@ test("--mode figures writes Markdown + figure files to --out-dir", async () => {
   assert.match(md, /attached as separate files/); // association note appended
 });
 
+test("a permission-restricted PDF converts as text in both modes", async () => {
+  // pdf.js decrypts a restricted (owner-encrypted, empty user password) PDF for
+  // text; pdf-lib refuses encrypted input, so --mode figures must DEGRADE to
+  // text-only rather than crash with exit 2. --mode markdown is pdf.js-only and
+  // should just work.
+  const md = run("convert", fixture("encrypted.pdf"), "--mode", "markdown", "--quiet");
+  assert.equal(md.status, 0);
+  assert.match(md.stdout, /Reason for exclusion/);
+
+  const dir = await mkdtemp(join(tmpdir(), "decant-enc-"));
+  const out = join(dir, "out");
+  const fig = run("convert", fixture("encrypted.pdf"), "--mode", "figures", "--out-dir", out, "--quiet");
+  assert.equal(fig.status, 0); // degraded, not crashed
+  const written = await readdir(out);
+  assert.ok(written.includes("encrypted.md"));
+  assert.ok(!written.some((f) => f.endsWith(".pdf"))); // no silently-corrupt charts PDF
+});
+
 test("--mode figures requires --out-dir (usage error, exit 1)", () => {
   const r = run("convert", fixture("tiny.pptx"), "--mode", "figures");
   assert.equal(r.status, 1);

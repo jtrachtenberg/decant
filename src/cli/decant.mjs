@@ -194,8 +194,23 @@ async function runFigures(file, core) {
   if (res.markdown == null) {
     return { action: "passthrough", reason: res.reason, markdown: null, figureFiles: [], attachedFigurePages: 0, meta: res.summary };
   }
-  const { assembleFigures } = await import("./figures.js");
-  const { files, note, attachedFigurePages } = await assembleFigures(file, res.summary);
+  // Figure extraction can fail on inputs the text engine still reads — most
+  // notably a permission-restricted (encrypted, empty-password) PDF: pdf.js
+  // decrypts it for text, but pdf-lib (the mini-PDF builder) refuses encrypted
+  // input outright, and can't decrypt it, so a chart PDF built anyway would be
+  // silently corrupt. Degrade to text-only exactly as the browser does rather
+  // than failing the whole conversion — the text (the main payload) is kept.
+  let files = [];
+  let note = null;
+  let attachedFigurePages = 0;
+  try {
+    const { assembleFigures } = await import("./figures.js");
+    ({ files, note, attachedFigurePages } = await assembleFigures(file, res.summary));
+  } catch (err) {
+    process.stderr.write(
+      `decant: figure extraction failed for ${file.name} (${err.message}) — emitting text only\n`
+    );
+  }
   const markdown = note
     ? `${res.markdown.trimEnd()}\n\n---\n\n${note}\n`
     : res.markdown;
