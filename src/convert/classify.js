@@ -498,10 +498,19 @@ function leafProse(flat, glyphs) {
 // welds onto its neighbouring line's text - glyph geometry is stable where
 // cell structure is not. Returns rebuilt lines, or null when the leaf shows
 // no credible rail.
+// Monotonic rail-table identity — only inequality matters (adjacent leaves
+// must not fuse), never the value.
+let railTableId = 0;
+
 function railTable(flat, glyphs) {
   if (!glyphs || flat.some((l) => l.marker || l.grid)) return null;
   if (flat.length < RAIL_MIN_TAGS * 2) return null;
-  const boxes = glyphs.map(toBox).filter((b) => !b.ws);
+  // Injected symbol labels (ADR 0017) are values to bind per row, not page
+  // text: they must not vote in rail/text-band detection, and they emit as
+  // each row's own value cell below.
+  const allBoxes = glyphs.map(toBox).filter((b) => !b.ws);
+  const symBoxes = allBoxes.filter((b) => b.g.symbolLabel);
+  const boxes = allBoxes.filter((b) => !b.g.symbolLabel);
   if (!boxes.length) return null;
   const med = medianHeight(boxes);
 
@@ -552,7 +561,7 @@ function railTable(flat, glyphs) {
   let prevY = null;
   for (const l of lines) {
     if (prevY == null || prevY - l.y > PARA_GAP * (l.h || med))
-      blocks.push({ top: l.y, bottom: l.y, lines: [l], tags: [] });
+      blocks.push({ top: l.y, bottom: l.y, lines: [l], tags: [], syms: [] });
     else {
       const cur = blocks[blocks.length - 1];
       cur.lines.push(l);
@@ -562,34 +571,45 @@ function railTable(flat, glyphs) {
   }
   if (blocks.length < RAIL_MIN_TAGS) return null;
 
-  // Each chip belongs to the block whose y-span contains it (else nearest).
-  const chips = best
-    .slice()
-    .sort((a, b) => b.y0 - a.y0)
-    .map((b) => ({ y: b.y0, text: b.g.str.trim() }));
-  for (const t of chips) {
+  // A chip (or symbol label) belongs to the block whose y-span contains it
+  // (else nearest) — chips are vertically centered on their multi-line items,
+  // and injected icon labels sit at their icon's center the same way.
+  const assign = (y, push) => {
     let bestB = null;
     let bestD = Infinity;
     for (const b of blocks) {
       const d =
-        t.y > b.top + med
-          ? t.y - b.top
-          : t.y < b.bottom - med
-            ? b.bottom - t.y
-            : 0;
+        y > b.top + med ? y - b.top : y < b.bottom - med ? b.bottom - y : 0;
       if (d < bestD) {
         bestD = d;
         bestB = b;
       }
     }
-    if (bestB) bestB.tags.push(t.text);
+    if (bestB) push(bestB);
+  };
+  for (const t of best.slice().sort((a, b) => b.y0 - a.y0)) {
+    assign(t.y0, (b) => b.tags.push(t.g.str.trim()));
+  }
+  for (const s of symBoxes.sort((a, b) => b.y0 - a.y0)) {
+    assign((s.y0 + s.y1) / 2, (b) => b.syms.push(s.g.str.trim()));
   }
 
+  const withSyms = blocks.some((b) => b.syms.length);
+  // Table identity + the leaf's x-extent ride on every row: identity keeps
+  // side-by-side leaves from fusing into one pipe table in linesToMarkdown,
+  // and the extent is what panel-heading rebinding matches stranded heading
+  // cells against (rebindPanelHeadings below).
+  const tableId = ++railTableId;
+  const x0 = Math.min(...allBoxes.map((b) => b.x0));
+  const x1 = Math.max(...allBoxes.map((b) => b.x1));
   return blocks.map((b) => ({
     y: b.top,
     h: med,
     para: false,
     grid: true,
+    tableId,
+    x0,
+    x1,
     cells: [
       { text: b.tags.join(" "), x: 0, endX: 0 },
       {
@@ -601,6 +621,9 @@ function railTable(flat, glyphs) {
         x: 1,
         endX: 1,
       },
+      // The decoded icon values (ADR 0017), one column for the whole table so
+      // rows without an icon still align under the value header.
+      ...(withSyms ? [{ text: b.syms.join(" "), x: 2, endX: 2 }] : []),
     ],
   }));
 }
@@ -690,6 +713,10 @@ function extractMarginalia(lines) {
   const hosts = multi.filter((l) => {
     if (l.cells.length !== 2) return false;
     const [first, last] = l.cells;
+    // An injected symbol label (ADR 0017) sits on a lonely band by design —
+    // it's the row's VALUE, and lifting it out would divorce it exactly the
+    // way the decoding exists to prevent.
+    if (last.symbol) return false;
     return (
       first.text.length >= MARGINALIA_MIN_HOST_CHARS &&
       supportOf(first.x) >= strongMin &&
@@ -1424,10 +1451,15 @@ function linesFromGlyphs(glyphs) {
       const h = g.height || 10;
       const cell = cells[cells.length - 1];
       const gap = cell ? x - cell.endX : Infinity;
-      if (!cell || gap > COLUMN_GAP * line.h) {
+      // An injected symbol label (ADR 0017 — symbol-key.js) is always a cell
+      // of its own: welded into a text cell it would corrupt the sentence it
+      // lands in, which is the exact failure the decoding exists to avoid.
+      if (!cell || cell.symbol || g.symbolLabel || gap > COLUMN_GAP * line.h) {
         finalize(cell);
         hh = new Map();
-        cells.push({ text: g.str, x, endX: x + w });
+        const next = { text: g.str, x, endX: x + w };
+        if (g.symbolLabel) next.symbol = true;
+        cells.push(next);
       } else {
         // Word spacing is judged at the scale of the SMALLER adjacent glyph,
         // not the line's tallest: a 34pt display glyph on the line would
@@ -1527,7 +1559,18 @@ function columnRegions(boxes, hint = null, exclude = []) {
   // sparse rail sits inside, and splitting there divorces every tag from its
   // item. Adopted boxes route right regardless of center.
   const adopted = railAdoption(boxes, gx, med);
-  const sideOf = (b) => (adopted.has(b) || (b.x0 + b.x1) / 2 >= gx);
+  // The mirror for injected symbol labels (ADR 0017): the icon sits at its
+  // row's END, so a repeated value column hugs its rows' text from the RIGHT
+  // — and converges so cleanly it ATTRACTS the gutter vote (gx lands one
+  // point left of the labels). Splitting there orphans every value from its
+  // row; labels hugging the gutter adopt LEFT and travel with their text.
+  const adoptLeft = new Set(
+    boxes.filter(
+      (b) => b.g.symbolLabel && b.x0 >= gx && b.x0 - gx <= RAIL_REACH * med
+    )
+  );
+  const sideOf = (b) =>
+    !adoptLeft.has(b) && (adopted.has(b) || (b.x0 + b.x1) / 2 >= gx);
   const regions = [];
   let left = [];
   let right = [];
@@ -1919,13 +1962,22 @@ export function linesToMarkdown(lines, pageLabel = null) {
   if (!lines.length) return "";
   const bodyH = modeHeight(lines);
   lines = extractDisplayBands(lines, bodyH);
+  lines = rebindPanelHeadings(lines);
   const tableStarts = tableRuns(lines, bodyH); // Map<startIndex, endIndex>
   // Geometry-detected grids (Deliverable 1) emit as tables regardless of cell
-  // length; take precedence over the content-based runs above.
+  // length; take precedence over the content-based runs above. A run breaks
+  // where the table identity changes: side-by-side rail-table leaves (one per
+  // panel) are separate structures, and fusing them erases the boundary a
+  // reader needs to attribute rows to their panel.
   for (let i = 0; i < lines.length; ) {
     if (lines[i].grid) {
       let j = i;
-      while (j < lines.length && lines[j].grid) j++;
+      while (
+        j < lines.length &&
+        lines[j].grid &&
+        lines[j].tableId === lines[i].tableId
+      )
+        j++;
       tableStarts.set(i, j);
       i = j;
     } else i++;
@@ -2172,6 +2224,99 @@ function extractDisplayBands(lines, bodyH) {
   return out;
 }
 
+// --- Panel-heading rebinding (multi-panel pages) -----------------------------
+// A page of side-by-side PANELS (the Discovery phased-disclosure spread) sets
+// each panel's heading at the panel top, on baselines SHARED across panels —
+// so reconstruction reads the heading band row-major ("PHASE 1 PHASE 2" as
+// one line) and emits it at the page top, far from the panel tables below. An
+// LLM reading that output cannot attribute any table's rows to its panel
+// (measured: Sonnet placed the phase-2 Governance item under phase 1).
+//
+// The repair is x-containment on the FINAL lines: rail-table leaves carry
+// their panel's x-extent, and a short cell stranded ABOVE the tables whose
+// own x-span sits inside a panel's extent is that panel's heading — it moves
+// to directly above that panel's table, ordered by its own y so "PHASE 2"
+// precedes its subtitle. Deliberately narrow: only pages with two or more
+// x-DISJOINT extent-bearing tables qualify (a single-column page never has
+// stranded panel headings, and its intro prose must not move), only lines
+// above the first table are considered, and cells spanning several panels (a
+// banner across the spread) or longer than a heading stay put.
+const PANEL_HEADING_MAX_CHARS = 40;
+// Panel headings/subtitles are set slightly OUTDENTED from the panel's own
+// content (the Discovery subtitles start 4–5pt left of the first chip), so
+// containment needs real slack — still an order of magnitude under any
+// panel-to-panel gap (~60pt on the measured page).
+const PANEL_EXTENT_TOL_PT = 8;
+
+function rebindPanelHeadings(lines) {
+  // Extent-bearing table runs in reading order. Runs sharing an extent (a
+  // panel's item table and the KEY legend below it) both appear; first-match
+  // assignment sends the panel's headings to the upper one.
+  const runs = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.grid || l.x0 == null) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.tableId === l.tableId) continue;
+    runs.push({ start: i, tableId: l.tableId, x0: l.x0, x1: l.x1, top: l.y });
+  }
+  if (runs.length < 2) return lines;
+  if (
+    !runs.some((a) =>
+      runs.some((b) => b !== a && (b.x0 > a.x1 || b.x1 < a.x0))
+    )
+  ) {
+    return lines;
+  }
+
+  const tol = PANEL_EXTENT_TOL_PT;
+  const first = runs[0].start;
+  const pulls = new Map(); // run → [{ y, h, cell }]
+  const keep = [];
+  for (let i = 0; i < first; i++) {
+    const l = lines[i];
+    if (l.marker || l.grid || !l.cells) {
+      keep.push(l);
+      continue;
+    }
+    const rest = [];
+    for (const c of l.cells) {
+      const home =
+        c.text.length <= PANEL_HEADING_MAX_CHARS && !c.symbol
+          ? runs.find(
+              (r) =>
+                c.x >= r.x0 - tol && c.endX <= r.x1 + tol && l.y > r.top
+            )
+          : null;
+      if (home) {
+        if (!pulls.has(home)) pulls.set(home, []);
+        pulls.get(home).push({ y: l.y, h: c.domH ?? l.h, cell: c });
+      } else {
+        rest.push(c);
+      }
+    }
+    if (rest.length) {
+      keep.push(rest.length === l.cells.length ? l : { ...l, cells: rest });
+    }
+  }
+  if (!pulls.size) return lines;
+
+  const out = keep;
+  for (let i = first; i < lines.length; i++) {
+    const run = runs.find((r) => r.start === i);
+    const pulled = run && pulls.get(run);
+    if (pulled) {
+      pulled
+        .sort((a, b) => b.y - a.y)
+        .forEach((p, k) =>
+          out.push({ y: p.y, h: p.h, para: k === 0, cells: [p.cell] })
+        );
+    }
+    out.push(lines[i]);
+  }
+  return out;
+}
+
 function emitLine(line, bodyH) {
   const text = line.cells.map((c) => c.text).join(" ");
   if (
@@ -2217,6 +2362,15 @@ export function appendOmittedImagesNote(pageMarkdown, images, pageNumber) {
 export function appendVectorChartNote(pageMarkdown, pageNumber) {
   const where = pageNumber != null ? ` — page ${pageNumber}` : "";
   const note = `[chart on this page encodes values as colored symbols that are not text — rows here may be missing their values; see attached figure${where}]`;
+  return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
+}
+
+// Provenance marker for decoded icon values (ADR 0017 — symbol-key.js): the
+// page's repeated textless icons were matched to its own key legend and their
+// labels written into the rows as text. Named so the reader knows those
+// values are decoded from symbols, not extracted verbatim.
+export function appendSymbolKeyNote(pageMarkdown, labels) {
+  const note = `[repeated icons on this page were decoded to text using the page's own key: ${labels.join(", ")}]`;
   return pageMarkdown ? `${pageMarkdown}\n\n${note}` : note;
 }
 

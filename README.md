@@ -304,7 +304,18 @@ on it fall back gracefully (in-browser conversion or passthrough).
     bands crop to their own panel on landscape slide layouts — cutting one
     corpus doc's attachments 18 → 10, exactly its real photos/charts, with
     crops framing the figure instead of the page
-    ([ADR 0015](./docs/adr/0015-repeated-image-and-text-density-demotion.md)).
+    ([ADR 0015](./docs/adr/0015-repeated-image-and-text-density-demotion.md));
+    and icon-key pages decode to text — a page whose repeated textless icons
+    (status badges, legend symbols) are defined in its own KEY legend gets
+    each icon's label written into its row as a table cell, recovering the
+    one column no text layer carries (24/24 status values correct on the
+    calibration doc) and releasing the page from the charts-PDF attachment
+    when the accounting closes exactly
+    ([ADR 0017](./docs/adr/0017-icon-key-symbol-references.md)); and
+    side-by-side panel tables emit separately, each headed by its own
+    rebound panel heading (PHASE 1/2/3), fixing a measured LLM
+    phase-attribution miss
+    ([ADR 0018](./docs/adr/0018-panel-heading-rebinding.md)).
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

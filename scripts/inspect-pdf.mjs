@@ -17,6 +17,7 @@ import {
   linesToMarkdown,
   appendOmittedImagesNote,
   appendVectorChartNote,
+  appendSymbolKeyNote,
   countChars,
   columnConvergence,
   classifyDocument,
@@ -40,6 +41,7 @@ import {
   imageDimsKey,
   REPEATED_DIMS_MIN_PAGES,
 } from "../src/convert/raster-gate.js";
+import { symbolKeyPlan, symbolLabelItems } from "../src/convert/symbol-key.js";
 import { MAX_SUBSET_PAGES } from "../src/convert/pdf-subset.js";
 
 // Args: the file path, plus an optional `--page N` that dumps the Markdown
@@ -136,8 +138,27 @@ if (pageArg != null) {
   }
   let gutter = null;
   let lines = [];
+  let plan = null;
   for (let n = 1; n <= pageArg; n++) {
-    const res = reconstructPage(await pageItems(n), gutter);
+    const items = await pageItems(n);
+    // Icon-key decoding parity with analyzePdf: inject usage labels before
+    // reconstruction on every scanned page (symbol-key.js, ADR 0017).
+    plan = null;
+    if (shouldScanImages(n, pdf.numPages)) {
+      try {
+        const ops = await (await pdf.getPage(n)).getOperatorList();
+        plan = symbolKeyPlan(
+          scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS),
+          items
+        );
+      } catch {
+        /* operator list unavailable */
+      }
+    }
+    const res = reconstructPage(
+      plan ? [...items, ...symbolLabelItems(plan)] : items,
+      gutter
+    );
     gutter = res.gutter;
     lines = res.lines;
   }
@@ -146,7 +167,8 @@ if (pageArg != null) {
   const page = await pdf.getPage(pageArg);
   const images = await countImages(page);
   // Vector-chart note parity with analyzePdf: the drill-down should show the
-  // exact Markdown the extension emits, symbol-chart marker included.
+  // exact Markdown the extension emits, symbol-chart marker included — and
+  // stood down when the decoded symbol key accounts for every colored fill.
   let vectorChart = false;
   try {
     const ops = await page.getOperatorList();
@@ -156,11 +178,13 @@ if (pageArg != null) {
   } catch {
     /* ignore */
   }
+  if (plan?.suppress) vectorChart = false;
   // Match the extension: markers speak the document's printed page labels
   // when the PDF defines them, physical index otherwise.
   const labels = await pdf.getPageLabels().catch(() => null);
   const label = labels?.[pageArg - 1] ?? pageArg;
   let md = linesToMarkdown(lines, label);
+  if (plan) md = appendSymbolKeyNote(md, plan.entries.map((e) => e.label));
   if (vectorChart) md = appendVectorChartNote(md, label);
   md = appendOmittedImagesNote(md, images, label);
   const low = chars >= 50 && conv.score < CONV_THRESHOLD;
@@ -205,10 +229,43 @@ const perPage = [];
 // Vector-symbol-chart crop bands (QA readout): what pdf-figures.js would
 // crop each "v" page to, or whole-page when the box isn't confident.
 const chartBands = [];
+// Decoded symbol keys (QA readout): pages where an icon-key plan formed, its
+// entry labels/usage counts, and whether the strict accounting closed.
+const symbolPages = [];
 for (let n = 1; n <= pdf.numPages; n++) {
   const page = await pdf.getPage(n);
   const items = await pageItems(n);
-  const lines = reconstructLines(items);
+
+  let images = null;
+  let figureImages = null;
+  let decodable = false;
+  let vectorChart = false;
+  let scan = null;
+  if (shouldScanImages(n, pdf.numPages)) {
+    images = 0;
+    figureImages = 0;
+    try {
+      const ops = await page.getOperatorList();
+      for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
+      scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
+    } catch {
+      /* operator list unavailable */
+    }
+  }
+  // Icon-key decoding parity with analyzePdf (symbol-key.js, ADR 0017):
+  // inject usage labels before reconstruction; a closed accounting stands the
+  // vector-chart escalation down.
+  const plan = scan ? symbolKeyPlan(scan, items) : null;
+  if (plan) {
+    symbolPages.push({
+      page: n,
+      suppress: plan.suppress,
+      entries: plan.entries.map((e) => `${e.label} ×${e.usages.length}`),
+    });
+  }
+  const lines = reconstructLines(
+    plan ? [...items, ...symbolLabelItems(plan)] : items
+  );
   const chars = countChars(linesToText(lines));
   const conv = columnConvergence(lines);
   // Does the page carry the pre-existing *table* low-confidence marker (the
@@ -219,17 +276,8 @@ for (let n = 1; n <= pdf.numPages; n++) {
     (l) => l.marker && /low structural confidence/.test(l.cells[0]?.text || "")
   );
 
-  let images = null;
-  let figureImages = null;
-  let decodable = false;
-  let vectorChart = false;
-  if (shouldScanImages(n, pdf.numPages)) {
-    images = 0;
-    figureImages = 0;
+  if (scan) {
     try {
-      const ops = await page.getOperatorList();
-      for (const fn of ops.fnArray) if (IMAGE_OPS.has(fn)) images++;
-      const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjs.OPS);
       const [vx0, vy0, vx1, vy1] = page.view;
       const pageArea = (vx1 - vx0) * (vy1 - vy0);
       // Geometry for the background demotion, mirroring analyzePdf: page view
@@ -247,8 +295,9 @@ for (let n = 1; n <= pdf.numPages; n++) {
       // geometric gates only — the g_/fingerprint repetition checks need the
       // full decode pass, so a "d" here is necessary-not-sufficient.
       decodable = !!decodeCandidate(scan, pageArea, opts);
-      // Vector symbol chart (colored categorical fills, values not in text).
-      vectorChart = hasVectorChartFills(scan);
+      // Vector symbol chart (colored categorical fills, values not in text),
+      // stood down when the decoded key accounts for every colored fill.
+      vectorChart = hasVectorChartFills(scan) && !plan?.suppress;
       // The crop band the figures flow would use (pdf-figures.js
       // paddedFigureBox: the fills' band + 48pt pads — full page width on
       // portrait pages, the band's own x-range on landscape slide layouts —
@@ -294,6 +343,7 @@ for (let n = 1; n <= pdf.numPages; n++) {
     marker,
     decodable,
     vectorChart,
+    symbolKey: !!plan,
     flattened: flattenedWithEvidence(
       hasFlattenedFigure(lines),
       images,
@@ -325,12 +375,14 @@ filled.forEach(({ chars, images }, i) => {
   // ambiguity trigger); " d" = its figure is a single decodable raster
   // XObject (would take the native-pixels path instead of a render crop);
   // " v" = the colored-fill scan reads the page as a vector symbol chart
-  // (joins the figures flow as a flattened page).
+  // (joins the figures flow as a flattened page); " k" = an icon-key plan
+  // decoded symbols to text (symbol-key.js — see the readout below).
   console.log(
     pad(i + 1, 5) + pad(chars, 9) + pad(sampled + images, 8) + pad(convCol, 8) +
       kind + (perPage[i].figureImages ? " f" : "") +
       (perPage[i].decodable ? " d" : "") +
-      (perPage[i].vectorChart ? " v" : "")
+      (perPage[i].vectorChart ? " v" : "") +
+      (perPage[i].symbolKey ? " k" : "")
   );
 });
 
@@ -371,6 +423,18 @@ if (summary.chartPageNumbers.length) {
           : `whole page (${b.y0 == null ? "no confident band" : `band ${(b.frac * 100).toFixed(0)}% > 85%`})`)
     );
   }
+}
+
+// Symbol-key readout: pages whose repeated textless icons decoded against a
+// key legend, with the per-class usage counts and the suppression verdict
+// (closed accounting = the vector-chart note and attachment stand down).
+for (const s of symbolPages) {
+  console.log(
+    `Symbol key p${s.page}: ${s.entries.join("; ")} — ` +
+      (s.suppress
+        ? "accounting closed (note + attachment stand down)"
+        : "PARTIAL (note + attachment kept)")
+  );
 }
 
 // Tier 2 convergence readout: which text pages fall below the threshold (the
