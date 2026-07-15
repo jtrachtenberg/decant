@@ -21,7 +21,7 @@ import { basename, extname, join } from "node:path";
 import { installNodeAssets } from "./node-assets.js";
 
 // Bumped so a packaged binary re-unpacks its embedded assets after an upgrade.
-const ASSET_VERSION = "0.1.2";
+const ASSET_VERSION = "0.3.0";
 
 const EXIT = {
   converted: 0,
