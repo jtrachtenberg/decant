@@ -427,8 +427,33 @@ const figureSized = (box) =>
 const opSet = (names, ops) =>
   new Set(names.map((n) => ops[n]).filter((v) => v !== undefined));
 
+// Intersection of two axis-aligned boxes; either may be null ("no constraint
+// known"), and a disjoint pair yields a degenerate box (x1 ≤ x0) that callers
+// treat as "paints nothing".
+function intersectBoxes(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    x0: Math.max(a.x0, b.x0),
+    y0: Math.max(a.y0, b.y0),
+    x1: Math.min(a.x1, b.x1),
+    y1: Math.min(a.y1, b.y1),
+  };
+}
+
+// Is a box a real (non-degenerate) icon-sized region — both edges under the
+// icon/figure boundary MIN_IMAGE_EDGE_PT?
+const iconSized = (box) =>
+  box.x1 > box.x0 &&
+  box.y1 > box.y0 &&
+  box.x1 - box.x0 < MIN_IMAGE_EDGE_PT &&
+  box.y1 - box.y0 < MIN_IMAGE_EDGE_PT;
+
 // Walk a page's operator list, replaying save/restore/transform to know the
 // CTM at each paint op (same replay as pdf-figures.js figureBoxUserSpace).
+// Form XObjects are inlined between paintFormXObjectBegin/End with the form's
+// placement matrix carried on the Begin op, not as a transform — composing it
+// is what puts in-form paint (badges, panel art) at its real page position.
 //
 //   fnArray/argsArray: from page.getOperatorList()
 //   ops:               the build's OPS name→number table (or a test fake)
@@ -445,6 +470,13 @@ const opSet = (names, ops) =>
 //   coloredFillBoxes: [{ hue, box }] user-space boxes of those fills, when
 //                   the op carries path bounds (v4+ constructPath minMax —
 //                   bare fill verbs have no geometry and record no box)
+//   smallFills:     [{ rgb, box }] every geometry-bearing path fill whose box
+//                   is icon-sized, ANY color (exact RGB, no chroma gate) —
+//                   the symbol-key census (ADR 0017): icon identity needs
+//                   "this exact teal at 12×12", not a hue bucket
+//   smallShadings:  [{ box }] shadingFill ops whose clip region is icon-sized
+//                   (a shadingFill paints the current clip — pdf.js emits the
+//                   clip op just before the constructPath carrying its path)
 // }
 export function scanPageOps(fnArray, argsArray, ops) {
   const vectorOps = opSet(VECTOR_PAINT_OP_NAMES, ops);
@@ -458,9 +490,13 @@ export function scanPageOps(fnArray, argsArray, ops) {
   const repeatOps = opSet(REPEAT_IMAGE_OP_NAMES, ops);
 
   let ctm = [1, 0, 0, 1, 0, 0];
-  // Fill color rides the graphics state alongside the CTM, so save/restore
-  // stacks both together.
-  let fillHue = null;
+  // Fill color and clip ride the graphics state alongside the CTM, so
+  // save/restore stacks all three together. clipBox is the intersection of
+  // the KNOWN clip paths (null = unconstrained/unknown; a clip whose path
+  // carries no minMax just doesn't tighten it — conservative both ways).
+  let fillRGB = null;
+  let clipBox = null;
+  let pendingClip = false; // pdf.js emits clip BEFORE its constructPath
   const stack = [];
   const scan = {
     xobjects: [],
@@ -471,16 +507,28 @@ export function scanPageOps(fnArray, argsArray, ops) {
     coloredFills: 0,
     coloredFillHues: new Array(HUE_BUCKETS).fill(0),
     coloredFillBoxes: [],
+    smallFills: [],
+    smallShadings: [],
   };
 
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
-    if (fn === ops.save) stack.push([ctm, fillHue]);
+    if (fn === ops.save) stack.push([ctm, fillRGB, clipBox]);
     else if (fn === ops.restore)
-      [ctm, fillHue] = stack.pop() ?? [[1, 0, 0, 1, 0, 0], null];
+      [ctm, fillRGB, clipBox] = stack.pop() ?? [[1, 0, 0, 1, 0, 0], null, null];
     else if (fn === ops.transform) ctm = composeTransform(argsArray[i], ctm);
-    else if (fn === ops.setFillRGBColor)
-      fillHue = hueBucket(parseFillRGB(argsArray[i]));
+    else if (fn === ops.paintFormXObjectBegin) {
+      // Balanced with End below regardless of pdf.js's own save/restore
+      // wrapping (q/Q must balance within a form's content stream).
+      stack.push([ctm, fillRGB, clipBox]);
+      const m = argsArray[i]?.[0];
+      if (Array.isArray(m) && m.length === 6) ctm = composeTransform(m, ctm);
+    } else if (fn === ops.paintFormXObjectEnd) {
+      [ctm, fillRGB, clipBox] = stack.pop() ?? [[1, 0, 0, 1, 0, 0], null, null];
+    } else if (fn === ops.clip || fn === ops.eoClip) {
+      pendingClip = true;
+    } else if (fn === ops.setFillRGBColor)
+      fillRGB = parseFillRGB(argsArray[i]);
     else if (fn === ops.paintImageXObject) {
       const args = argsArray[i] ?? [];
       scan.xobjects.push({
@@ -497,27 +545,44 @@ export function scanPageOps(fnArray, argsArray, ops) {
       scan.repeats++;
     } else if (vectorOps.has(fn)) {
       scan.vectorPaintOps++;
-      if (fillHue == null) continue;
       if (fn === ops.constructPath) {
-        // v4+ packed path: args = [paintVerb, pathData, minMax]. Count only
-        // fill verbs (a stroked grid under a lingering fill color is not a
-        // symbol), and keep the path bounds through the CTM for the chart
-        // band box.
+        // v4+ packed path: args = [paintVerb, pathData, minMax]. A pending
+        // clip consumes this path's bounds whatever its paint verb; fills are
+        // then counted toward the chart signal only under a CHROMATIC color
+        // (a stroked grid under a lingering fill color is not a symbol), and
+        // toward the symbol census (smallFills) under ANY color — a
+        // "not started" badge is dark gray, invisible to the chroma gate.
         const a = argsArray[i] ?? [];
-        if (!fillVerbs.has(a[0])) continue;
-        scan.coloredFills++;
-        scan.coloredFillHues[fillHue]++;
         const mm = a[2];
-        if (mm && mm.length === 4) {
-          scan.coloredFillBoxes.push({
-            hue: fillHue,
-            box: minMaxBoxThroughCtm(mm, ctm),
-          });
+        const box = mm && mm.length === 4 ? minMaxBoxThroughCtm(mm, ctm) : null;
+        if (pendingClip) {
+          pendingClip = false;
+          if (box) clipBox = intersectBoxes(clipBox, box);
         }
+        if (!fillVerbs.has(a[0])) continue;
+        if (box && iconSized(box)) {
+          // PDF's initial fill color is black; an unset color IS black.
+          scan.smallFills.push({ rgb: fillRGB ?? [0, 0, 0], box });
+        }
+        const hue = hueBucket(fillRGB);
+        if (hue == null) continue;
+        scan.coloredFills++;
+        scan.coloredFillHues[hue]++;
+        if (box) scan.coloredFillBoxes.push({ hue, box });
       } else if (fillVerbs.has(fn)) {
         // Bare fill verb (older builds): counts, but carries no geometry.
+        const hue = hueBucket(fillRGB);
+        if (hue == null) continue;
         scan.coloredFills++;
-        scan.coloredFillHues[fillHue]++;
+        scan.coloredFillHues[hue]++;
+      } else if (fn === ops.shadingFill) {
+        // A shadingFill paints the clip region; an icon-sized clip is symbol
+        // material (the Discovery "disclosed" badges are gradient circles).
+        // Its color rides in a pattern object the op args only name, so the
+        // census records geometry alone.
+        if (clipBox && iconSized(clipBox)) {
+          scan.smallShadings.push({ box: { ...clipBox } });
+        }
       }
     }
   }

@@ -34,6 +34,7 @@ import {
   extrapolateImages,
   appendOmittedImagesNote,
   appendVectorChartNote,
+  appendSymbolKeyNote,
   createFurnitureDetector,
   stripFurniture,
   IMAGE_OP_NAMES,
@@ -47,6 +48,7 @@ import {
   imageDimsKey,
   REPEATED_DIMS_MIN_PAGES,
 } from "./raster-gate.js";
+import { symbolKeyPlan, symbolLabelItems } from "./symbol-key.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getAssetUrl("pdf.worker.mjs");
 
@@ -160,21 +162,44 @@ export async function analyzePdf(file) {
         ? cache[n - 1]
         : (await page.getTextContent()).items;
       const items = stripFurniture(rawItems, furnitureKeys);
-      const { lines, gutter: pageGutter } = reconstructPage(items, gutter);
+      // Icon-key decoding (ADR 0017 — symbol-key.js): when the page defines
+      // its repeated textless icons in a key legend, inject each usage's
+      // label as a pseudo text item at the icon's position, so reconstruction
+      // binds the value to its row like any other glyph.
+      const symbolPlan = scans.has(n)
+        ? symbolKeyPlan(scans.get(n).scan, items)
+        : null;
+      const pageItems = symbolPlan
+        ? [...items, ...symbolLabelItems(symbolPlan)]
+        : items;
+      const { lines, gutter: pageGutter } = reconstructPage(pageItems, gutter);
       gutter = pageGutter;
       // Char count drives classification; count raw text so it's unaffected by
-      // Markdown decoration (headings/tables) added for output.
+      // Markdown decoration (headings/tables) added for output. The symbol
+      // judgment uses the UNINJECTED items — pseudo labels must not move the
+      // text-density demotions.
       const scan = shouldScanImages(n, pageCount)
         ? judgePageImages(page, scans.get(n), items, repeatedDims)
         : null;
       const images = scan ? scan.images : null;
+      // The decoded key may stand down the vector-chart escalation — but only
+      // when its accounting closed exactly (symbolPlan.suppress): every
+      // chromatic fill decoded or text-bearing. Partial decodings keep the
+      // note and the attachment; the injected labels are then a pure addition.
+      const vectorChart = !!scan?.vectorChart && !symbolPlan?.suppress;
       const label = pageLabels?.[n - 1] ?? n;
       let pageMd = linesToMarkdown(lines, label);
+      if (symbolPlan) {
+        pageMd = appendSymbolKeyNote(
+          pageMd,
+          symbolPlan.entries.map((e) => e.label)
+        );
+      }
       // A vector symbol chart (colored fills, no raster, no text values) gets
       // a visible note: the emitted rows are missing their data, the attached
       // figure is the faithful copy. Scan-gated like the image markers —
       // assert only what was seen.
-      if (scan?.vectorChart) pageMd = appendVectorChartNote(pageMd, label);
+      if (vectorChart) pageMd = appendVectorChartNote(pageMd, label);
       perPage.push({
         chars: countChars(linesToText(lines)),
         images,
@@ -191,7 +216,7 @@ export async function analyzePdf(file) {
           flattenedWithEvidence(
             hasFlattenedFigure(lines),
             scan ? scan.images : null,
-            scan?.vectorChart
+            vectorChart
           ),
       });
       // Scanned pages with images get a visible omission marker in the output

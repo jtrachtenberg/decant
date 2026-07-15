@@ -20,12 +20,15 @@
 // shape, wrapped by resultFromAnalysis() like every other engine.
 
 import TurndownNs from "turndown";
-import * as gfmNs from "turndown-plugin-gfm";
+// Named import resolves in BOTH environments: esbuild takes the package's
+// "module" entry (pure ESM, named exports only — a `.default` access there is
+// statically undefined and drew an esbuild warning), and Node takes the CJS
+// "main", whose interop lexer surfaces `gfm` as a named export too.
+import { gfm } from "turndown-plugin-gfm";
 import { fileBytes } from "./read-file.js";
 import { escapeMarkerLabel } from "./xlsx.js";
 
 const TurndownService = TurndownNs.default ?? TurndownNs;
-const { gfm } = gfmNs.default ?? gfmNs;
 
 // Decode HTML bytes the way a browser would: a BOM wins, otherwise the charset
 // declared in the document head, otherwise UTF-8. `blob.text()` (and a bare
