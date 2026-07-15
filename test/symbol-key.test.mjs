@@ -258,6 +258,10 @@ test("a large chromatic fill outside any icon blocks suppression", () => {
 
 // --- Reconstruction binding --------------------------------------------------
 
+// Escape every regex metacharacter, not just parens — a row value carrying
+// ".", "+", or "|" must match literally (CodeQL js/incomplete-sanitization).
+const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 test("injected labels emit as each rail-table row's own value cell", () => {
   // A Discovery-shaped leaf: letter chips at x=100, entries at x=118, and
   // injected symbol labels at x=400 — level with their rows. The value column
@@ -289,7 +293,7 @@ test("injected labels emit as each rail-table row's own value cell", () => {
   const md = linesToMarkdown(reconstructLines(items));
   for (const [tag, label, status] of rows) {
     const row = new RegExp(
-      `\\| ${tag} \\| ${label} \\| ${status} \\|`.replace(/[()]/g, "\\$&")
+      `\\| ${escapeRegExp(tag)} \\| ${escapeRegExp(label)} \\| ${escapeRegExp(status)} \\|`
     );
     assert.match(md, row, `row lost its decoded value:\n${md}`);
   }
