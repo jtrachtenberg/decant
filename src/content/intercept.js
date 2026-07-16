@@ -10,10 +10,20 @@
 //   2. drop                          (drag-and-drop onto the composer)
 //   3. paste                         (file pasted from clipboard)
 //
-// Listeners run in the capture phase at document_start, ahead of Claude's own
-// handlers. We block the original event synchronously, then convert
-// asynchronously and re-inject through the hidden file input. Conversion is
-// async, so the file appears a beat after the drop/pick — acceptable for now.
+// Listeners are bound to `window` in the capture phase at document_start, ahead
+// of the site's own handlers. We block the original event synchronously, then
+// convert asynchronously and re-inject through the hidden file input.
+// Conversion is async, so the file appears a beat after the drop/pick —
+// acceptable for now.
+//
+// `window`, not `document`, is load-bearing: capture descends window → document
+// → … → target, so stopImmediatePropagation() at *document* capture cannot stop
+// a site whose own listener sits on window (the common "global app dropzone"
+// pattern — copilot.microsoft.com does this). There, the site read the original
+// file before we ever saw the event and attached it alongside our converted
+// Markdown. window capture is the earliest slot in the path, and a
+// document_start content script binds it before any page script runs, so we are
+// unconditionally first.
 //
 // Ambiguous documents (substantial text plus charts) aren't injected silently:
 // the user is prompted to convert to Markdown or send the original, and the
@@ -512,7 +522,7 @@ function queueInject(preferred, files, label) {
 }
 
 // ---------------------------------------------------------------- change ---
-document.addEventListener(
+window.addEventListener(
   "change",
   (ev) => {
     if (!ev.isTrusted) return; // ignore page-synthesized events
@@ -579,7 +589,7 @@ function clearDropOverlay(ev) {
 //   (b) immediately clear the site's "drag active" overlay via the adapter's
 //       overlayCleanup strategy (clearDropOverlay), synchronously, so the
 //       overlay releases instantly rather than waiting on conversion.
-document.addEventListener(
+window.addEventListener(
   "drop",
   (ev) => {
     if (!ev.isTrusted) return; // ignore page-synthesized events
@@ -625,7 +635,7 @@ document.addEventListener(
 // block the original paste and route the converted file through the hidden
 // file input, exactly like the drop path. No overlay to release here, so paste
 // is the simplest of the three. Text-only pastes are left untouched.
-document.addEventListener(
+window.addEventListener(
   "paste",
   (ev) => {
     if (!ev.isTrusted) return; // ignore page-synthesized events

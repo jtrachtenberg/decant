@@ -143,6 +143,8 @@ drag-and-drop, and paste all substitute the converted file. Gemini converts
 through the file picker only; its uploader rejects synthetic drops, so on
 Gemini drag-and-drop/paste intentionally send the original file unconverted
 rather than lose it.
+[copilot.microsoft.com](https://copilot.microsoft.com) isn't pre-listed, but
+gets the full treatment too once you add it yourself in options.
 Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
