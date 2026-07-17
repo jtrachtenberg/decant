@@ -43,6 +43,12 @@ content script injected.
 6. Detached-picker flows (ADR 0019) are drivable headless: `.click()` on a
    detached input still fires Playwright's `filechooser` event, and
    `chooser.setFiles(path)` lands trusted change events on the detached node.
+7. **Trusted drops** (drag-and-drop paths) work via raw CDP — Playwright has
+   no file-drop API, but `ctx.newCDPSession(page)` then
+   `Input.dispatchDragEvent` with `type` dragEnter → dragOver → drop and
+   `data: { items: [], files: [<real path>], dragOperationsMask: 1 }` delivers
+   a fully trusted drop with `dataTransfer.files` populated (verified Edge
+   150). The fake page needs `dragover` `preventDefault` for the drop to land.
 
 ## Gotchas
 

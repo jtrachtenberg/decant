@@ -144,12 +144,16 @@ through the file picker only; its uploader rejects synthetic drops, so on
 Gemini drag-and-drop/paste intentionally send the original file unconverted
 rather than lose it.
 [copilot.microsoft.com](https://copilot.microsoft.com) isn't pre-listed, but
-gets the full treatment too once you add it yourself in options. So does
-[www.kimi.com](https://www.kimi.com) — its paperclip picks through a detached
-file input that never touches the DOM, invisible to normal event interception,
-so Decant hooks input creation itself with a small page-world shim and relays
-the pick to the converter
-([ADR 0019](./docs/adr/0019-main-world-detached-picker-bridge.md)).
+gets the full treatment too once you add it yourself in options.
+[www.kimi.com](https://www.kimi.com) converts through its file picker — the
+paperclip picks via a detached file input that never touches the DOM,
+invisible to normal event interception, so Decant hooks input creation itself
+with a small page-world shim and relays the pick to the converter
+([ADR 0019](./docs/adr/0019-main-world-detached-picker-bridge.md)). Like
+Gemini, kimi's drag-and-drop/paste intentionally send the original file
+unconverted: with no file input in the page there's nothing to substitute
+through, so Decant steps aside rather than lose the upload
+([ADR 0020](./docs/adr/0020-no-input-drop-stand-aside.md)).
 Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.

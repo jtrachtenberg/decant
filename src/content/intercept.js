@@ -624,6 +624,18 @@ window.addEventListener(
       return;
     }
 
+    // No substitution channel, no interception (ADR 0020): drop/paste inject
+    // through a connected <input type=file>, and on a detached-picker site
+    // (kimi.com) none ever exists — blocking the drop would only convert into
+    // a dead end and lose the upload. Checked at drop time; a site that
+    // mounts its input only after some later interaction would be misjudged
+    // here, but every known full-treatment site keeps one mounted.
+    if (!findUsableFileInput()) {
+      consumePassthrough();
+      console.log(TAG, "drop: no usable file input to inject through → native drop, original sent unconverted");
+      return;
+    }
+
     // Passthrough hotkey armed → don't intercept; let the native drop proceed
     // so Claude receives the original file unchanged.
     if (consumePassthrough()) {
@@ -691,6 +703,14 @@ window.addEventListener(
     if (adapter.interceptPaste === false) {
       consumePassthrough();
       console.log(TAG, "paste: site adapter → native paste, original sent unconverted");
+      return;
+    }
+
+    // No connected file input to inject through → stand aside (ADR 0020),
+    // same reasoning as the drop path.
+    if (!findUsableFileInput()) {
+      consumePassthrough();
+      console.log(TAG, "paste: no usable file input to inject through → native paste, original sent unconverted");
       return;
     }
 
