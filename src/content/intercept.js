@@ -5,10 +5,12 @@
 // everything else passthrough) — and substitutes the result into the upload
 // before Claude sees it.
 //
-// Three attach paths:
+// Four attach paths:
 //   1. <input type="file"> change   (file-picker / paperclip button)
 //   2. drop                          (drag-and-drop onto the composer)
 //   3. paste                         (file pasted from clipboard)
+//   4. detached picker               (createElement'd input never in the DOM —
+//                                     relayed by the MAIN-world shim, ADR 0019)
 //
 // Listeners are bound to `window` in the capture phase at document_start, ahead
 // of the site's own handlers. We block the original event synchronously, then
@@ -24,6 +26,13 @@
 // Markdown. window capture is the earliest slot in the path, and a
 // document_start content script binds it before any page script runs, so we are
 // unconditionally first.
+//
+// Window capture still can't see an input that was never appended to the DOM —
+// a detached element's change has no propagation path at all. Sites that pick
+// through one (kimi.com) get path 4: main-world.js hooks createElement, blocks
+// the page's own change handlers at the element, and relays the files here
+// over the postMessage bridge (bridge.js); the same pipeline runs, and the
+// result rides the bridge back to be substituted into the site's own input.
 //
 // Ambiguous documents (substantial text plus charts) aren't injected silently:
 // the user is prompted to convert to Markdown or send the original, and the
@@ -66,6 +75,7 @@ import {
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 import { creditOnSubmit } from "./submit-credit.js";
+import { MSG, bridgeMsg, isBridgeMsg, bridgeFiles } from "./bridge.js";
 import { loadConfig, saveConfig, onConfigChanged } from "../config/config.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
@@ -190,15 +200,18 @@ function findUsableFileInput() {
   return best[best.length - 1];
 }
 
-// Convert each file, then inject the results into the upload in a single
-// .files assignment. Ambiguous results (text plus charts) prompt the user to
-// choose convert vs. original first — deciding before injecting avoids having
-// to un-attach a chip. When a batch mixes clear and ambiguous files, the clear
-// ones wait for the prompt too: a second injection would *replace* the input's
-// FileList, which only works if the site copies files synchronously inside its
-// change handler — an assumption we don't want to be load-bearing. The cost is
-// a beat of extra latency on the clear files in the mixed-batch case only.
-async function resolveAndInject(preferredInput, fileArray) {
+// Convert each file, then hand the results to `inject` — (files) => boolean —
+// in a single call. The change/drop/paste paths inject through the site's
+// hidden input (injectViaInput); the detached-picker path posts the files back
+// over the bridge instead. Either way it's all-or-nothing: ambiguous results
+// (text plus charts) prompt the user to choose convert vs. original first —
+// deciding before injecting avoids having to un-attach a chip. When a batch
+// mixes clear and ambiguous files, the clear ones wait for the prompt too: a
+// second injection would *replace* the input's FileList, which only works if
+// the site copies files synchronously inside its change handler — an
+// assumption we don't want to be load-bearing. The cost is a beat of extra
+// latency on the clear files in the mixed-batch case only.
+async function resolveAndInject(inject, fileArray) {
   // Route with the user's stored config, not the defaults it may still be
   // racing against right after page load.
   await configReady;
@@ -435,7 +448,7 @@ async function resolveAndInject(preferredInput, fileArray) {
   // same-stem uploads (a.pdf + a.docx → a.md), which some uploaders dedupe by
   // dropping one.
   const files = dedupeFileNames([...immediate, ...chosen]);
-  const injected = files.length ? injectViaInput(preferredInput, files) : false;
+  const injected = files.length ? inject(files) : false;
 
   // Estimated token savings (the eliminated PDF page-image layer) — a brief
   // positive badge after a successful conversion.
@@ -509,12 +522,17 @@ function injectViaInput(preferred, files) {
 // sequential; a batch's own failure is caught so it never stalls the chain. A
 // single multi-file drop is one batch, so ordinary multi-file uploads are
 // unaffected — only genuinely separate events queue.
+//
+// `onFail` (optional) runs after a batch fails, alongside the failure notice —
+// the bridge path uses it to RELEASE the pending pick so the site's native
+// handler still fires with the originals instead of the upload vanishing.
 let injectChain = Promise.resolve();
-function queueInject(preferred, files, label) {
+function queueInject(inject, files, label, onFail) {
   const run = injectChain.then(() =>
-    resolveAndInject(preferred, files).catch((err) => {
+    resolveAndInject(inject, files).catch((err) => {
       console.warn(TAG, `resolveAndInject failed (${label}):`, err);
       showAttachFailureNotice(files.map((f) => f.name));
+      onFail?.();
     })
   );
   injectChain = run.catch(() => {}); // keep the chain alive regardless of outcome
@@ -545,7 +563,7 @@ window.addEventListener(
     // Serialized + never silent: the native event is already blocked, so any
     // unexpected throw must surface as an attach-failure notice, and concurrent
     // batches must not clobber each other's FileList (see queueInject).
-    queueInject(target, originals, "change");
+    queueInject((files) => injectViaInput(target, files), originals, "change");
   },
   true
 );
@@ -624,7 +642,7 @@ window.addEventListener(
 
     // (a) Convert, then inject through the hidden input. The input is resolved
     // at injection time (see injectViaInput), after the async conversion.
-    queueInject(null, originals, "drop");
+    queueInject((files) => injectViaInput(null, files), originals, "drop");
   },
   true
 );
@@ -687,10 +705,52 @@ window.addEventListener(
     ev.stopImmediatePropagation();
 
     // Input resolved at injection time (see injectViaInput).
-    queueInject(null, originals, "paste");
+    queueInject((files) => injectViaInput(null, files), originals, "paste");
   },
   true
 );
+
+// ------------------------------------------------------- detached picker ---
+// Picks relayed by the MAIN-world shim (main-world.js): a site that picks
+// through a createElement'd input never appended to the DOM fires change on
+// the element only, invisible to the window listeners above. The shim blocked
+// the page's handlers at the element and holds the input; this side runs the
+// normal pipeline and posts the result back — INJECT substitutes the files
+// into that same input before its change is re-dispatched, RELEASE re-fires
+// it with the originals (passthrough, or a failed batch degrading to the
+// native path so the upload is never lost). The page can forge PICK messages,
+// but only with files it already holds — conversion hands its own data back
+// (see bridge.js); shape is still validated hard.
+window.addEventListener("message", (ev) => {
+  if (ev.source !== window || ev.origin !== location.origin) return;
+  if (!isBridgeMsg(ev.data, MSG.PICK)) return;
+  const { id } = ev.data;
+  const originals = bridgeFiles(ev.data);
+  if (!Number.isFinite(id) || originals.length === 0) return;
+  const release = () => window.postMessage(bridgeMsg(MSG.RELEASE, { id }), location.origin);
+
+  // Passthrough hotkey armed → RELEASE re-fires the pick with the originals,
+  // the detached-path equivalent of standing aside for the native upload.
+  if (consumePassthrough()) {
+    console.log(TAG, "passthrough hotkey → sending original (detached picker)");
+    release();
+    return;
+  }
+
+  console.log(TAG, "detached-picker intercepted:", originals.map((f) => f.name));
+  queueInject(
+    (files) => {
+      window.postMessage(bridgeMsg(MSG.INJECT, { id, files }), location.origin);
+      return true;
+    },
+    originals,
+    "detached picker",
+    release
+  );
+});
+// Arm the shim: until this lands it lets picks flow natively, so a page whose
+// isolated script somehow failed degrades to no conversion, not lost uploads.
+window.postMessage(bridgeMsg(MSG.READY), location.origin);
 
 installPassthroughHotkey();
 console.log(TAG, "intercept installed at", location.href);

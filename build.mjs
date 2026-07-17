@@ -95,6 +95,7 @@ await cp("src/options/options.html", `${outdir}/options/options.html`);
 const config = {
   entryPoints: {
     "content/intercept": "src/content/intercept.js",
+    "content/main-world": "src/content/main-world.js",
     background: "src/background.js",
     "options/options": "src/options/options.js",
   },
