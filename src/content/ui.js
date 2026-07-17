@@ -21,6 +21,7 @@ const BADGE_ID = "decant-passthrough-badge";
 const FAILURE_ID = "decant-attach-failure";
 const CONVERTING_ID = "decant-converting-badge";
 const SAVINGS_ID = "decant-savings-badge";
+const UNCONVERTED_ID = "decant-unconverted-notice";
 
 // The dismiss callback of the prompt currently on screen, if any. A new prompt
 // supersedes the old one; we must resolve the old promise (never just remove
@@ -193,6 +194,16 @@ function mountBadge(id, css, html) {
   return { host, root };
 }
 
+// Shared dismissal for the transient badges: auto-remove after `ms`, or
+// immediately via the badge's ✕ (which also cancels the timer).
+function autoDismiss(host, root, ms) {
+  const timer = setTimeout(() => host.remove(), ms);
+  root.querySelector(".x").addEventListener("click", () => {
+    clearTimeout(timer);
+    host.remove();
+  });
+}
+
 // Small persistent badge shown while the passthrough hotkey is armed. The
 // "Esc to cancel" text is a clickable link that also cancels (calls onCancel).
 // Returns a handle with remove().
@@ -288,11 +299,7 @@ export function showSavingsBadge(savings) {
       ? `Decant saved ~${formatTokens(savings.savedTokens)} tokens (~${savings.percent}%)`
       : `Decant saved ~${formatTokens(savings.savedTokens)} tokens`;
   root.querySelector(".msg").textContent = label;
-  const timer = setTimeout(() => host.remove(), SAVINGS_TIMEOUT_MS);
-  root.querySelector(".x").addEventListener("click", () => {
-    clearTimeout(timer);
-    host.remove();
-  });
+  autoDismiss(host, root, SAVINGS_TIMEOUT_MS);
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
@@ -329,10 +336,46 @@ export function showAttachFailureNotice(fileNames) {
   `
   );
   root.querySelector(".msg").textContent = `${label} — please re-attach using the site's file picker (+/attach button).`;
-  const timer = setTimeout(() => host.remove(), FAILURE_TIMEOUT_MS);
-  root.querySelector(".x").addEventListener("click", () => {
-    clearTimeout(timer);
-    host.remove();
-  });
+  autoDismiss(host, root, FAILURE_TIMEOUT_MS);
+  document.body.appendChild(host);
+}
+
+// Brief notice when Decant deliberately stands aside and the native upload
+// delivers the original unconverted — a site with no substitution channel for
+// drops/pastes (ADR 0020: no connected file input, e.g. kimi.com) or an
+// adapter that rules them out (Gemini). Without it, the missing conversion
+// prompt/savings badge is indistinguishable from Decant not running. Shown
+// only when the file(s) would actually have converted (the caller gates on
+// routing), styled as information, not an error — nothing was lost.
+const UNCONVERTED_TIMEOUT_MS = 6000;
+
+export function showUnconvertedNotice(fileNames, via) {
+  const what =
+    fileNames.length === 1
+      ? `sent “${fileNames[0]}” unconverted`
+      : `sent ${fileNames.length} files unconverted`;
+  const { host, root } = mountBadge(
+    UNCONVERTED_ID,
+    `
+      .badge { background: #1f1f23; color: #f3f3f3; border: 1px solid #6b5cff; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b5cff; flex: none; }
+      .msg { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .x {
+        background: none; border: none; padding: 0 0 0 4px; font: inherit;
+        color: #9aa0aa; cursor: pointer;
+      }
+      .x:hover { color: #fff; }
+    `,
+    `
+    <div class="badge" role="status">
+      <span class="dot"></span>
+      <span class="msg"></span>
+      <button class="x" type="button" aria-label="Dismiss">✕</button>
+    </div>
+  `
+  );
+  root.querySelector(".msg").textContent =
+    `Decant: ${what} — ${via} can't be substituted on this site. To convert, use the file picker.`;
+  autoDismiss(host, root, UNCONVERTED_TIMEOUT_MS);
   document.body.appendChild(host);
 }

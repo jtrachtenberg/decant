@@ -42,6 +42,13 @@ state, and consolidating would mean re-QA for no behavior change.
 - kimi.com: picker converts (ADR 0019 bridge); drag-and-drop and paste send
   the original natively with a console line naming why. No more dead-end
   prompt → notice → nothing.
+- Standing aside is visible, not silent: a brief top-center notice
+  (`showUnconvertedNotice`, 6 s, informational styling — nothing was lost)
+  says the original went unconverted and points at the file picker, on both
+  this path and the Gemini adapter's — otherwise the missing prompt/savings
+  badge is indistinguishable from Decant not running. Shown only when the
+  file would actually have converted; a passthrough-routed file changes
+  nothing and stays quiet.
 - Verified headless (Edge 150, CDP `Input.dispatchDragEvent` for trusted
   drops): with a connected input present the drop still intercepts and
   converts (guard ordering regression); with none, the site's own window-level

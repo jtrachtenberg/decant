@@ -72,6 +72,7 @@ import {
   showAttachFailureNotice,
   showConvertingBadge,
   showSavingsBadge,
+  showUnconvertedNotice,
 } from "./ui.js";
 import { installPassthroughHotkey, consumePassthrough } from "./passthrough.js";
 import { creditOnSubmit } from "./submit-credit.js";
@@ -615,12 +616,24 @@ window.addEventListener(
     const files = ev.dataTransfer && ev.dataTransfer.files;
     if (!files || files.length === 0) return;
 
+    // Capture File references now — the DataTransfer is cleared after drop.
+    const originals = Array.from(files);
+    // When standing aside sends the original natively, a brief notice keeps it
+    // from looking like Decant didn't run — but only when conversion was
+    // actually forgone; a file routing to passthrough anyway changes nothing.
+    const noticeIfConvertible = () => {
+      if (originals.some((f) => routeFile(f, routing).action !== "passthrough")) {
+        showUnconvertedNotice(originals.map((f) => f.name), "drag-and-drop");
+      }
+    };
+
     // Site adapter says drops can't be substituted here → let the native
     // drop proceed with the original file (see SITE_ADAPTERS). An armed
     // passthrough state is consumed: native upload is the passthrough.
     if (adapter.interceptDrop === false) {
       consumePassthrough();
       console.log(TAG, "drop: site adapter → native drop, original sent unconverted");
+      noticeIfConvertible();
       return;
     }
 
@@ -633,6 +646,7 @@ window.addEventListener(
     if (!findUsableFileInput()) {
       consumePassthrough();
       console.log(TAG, "drop: no usable file input to inject through → native drop, original sent unconverted");
+      noticeIfConvertible();
       return;
     }
 
@@ -643,8 +657,6 @@ window.addEventListener(
       return;
     }
 
-    // Capture File references now — the DataTransfer is cleared after drop.
-    const originals = Array.from(files);
     console.log(TAG, "drop intercepted:", originals.map((f) => f.name));
     ev.preventDefault();
     ev.stopImmediatePropagation();
@@ -699,10 +711,17 @@ window.addEventListener(
       return;
     }
 
+    // As on the drop path: standing aside warrants a brief notice, but only
+    // when conversion was actually forgone.
+    const noticeIfConvertible = () => {
+      if (willConvert) showUnconvertedNotice(originals.map((f) => f.name), "paste");
+    };
+
     // Site adapter: same reasoning as the drop path.
     if (adapter.interceptPaste === false) {
       consumePassthrough();
       console.log(TAG, "paste: site adapter → native paste, original sent unconverted");
+      noticeIfConvertible();
       return;
     }
 
@@ -711,6 +730,7 @@ window.addEventListener(
     if (!findUsableFileInput()) {
       consumePassthrough();
       console.log(TAG, "paste: no usable file input to inject through → native paste, original sent unconverted");
+      noticeIfConvertible();
       return;
     }
 
