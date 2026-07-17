@@ -349,11 +349,7 @@ export function showAttachFailureNotice(fileNames) {
 // routing), styled as information, not an error — nothing was lost.
 const UNCONVERTED_TIMEOUT_MS = 6000;
 
-export function showUnconvertedNotice(fileNames, via) {
-  const what =
-    fileNames.length === 1
-      ? `sent “${fileNames[0]}” unconverted`
-      : `sent ${fileNames.length} files unconverted`;
+export function showUnconvertedNotice(via) {
   const { host, root } = mountBadge(
     UNCONVERTED_ID,
     `
@@ -374,8 +370,11 @@ export function showUnconvertedNotice(fileNames, via) {
     </div>
   `
   );
+  // No filename: the user just dropped it and knows what it was, and a long
+  // name would push the actionable tail ("use the file picker") past the
+  // single-line ellipsis. Short and fixed-length never truncates.
   root.querySelector(".msg").textContent =
-    `Decant: ${what} — ${via} can't be substituted on this site. To convert, use the file picker.`;
+    `Decant: original sent unconverted — ${via} can't be substituted on this site. To convert, use the file picker.`;
   autoDismiss(host, root, UNCONVERTED_TIMEOUT_MS);
   document.body.appendChild(host);
 }

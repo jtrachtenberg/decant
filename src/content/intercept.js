@@ -623,7 +623,7 @@ window.addEventListener(
     // actually forgone; a file routing to passthrough anyway changes nothing.
     const noticeIfConvertible = () => {
       if (originals.some((f) => routeFile(f, routing).action !== "passthrough")) {
-        showUnconvertedNotice(originals.map((f) => f.name), "drag-and-drop");
+        showUnconvertedNotice("drag-and-drop");
       }
     };
 
@@ -714,7 +714,7 @@ window.addEventListener(
     // As on the drop path: standing aside warrants a brief notice, but only
     // when conversion was actually forgone.
     const noticeIfConvertible = () => {
-      if (willConvert) showUnconvertedNotice(originals.map((f) => f.name), "paste");
+      if (willConvert) showUnconvertedNotice("paste");
     };
 
     // Site adapter: same reasoning as the drop path.
