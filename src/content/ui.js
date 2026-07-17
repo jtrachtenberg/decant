@@ -370,11 +370,12 @@ export function showUnconvertedNotice(via) {
     </div>
   `
   );
-  // No filename: the user just dropped it and knows what it was, and a long
-  // name would push the actionable tail ("use the file picker") past the
-  // single-line ellipsis. Short and fixed-length never truncates.
+  // The pill is single-line with ellipsis and narrow windows truncate its
+  // tail, so the actionable part leads and the explanation trails: no
+  // filename (the user just dropped it and knows), no "original sent" prose —
+  // "use the file picker" must survive any width.
   root.querySelector(".msg").textContent =
-    `Decant: original sent unconverted — ${via} can't be substituted on this site. To convert, use the file picker.`;
+    `Decant: use the file picker to convert — ${via} can't be substituted here.`;
   autoDismiss(host, root, UNCONVERTED_TIMEOUT_MS);
   document.body.appendChild(host);
 }
