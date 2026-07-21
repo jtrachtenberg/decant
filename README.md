@@ -224,7 +224,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
     (`Alt+Shift+O`) that sends the next upload untouched.
 - **M2 — Polish & config. ✅ Complete.**
   - Options page: default-deny activation whitelist (dynamic permissions),
-    routing table, hotkey binding, JSON import/export, non-localhost warnings.
+    routing table, hotkey binding, JSON import/export, non-localhost warnings,
+    and a **report-a-bug** link that opens a prefilled GitHub issue.
   - `http`/`companion` transport with per-rule fallbacks — a dead endpoint can
     never lose an upload; `npm run mock-endpoint` is the executable contract.
   - **DOCX / XLSX / PPTX / HTML engines** (mammoth, SheetJS, Turndown + native

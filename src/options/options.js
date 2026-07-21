@@ -462,6 +462,40 @@ async function reset() {
   status("Reset to defaults.");
 }
 
+// ------------------------------------------------------------- bug report ---
+
+const ISSUES_URL = "https://github.com/jtrachtenberg/decant/issues/new";
+
+// Build a prefilled "new issue" URL: GitHub reads title/body/labels from the
+// query string, so the template lives here rather than needing a repo file.
+function bugReportUrl() {
+  const { version } = browser.runtime.getManifest();
+  const body = [
+    "**What happened?**",
+    "",
+    "",
+    "**Steps to reproduce**",
+    "1. ",
+    "2. ",
+    "",
+    "**What did you expect instead?**",
+    "",
+    "",
+    "**File type and site**",
+    "e.g. a PDF on claude.ai",
+    "",
+    "---",
+    `- Decant version: ${version}`,
+    `- Browser: ${navigator.userAgent}`,
+  ].join("\n");
+  const params = new URLSearchParams({ labels: "bug", title: "[Bug] ", body });
+  return `${ISSUES_URL}?${params}`;
+}
+
+function reportBug() {
+  window.open(bugReportUrl(), "_blank", "noopener");
+}
+
 // -------------------------------------------------------- savings counter ---
 
 // The lifetime total lives in storage.local (see stats.js), separate from the
@@ -519,6 +553,7 @@ async function init() {
     );
   });
   document.getElementById("reset").addEventListener("click", reset);
+  document.getElementById("report-bug").addEventListener("click", reportBug);
 }
 
 init();
