@@ -80,6 +80,13 @@ export const PDFJS_DOC_OPTIONS = {
   // fails and it falls back — but state the intent explicitly rather than relying
   // on the CSP to catch it.
   isEvalSupported: false,
+  // pdf.js defaults to VerbosityLevel.WARNINGS, which narrates ordinary
+  // real-world PDF quirks (bad XRef entries, missing glyph widths) into the
+  // page console on files we convert fine. That noise was useful signal during
+  // the testing period; shipped, it buries the errors that mean an actual
+  // conversion failure and makes a user's console paste hard to read in a bug
+  // report. Errors still come through.
+  verbosity: pdfjsLib.VerbosityLevel.ERRORS,
 };
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
