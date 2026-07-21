@@ -29,8 +29,9 @@ not on re-reading pictures of pages.
 > **local companion service** adds the higher-fidelity tier: scans escalate to
 > OCR, and ambiguous documents can convert without dropping their visuals.
 > It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
-> single codebase. It's not yet on any extension store, and additional surfaces
-> below are still planned. The
+> single codebase. It isn't listed on an extension store yet — a Chrome Web
+> Store submission is in preparation — and additional surfaces below are still
+> planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
 
@@ -178,8 +179,8 @@ text dropped into the upload.
 
 ## Install (development)
 
-Decant isn't packaged for any extension store yet. To run the work-in-progress
-locally:
+Decant isn't listed on an extension store yet (a Chrome Web Store submission is
+in preparation). To run the work-in-progress locally:
 
 ```bash
 git clone https://github.com/jtrachtenberg/decant.git
@@ -187,6 +188,7 @@ cd decant
 npm install
 npm run build            # Chromium (Chrome/Brave/Edge) → dist/
 npm run build:firefox    # Firefox                       → dist-firefox/
+npm run package          # build, then zip for store upload → release/
 ```
 
 Both builds come from one source; the Firefox build is derived at build time

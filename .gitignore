@@ -160,3 +160,6 @@ venv/
 .venv/
 vite.config.ts.timestamp-*
 .vite/
+
+# Store-upload zips from scripts/package.mjs
+release
