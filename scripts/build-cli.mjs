@@ -60,8 +60,15 @@ async function detectFuse(binPath) {
   return m[0];
 }
 
+// pdf.js ships quickjs-eval.* (a JS interpreter for scripts embedded in PDF
+// forms) in wasm/, but its only consumer is pdf.sandbox.mjs, which no surface
+// bundles — so it is ~464 KB no build can reach. build.mjs drops it from the
+// extension package for the same reason.
+const UNREACHABLE_ASSET = /quickjs-eval\./;
+
 async function addDir(zip, prefix, srcDir) {
   for (const name of await readdir(srcDir)) {
+    if (UNREACHABLE_ASSET.test(name)) continue;
     zip.file(`${prefix}/${name}`, await readFile(join(srcDir, name)));
   }
 }

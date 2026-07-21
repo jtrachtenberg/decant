@@ -1,0 +1,112 @@
+Decant converts documents to Markdown before they upload to an LLM chat —
+locally, in your browser, without interrupting how you already work.
+
+
+THE PROBLEM
+
+Uploading a PDF to an LLM is often the most expensive way to share it. Many chat
+backends render every page as an image and bill you for that alongside the text,
+so a document whose actual content is modest can balloon in cost.
+
+Converting to Markdown first cuts that cost, keeps headings, lists, and tables
+intact, and — because the conversion happens on your own machine — never hands
+your document to a third-party conversion service.
+
+
+HOW IT WORKS
+
+Attach a file the way you always do: the paperclip, drag-and-drop, or paste.
+Decant catches it on the way out, converts it, and swaps in the Markdown version
+in place. You get a .md attachment instead of a 15 MB PDF.
+
+No extra steps. No separate app to open. No copy-paste dance.
+
+
+SUPPORTED FORMATS
+
+• PDF (digital / text-based)
+• Word — .docx
+• Excel — .xlsx, .xls
+• PowerPoint — .pptx
+• HTML — saved web pages
+
+Charts in Office files are recovered as data tables rather than lost as pictures.
+
+
+WHERE IT RUNS
+
+Enabled out of the box: claude.ai, ChatGPT, Gemini, Perplexity.
+Add them yourself in options: Microsoft Copilot, kimi.com.
+
+claude.ai, ChatGPT, Perplexity, and Copilot get full coverage — file picker,
+drag-and-drop, and paste. Gemini and kimi.com convert through the file picker;
+their uploaders reject synthetic drops, so on those two, drag-and-drop and paste
+deliberately send your original file through unchanged rather than lose it, and
+say so on screen.
+
+
+IT WON'T QUIETLY WRECK YOUR DOCUMENT
+
+The image layer isn't pure waste — it's what lets a model read charts, scans, and
+complex tables. So Decant never converts blindly:
+
+• Scanned and image-only PDFs pass through untouched. No prompt, no degradation.
+• Documents mixing text with real charts or photos ask you first, offering three
+  choices: convert to Markdown, convert and attach the figures alongside it, or
+  send the original.
+• A hotkey (Alt+Shift+O) forces the next upload through untouched.
+• Anything Decant doesn't handle uploads exactly as it would if the extension
+  weren't installed.
+
+
+PRIVACY
+
+• Conversion happens in your browser. Decant operates no servers.
+• No analytics, no telemetry, no tracking, no data sold or shared.
+• Default-deny: Decant does nothing on any site until you enable that site
+  yourself, and enabling one asks Chrome for permission to run there.
+• Settings sync through Chrome's own storage, like your bookmarks. They never
+  reach a Decant server, because there isn't one.
+
+Full policy:
+https://github.com/jtrachtenberg/decant/blob/main/docs/privacy.md
+
+
+WHAT TO EXPECT
+
+Across six real-world PDFs — annual reports, government FAQs, financial guides —
+conversion cut estimated token cost by roughly a third to a half, and file size
+by 60–99%. Several 15 MB print-production PDFs became under 160 KB of Markdown.
+Each converted in under about three seconds.
+
+Token figures are estimates: actual billing depends on the model and backend, and
+savings shrink on figure-heavy documents where you choose to attach the visuals.
+The size reductions are measured. Full methodology and per-document numbers are
+in the project README.
+
+
+OPTIONAL: THE HIGHER-FIDELITY TIER
+
+For scanned documents needing OCR, or image-heavy files you'd rather not
+simplify, Decant can hand off to an optional companion service you run on your
+own machine. It talks to localhost only — nothing leaves your computer. Entirely
+opt-in, and the extension is fully useful without it.
+
+
+CONFIGURABLE
+
+• Which sites Decant runs on
+• What happens per file type — convert, pass through, or route to your own
+  endpoint
+• The passthrough hotkey
+• A default answer for the convert-or-not prompt, so it stops asking
+
+
+OPEN SOURCE
+
+Source, documentation, and design notes:
+https://github.com/jtrachtenberg/decant
+
+This is an early public release. If something converts badly, the options page
+has a "Report a bug" button that opens a pre-filled GitHub issue — a report
+naming the document that broke is the single most useful thing you can send.

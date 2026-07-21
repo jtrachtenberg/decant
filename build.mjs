@@ -76,7 +76,18 @@ await cp(
 // management). Without these every JPX image silently fails to decode and
 // photos render as black/blank regions. iccs/ is the CMYK ICC profile the
 // iccUrl option points at, same failure shape for CMYK color conversion.
-await cp("node_modules/pdfjs-dist/wasm", `${outdir}/wasm`, { recursive: true });
+// quickjs-eval.* is excluded: it is a JavaScript interpreter pdf.js loads only
+// to run scripts embedded in PDF forms, and its sole consumer is
+// pdf.sandbox.mjs, which we never bundle — so it can't load here. Shipping it
+// would add ~464 KB of unreachable payload, and put a file named "eval"
+// containing a JS engine into a package whose store listing declares no remote
+// code. The *_nowasm_fallback.js siblings look similar but must stay: those are
+// the asm.js paths pdf.worker.mjs really falls back to when WASM is
+// unavailable.
+await cp("node_modules/pdfjs-dist/wasm", `${outdir}/wasm`, {
+  recursive: true,
+  filter: (src) => !/quickjs-eval\./.test(src),
+});
 await cp("node_modules/pdfjs-dist/iccs", `${outdir}/iccs`, { recursive: true });
 // Ship the project license and third-party attributions with the extension so
 // the packaged artifact carries them (pdf.js is Apache-2.0; see THIRD-PARTY-NOTICES).
