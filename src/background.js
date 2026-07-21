@@ -23,6 +23,7 @@ import {
 } from "./convert/relay.js";
 
 const SCRIPT_ID = "decant-intercept";
+const MAIN_SCRIPT_ID = "decant-picker-shim";
 const TAG = "[decant bg]";
 
 function pattern(host) {
@@ -40,36 +41,58 @@ async function permittedHosts() {
   return permitted;
 }
 
+// Register/update one content-script spec, or unregister it when spec is null.
+async function syncScript(id, spec) {
+  const existing = await browser.scripting.getRegisteredContentScripts({ ids: [id] });
+  if (!spec) {
+    if (existing.length) {
+      await browser.scripting.unregisterContentScripts({ ids: [id] });
+    }
+  } else if (existing.length) {
+    await browser.scripting.updateContentScripts([spec]);
+  } else {
+    await browser.scripting.registerContentScripts([spec]);
+  }
+}
+
 async function syncRegistration() {
   const hosts = await permittedHosts();
   const matches = hosts.map(pattern);
 
-  const existing = await browser.scripting.getRegisteredContentScripts({
-    ids: [SCRIPT_ID],
-  });
-
   try {
     if (!matches.length) {
-      if (existing.length) {
-        await browser.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] });
-      }
-      console.log(TAG, "no enabled+permitted hosts — content script unregistered");
+      await syncScript(SCRIPT_ID, null);
+      await syncScript(MAIN_SCRIPT_ID, null);
+      console.log(TAG, "no enabled+permitted hosts — content scripts unregistered");
       return;
     }
 
-    const spec = {
-      id: SCRIPT_ID,
-      js: ["content/intercept.js"],
+    const base = {
       matches,
       runAt: "document_start",
       allFrames: false,
       persistAcrossSessions: true,
     };
-
-    if (existing.length) {
-      await browser.scripting.updateContentScripts([spec]);
-    } else {
-      await browser.scripting.registerContentScripts([spec]);
+    await syncScript(SCRIPT_ID, {
+      id: SCRIPT_ID,
+      js: ["content/intercept.js"],
+      ...base,
+    });
+    // The MAIN-world picker shim (ADR 0019) is registered separately and its
+    // failure tolerated: Firefox < 128 rejects world: "MAIN", and an
+    // enhancement's registration error must never take down the primary
+    // interception path. Without it, detached-picker sites (kimi.com) just
+    // don't convert — the pre-shim status quo.
+    try {
+      await syncScript(MAIN_SCRIPT_ID, {
+        id: MAIN_SCRIPT_ID,
+        js: ["content/main-world.js"],
+        world: "MAIN",
+        ...base,
+      });
+    } catch (err) {
+      console.warn(TAG, "picker-shim registration failed (detached pickers won't convert):", err);
+      await syncScript(MAIN_SCRIPT_ID, null).catch(() => {});
     }
     console.log(TAG, "registered on:", matches.join(", "));
   } catch (err) {
