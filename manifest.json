@@ -4,8 +4,8 @@
   "version": "0.3.0",
   "description": "Convert PDF, Word, Excel, PowerPoint & HTML to Markdown before uploading to LLM chats - cut token cost, all in-browser.",
   "permissions": ["scripting", "storage"],
-  "host_permissions": ["*://claude.ai/*", "*://chatgpt.com/*", "*://gemini.google.com/*", "*://www.perplexity.ai/*"],
-  "optional_host_permissions": ["*://*/*"],
+  "host_permissions": ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://www.perplexity.ai/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": {
     "service_worker": "background.js"
   },

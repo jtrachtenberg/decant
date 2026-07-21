@@ -7,20 +7,33 @@ description: Drive the built Decant extension end-to-end in headless Chromium ag
 
 Decant is an MV3 extension; its surfaces are the content script on an enabled
 chat host and the options page. Both can be driven for real, headless, with no
-account login, because the manifest's `*://claude.ai/*` host permission also
-matches **http** — so a local server impersonating claude.ai gets the real
-content script injected.
+account login: a local server impersonating claude.ai gets the real content
+script injected.
+
+**The impersonating server must speak HTTPS.** Host permissions are
+`https://claude.ai/*` and `pattern()` (background.js / options.js) builds
+`https://<host>/*`, so the old trick of serving plain http and relying on
+`*://` matching no longer injects anything — the symptom is a page that loads
+with zero `[decant]` console lines. Serve TLS with a throwaway self-signed
+cert and launch with `--ignore-certificate-errors` (plus Playwright's
+`ignoreHTTPSErrors: true`). The scheme narrowing is deliberate: every chat host
+Decant supports is TLS, and `optional_host_permissions` is `https://*/*` rather
+than `*://*/*` to keep the declared surface off plain HTTP.
 
 ## Recipe
 
 1. `npm run build` → `dist/`.
-2. Point claude.ai at localhost. Linux: `echo "127.0.0.1 claude.ai" >>
-   /etc/hosts` and serve on port 80. **Windows (no hosts-file edit needed):**
-   launch the browser with `--host-resolver-rules=MAP claude.ai 127.0.0.1`,
-   serve on any port, and navigate to `http://claude.ai:<port>/…` — match
-   patterns ignore ports, so `*://claude.ai/*` still injects. The page needs
-   whatever the change touches: an `<input type=file>`, a `contenteditable`
-   composer, a button with `aria-label="Send message"`.
+2. Point claude.ai at localhost, over **TLS**. Linux: `echo "127.0.0.1
+   claude.ai" >> /etc/hosts` and serve 443. **Windows (no hosts-file edit
+   needed):** launch the browser with `--host-resolver-rules=MAP claude.ai
+   127.0.0.1`, serve TLS on any port, and navigate to
+   `https://claude.ai:<port>/…` — match patterns ignore ports, so
+   `https://claude.ai/*` still injects. A self-signed cert is fine given
+   `--ignore-certificate-errors`; generate one with `openssl req -x509
+   -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 1 -subj "/CN=claude.ai"`
+   and serve with `node:https`. The page needs whatever the change touches: an
+   `<input type=file>`, a `contenteditable` composer, a button with
+   `aria-label="Send message"`.
 3. Drive with `playwright-core` (`chromium.launchPersistentContext`),
    `headless: false` plus args `--headless=new --no-sandbox
    --disable-extensions-except=<dist> --load-extension=<dist>

@@ -26,8 +26,13 @@ const SCRIPT_ID = "decant-intercept";
 const MAIN_SCRIPT_ID = "decant-picker-shim";
 const TAG = "[decant bg]";
 
+// A host's match pattern. HTTPS only, and deliberately: this string is what
+// permissions.request() asks Chrome for, so it must sit inside the manifest's
+// optional_host_permissions or the request can never be granted. That entry is
+// `https://*/*` rather than `*://*/*` to keep the declared surface off plain
+// HTTP — every chat host Decant supports is TLS, so the scheme costs nothing.
 function pattern(host) {
-  return `*://${host}/*`;
+  return `https://${host}/*`;
 }
 
 async function permittedHosts() {
