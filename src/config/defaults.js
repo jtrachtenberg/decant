@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG = {
     // default (all four are required host permissions in the manifest, granted
     // at install); enabling another prompts Chrome for that host's permission
     // (see the options page / background worker). Perplexity runs on the www.
-    // subdomain — a bare "perplexity.ai" rule's `*://perplexity.ai/*` pattern
+    // subdomain — a bare "perplexity.ai" rule's `https://perplexity.ai/*` pattern
     // never matches it, so the host must be spelled with www.
     rules: [
       { type: "host", match: "claude.ai", enabled: true },

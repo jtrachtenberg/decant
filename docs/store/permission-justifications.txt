@@ -68,21 +68,21 @@ Nothing in storage is transmitted anywhere — Decant operates no server.
 HOST PERMISSION JUSTIFICATION
 ================================================================
 
-Decant works by intercepting a file upload inside the page and substituting a
-converted version of that file, so it has to run on the chat site where the
-upload is happening.
+Decant intercepts a file upload inside the page and substitutes a converted
+version, so it has to run on the chat site where the upload happens. The four
+bundled hosts — claude.ai, chatgpt.com, gemini.google.com and www.perplexity.ai
+— are the LLM chats enabled by default.
 
-The four bundled hosts — claude.ai, chatgpt.com, gemini.google.com, and
-www.perplexity.ai — are the LLM chat sites enabled by default. On those, Decant
-detects the upload the user initiates and replaces the attached file with its
-Markdown conversion.
+The optional_host_permissions entries are never requested as wildcards. They
+exist so a user can add their own chat host on the options page; the extension
+then calls permissions.request() with that one concrete origin only, as
+https://<host>/*. Nothing broader is ever granted, nothing beyond the four
+bundled hosts is granted at install, and removing a host revokes its permission.
 
-The optional_host_permissions entry (*://*/*) is never requested as a wildcard.
-It exists so a user can add their own LLM chat host on the options page; the
-extension then calls permissions.request() with that one concrete origin only,
-as *://<host>/*. Nothing broader is ever granted, nothing beyond the four
-bundled hosts is granted at install, and removing a host from the list revokes
-its permission.
+The declared surface is deliberately narrow: https://*/* rather than *://*/*,
+so plain HTTP is out of scope, plus http://localhost/* and http://127.0.0.1/*,
+needed only for the optional companion service — it runs on the user's own
+machine and is reachable no other way.
 
 
 ================================================================

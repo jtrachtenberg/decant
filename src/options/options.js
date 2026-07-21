@@ -30,7 +30,10 @@ const statusEl = document.getElementById("status");
 
 let config;
 
-const pattern = (host) => `*://${host}/*`;
+// Must stay identical to background.js's pattern(): both feed
+// permissions.request/contains/remove, and a mismatch would ask Chrome for an
+// origin the manifest never declared. HTTPS-only — see that function's note.
+const pattern = (host) => `https://${host}/*`;
 
 function status(msg) {
   statusEl.textContent = msg;
@@ -167,6 +170,21 @@ function isRemoteEndpoint(url) {
   }
 }
 
+// Can Chrome ever grant this endpoint's origin? optional_host_permissions
+// declares `https://*/*` plus the loopback literals, so plain HTTP to a remote
+// host is an origin the manifest cannot ask for — the request is rejected
+// outright rather than declined, and no amount of retrying would change it.
+// Worth catching up front: reporting it as a declined permission would promise
+// a grant the user has no way to give. Sending documents unencrypted to
+// somebody else's machine is the one case this costs, which is not a loss.
+function isGrantableEndpoint(url) {
+  try {
+    return new URL(url).protocol === "https:" || !isRemoteEndpoint(url);
+  } catch {
+    return false;
+  }
+}
+
 // The background worker's fetch needs host permission for the endpoint's
 // origin. Match patterns ignore ports, so one grant covers the whole host.
 function originPattern(endpoint) {
@@ -299,6 +317,12 @@ async function addRule() {
     const endpoint = endpointInput.value.trim();
     if (!isHttpEndpoint(endpoint)) {
       status("This needs an endpoint URL (http:// or https://).");
+      return;
+    }
+    if (!isGrantableEndpoint(endpoint)) {
+      status(
+        "Chrome can't grant access to a plain http:// endpoint on another machine. Use https://, or run the endpoint on localhost."
+      );
       return;
     }
     if (
