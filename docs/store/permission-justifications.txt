@@ -96,8 +96,9 @@ dashboard answer (checked 2026-07-21 against the packaged build).
   packaged extension root (src/convert/assets.js). The pdf.js worker, the WASM
   decoders, the standard fonts and the ICC profiles all ship in the package;
   none is fetched from the network.
-- Decant's own source contains no eval(), no new Function(), and no dynamic
-  import().
+- Decant's own source contains no eval(), no new Function() and no dynamic
+  import(). Bundled dependencies do contain such calls; see the audit below —
+  all are packaged, none is reachable, and none evaluates anything fetched.
 - isEvalSupported: false is passed to pdf.js explicitly, and no custom
   content_security_policy is declared, so the MV3 default CSP applies.
 - The only external URL in the extension is the GitHub bug-report link, opened
@@ -106,11 +107,24 @@ dashboard answer (checked 2026-07-21 against the packaged build).
   document content. It is never evaluated, and it is unreachable unless the
   user configures an endpoint.
 
-Two things a reviewer grepping the package may find, both benign:
+What a reviewer grepping content/intercept.js WILL find, and why none of it is
+remote code (audited against the packaged zip, 2026-07-21):
 
-- One eval( survives in the bundled third-party dependency code, inside a
-  toFastProperties() helper, placed after an unconditional return. It is
-  statically unreachable — the well-known V8 fast-properties idiom.
+- One eval( and eight new Function( occurrences, all inside bundled
+  third-party libraries, all shipped in the package rather than fetched:
+    * bluebird 3.4.7 (via mammoth, the DOCX reader) — its toFastProperties()
+      helper places eval() after an unconditional return, the well-known V8
+      fast-properties idiom, so it is statically unreachable; its method-caller
+      and promise-inspection caches compile accessors the same way.
+    * underscore 1.13.8 (via mammoth / lop / duck) — the _.template compiler.
+    * setimmediate 1.0.5 (via jszip) — coerces a string handler.
+  None of these can execute: the MV3 default CSP (script-src 'self') blocks
+  eval and the Function constructor outright, and no custom
+  content_security_policy is declared to relax it. They are optimization fast
+  paths and template helpers that degrade to their interpreted fallbacks —
+  which is why DOCX, XLSX and PPTX conversion all work in the shipped
+  extension. Critically, no string these touch comes from outside the package:
+  nothing is fetched, downloaded or received over the network and then run.
 - pdf.js's wasm/ directory ships a quickjs-eval JavaScript interpreter for
   scripts embedded in PDF forms. Decant excludes it at build time (build.mjs):
   its only consumer is pdf.sandbox.mjs, which is never bundled, so it could
