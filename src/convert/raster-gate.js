@@ -260,6 +260,15 @@ export const DEBRIS_OVERLAP_RATIO = 4;
 // photos this could cost grade as marginal attachments anyway.
 export const REPEATED_DIMS_MIN_PAGES = 2;
 
+// The same idea for vector fills (fillSignature / hasVectorChartFills), but a
+// page less eager than the raster census. Two pages is right for an image —
+// an exact intrinsic-dims repeat is decoration essentially always. A fill
+// signature can repeat innocently: a two-page figure's legend swatches sit at
+// identical coordinates on both, and demoting those could cost a real chart
+// its gate. Three pages still catches furniture (which repeats document-wide,
+// not twice) while leaving a spread figure alone.
+export const REPEATED_FILL_MIN_PAGES = 3;
+
 // Exception to the dims census: a repeated image that DOMINATES its page is
 // content, not furniture. A scanned document page's raster fills most of the
 // sheet, and distinct scans routinely share the scanner's exact auto-crop
@@ -614,17 +623,44 @@ function minMaxBoxThroughCtm(mm, ctm) {
 // see the constants above for the calibration. Pages passing this join the
 // figures flow as flattened charts (the attachment is the only faithful copy
 // of their values).
-export function hasVectorChartFills(scan) {
-  if (!scan || (scan.coloredFills ?? 0) < VECTOR_CHART_MIN_COLORED_FILLS)
-    return false;
-  const hues = (scan.coloredFillHues ?? []).filter(
-    (c) => c >= VECTOR_CHART_MIN_FILLS_PER_HUE
-  ).length;
-  return hues >= VECTOR_CHART_MIN_HUES;
+export function hasVectorChartFills(scan, repeatedFills) {
+  if (!scan) return false;
+  let fills = scan.coloredFills ?? 0;
+  let perHue = scan.coloredFillHues ?? [];
+  if (repeatedFills?.size) {
+    // Discount the fills the census identified as page furniture. Only boxed
+    // fills can be identified — a bare fill verb paints without geometry (see
+    // scanPageOps) — so unboxed fills stay counted rather than be guessed at,
+    // which keeps this strictly more conservative than no census at all.
+    const discounted = [...perHue];
+    for (const { hue, box } of scan.coloredFillBoxes ?? []) {
+      if (!repeatedFills.has(fillSignature(hue, box))) continue;
+      fills--;
+      discounted[hue]--;
+    }
+    perHue = discounted;
+  }
+  return huesQualify(perHue, fills);
 }
 
-// The multi-hue test hasVectorChartFills applies to the page, applied to one
-// cluster's per-hue counts.
+// A colored fill's identity for the cross-page census: hue bucket plus its
+// user-space box rounded to the point. Page furniture — a brand rail, a
+// running banner, the SDG colour wheel on every page of a WHO report — paints
+// the same shapes at the same coordinates throughout the document. Chart data
+// never lands identically twice: bars, symbols and heat cells move with their
+// values. So a signature recurring across pages is decoration, and counting it
+// toward the chart gate is what let an 88-page report flag 81 pages as
+// flattened figures on furniture alone.
+export function fillSignature(hue, box) {
+  return `${hue}|${Math.round(box.x0)},${Math.round(box.y0)},${Math.round(
+    box.x1
+  )},${Math.round(box.y1)}`;
+}
+
+// The multi-hue test itself: enough chromatic fills, spread over enough hue
+// buckets to read as a categorical palette. Shared by hasVectorChartFills (the
+// whole page, furniture discounted) and vectorChartBox (one candidate
+// cluster), so the page and the crop can never disagree about what qualifies.
 function huesQualify(hueCounts, fills) {
   if (fills < VECTOR_CHART_MIN_COLORED_FILLS) return false;
   return (

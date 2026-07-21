@@ -46,7 +46,9 @@ import {
   hasVectorChartFills,
   textPointsFromItems,
   imageDimsKey,
+  fillSignature,
   REPEATED_DIMS_MIN_PAGES,
+  REPEATED_FILL_MIN_PAGES,
 } from "./raster-gate.js";
 import { symbolKeyPlan, symbolLabelItems } from "./symbol-key.js";
 
@@ -125,6 +127,11 @@ export async function analyzePdf(file) {
   // pass, consumed by every page's significance judgment, and carried on the
   // summary so the figure paths (pdf-figures.js) frame crops the same way.
   const repeatedDims = new Set();
+  // The same census for vector fills (raster-gate.js fillSignature): colored
+  // fill geometry recurring across REPEATED_FILL_MIN_PAGES+ pages is page
+  // furniture, not chart data, and must not count toward the vector-chart
+  // gate. Built by the first pass, consumed by every page's judgment below.
+  const repeatedFills = new Set();
   // Column gutter carried page-to-page, so a page-break remainder (too short
   // for detection on its own) still reflows column-first.
   let gutter = null;
@@ -142,6 +149,7 @@ export async function analyzePdf(file) {
     const cache = pageCount <= MAX_ANALYZE_PAGES ? [] : null;
     const scans = new Map(); // page number → { scan, images }, sampled pages
     const dimsPages = new Map(); // imageDimsKey → Set of page numbers
+    const fillPages = new Map(); // fillSignature → Set of page numbers
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
       const { items } = await page.getTextContent();
@@ -157,10 +165,18 @@ export async function analyzePdf(file) {
         if (!dimsPages.has(key)) dimsPages.set(key, new Set());
         dimsPages.get(key).add(n);
       }
+      for (const { hue, box } of scanned.scan.coloredFillBoxes ?? []) {
+        const key = fillSignature(hue, box);
+        if (!fillPages.has(key)) fillPages.set(key, new Set());
+        fillPages.get(key).add(n);
+      }
     }
     const furnitureKeys = furniture.keys();
     for (const [key, pages] of dimsPages) {
       if (pages.size >= REPEATED_DIMS_MIN_PAGES) repeatedDims.add(key);
+    }
+    for (const [key, pages] of fillPages) {
+      if (pages.size >= REPEATED_FILL_MIN_PAGES) repeatedFills.add(key);
     }
 
     for (let n = 1; n <= pageCount; n++) {
@@ -186,7 +202,7 @@ export async function analyzePdf(file) {
       // judgment uses the UNINJECTED items — pseudo labels must not move the
       // text-density demotions.
       const scan = shouldScanImages(n, pageCount)
-        ? judgePageImages(page, scans.get(n), items, repeatedDims)
+        ? judgePageImages(page, scans.get(n), items, repeatedDims, repeatedFills)
         : null;
       const images = scan ? scan.images : null;
       // The decoded key may stand down the vector-chart escalation — but only
@@ -283,7 +299,7 @@ async function scanPage(page) {
 // is a backdrop, not a figure. `repeatedDims` (the document census) demotes
 // cross-page decoration. Also reports vectorChart — the colored-fill
 // symbol-chart signal (raster-gate.js hasVectorChartFills).
-function judgePageImages(page, scanned, textItems, repeatedDims) {
+function judgePageImages(page, scanned, textItems, repeatedDims, repeatedFills) {
   if (!scanned) return { images: 0, figureImages: 0, vectorChart: false };
   const [vx0, vy0, vx1, vy1] = page.view;
   const figureImages = countSignificantImages(
@@ -298,6 +314,6 @@ function judgePageImages(page, scanned, textItems, repeatedDims) {
   return {
     images: scanned.images,
     figureImages,
-    vectorChart: hasVectorChartFills(scanned.scan),
+    vectorChart: hasVectorChartFills(scanned.scan, repeatedFills),
   };
 }

@@ -46,6 +46,7 @@ import {
   BACKGROUND_TEXT_DENSITY_MIN_CHARS,
   imageDimsKey,
   isRepeatedImage,
+  fillSignature,
 } from "../src/convert/raster-gate.js";
 import { IMAGE_OP_NAMES } from "../src/convert/classify.js";
 
@@ -657,6 +658,58 @@ test("constructPath counts by its packed verb; fills record CTM'd boxes", () => 
   ]);
   assert.equal(scan.coloredFills, 1);
   assert.deepEqual(scan.coloredFillBoxes[0].box, { x0: 20, y0: 20, x1: 40, y1: 40 });
+});
+
+// The WHO field case: a template element — brand rail, running banner, the
+// SDG colour wheel — painting the same chromatic shapes at the same
+// coordinates on every page. On its own it clears the gate, which flagged 81
+// of 88 pages as flattened figures and starved the real charts of the cap.
+const furniture = () => {
+  const palette = ["#199050", "#f0c319", "#a61e22", "#005c90", "#7b3fa0"];
+  const out = [];
+  for (let hue = 0; hue < palette.length; hue++) {
+    for (let i = 0; i < 3; i++) {
+      out.push(...symbol(palette[hue], 500 + hue * 12, 700 + i * 12, 8, 8));
+    }
+  }
+  return out;
+};
+const signaturesOf = (scan) =>
+  new Set(scan.coloredFillBoxes.map(({ hue, box }) => fillSignature(hue, box)));
+
+test("repeated page furniture stops reading as a vector chart", () => {
+  const scan = scanOf(furniture());
+  // Without the census it fires on decoration alone — the regression.
+  assert.ok(hasVectorChartFills(scan));
+  // Censused as recurring, every fill is discounted and the gate goes quiet.
+  assert.ok(!hasVectorChartFills(scan, signaturesOf(scan)));
+});
+
+test("the census discounts furniture without costing a real chart its gate", () => {
+  const deco = scanOf(furniture());
+  const repeated = signaturesOf(deco);
+  // The same page furniture plus an actual symbol grid elsewhere on the page.
+  const chart = [];
+  for (let i = 0; i < 12; i++) {
+    chart.push(...symbol(["#199050", "#f0c319", "#a61e22"][i % 3], 100 + i * 20, 300));
+  }
+  const scan = scanOf([...furniture(), ...chart]);
+  assert.ok(hasVectorChartFills(scan, repeated), "chart survives the census");
+  // And the discount is real: drop the chart and the same census silences it.
+  assert.ok(!hasVectorChartFills(scanOf(furniture()), repeated));
+});
+
+test("fillSignature separates a moved or recoloured fill from its neighbour", () => {
+  const at = (hex, x) => scanOf(symbol(hex, x, 40)).coloredFillBoxes[0];
+  const a = at("#199050", 10);
+  const moved = at("#199050", 90);
+  const recoloured = at("#a61e22", 10);
+  assert.notEqual(fillSignature(a.hue, a.box), fillSignature(moved.hue, moved.box));
+  assert.notEqual(fillSignature(a.hue, a.box), fillSignature(recoloured.hue, recoloured.box));
+  // Same shape, same colour, another page → the same signature, which is what
+  // lets the cross-page census recognise it.
+  const again = at("#199050", 10);
+  assert.equal(fillSignature(a.hue, a.box), fillSignature(again.hue, again.box));
 });
 
 test("vectorChartBox finds the symbol cluster, ignores far accents", () => {
