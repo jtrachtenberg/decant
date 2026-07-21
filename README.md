@@ -30,7 +30,7 @@ not on re-reading pictures of pages.
 > OCR, and ambiguous documents can convert without dropping their visuals.
 > It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
 > single codebase. It isn't listed on an extension store yet — a Chrome Web
-> Store submission is in preparation — and additional surfaces below are still
+> Store submission is under review — and additional surfaces below are still
 > planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
@@ -180,7 +180,7 @@ text dropped into the upload.
 ## Install (development)
 
 Decant isn't listed on an extension store yet (a Chrome Web Store submission is
-in preparation). To run the work-in-progress locally:
+under review). To run it locally:
 
 ```bash
 git clone https://github.com/jtrachtenberg/decant.git
