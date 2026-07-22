@@ -3,45 +3,47 @@ Each field has a 1000-character limit.
 
 
 ================================================================
-SINGLE PURPOSE
+SINGLE PURPOSE  (revised for 0.3.1 — page capture added)
 ================================================================
 
-Decant has one purpose: convert a document to Markdown at the moment the user
-uploads it to an LLM chat site, so the chat receives lighter Markdown instead of
-the original file.
+Decant has one purpose: turn content into Markdown at the moment the user sends
+it to an LLM chat site, so the chat receives lighter Markdown instead of a
+heavier original.
 
-Everything in the extension serves that single job — detecting an upload (file
-picker, drag-and-drop, or paste) on a site the user has enabled, converting the
-file inside the browser, and substituting the result back into that same upload.
-The options page exists only to configure this: which sites it runs on, what
-happens to each file type, and the hotkey that forces one upload through
-unconverted.
+That job runs in two directions. Uploads: on sites the user has enabled, an
+attached document (file picker, drag-and-drop, or paste) is converted inside
+the browser and substituted into that same upload. Page capture: when the user
+invokes Decant on a page they are reading (toolbar click, keyboard shortcut, or
+context-menu pick), that page is converted to Markdown and attached in the chat
+they last used.
 
-Decant has no second feature. It does not browse, search, or collect, and it
-does nothing at all on sites the user has not explicitly enabled. It transmits
-user provided files only if the user specifically configures the settings to do
-so.
+Everything else serves that job — the options page only configures which sites,
+what happens to each file type, and the hotkeys. Decant has no second feature.
+It does not browse, search, or collect; it does nothing on sites the user has
+not enabled, and reads no page without an explicit user gesture. It transmits
+user files only if the user configures an endpoint.
 
 
 ================================================================
-SCRIPTING JUSTIFICATION
+SCRIPTING JUSTIFICATION  (revised for 0.3.1 — executeScript now used)
 ================================================================
 
-The scripting permission is used only to register content scripts dynamically:
-registerContentScripts, updateContentScripts, unregisterContentScripts, and
-getRegisteredContentScripts. Decant never calls executeScript, and never injects
-remote or generated code.
+The scripting permission does two jobs, both user-controlled, executing only
+code bundled in the package — never remote or generated code.
 
-This is what implements the extension's default-deny model. Rather than
-declaring static content scripts for every supported site, Decant registers its
-interception script only for hosts the user has explicitly enabled and for which
-Chrome has granted host permission. Disabling a host unregisters it; with no
-hosts enabled, no content script is registered anywhere.
+1) Dynamic content-script registration (register/update/
+unregisterContentScripts): the default-deny model. The upload interceptor and
+a small MAIN-world shim (for detached-picker sites like kimi.com) are
+registered only for hosts the user enabled and Chrome granted. Disabling a
+host unregisters it; with no hosts enabled, nothing is registered anywhere.
 
-Two scripts are registered per enabled host: the interceptor, and a small
-MAIN-world shim that hooks file-input creation for sites whose upload button
-uses a detached input element (for example kimi.com) that isolated-world
-listeners cannot observe. Both are bundled in the package.
+2) executeScript, for page capture only: when the user invokes capture with a
+gesture, the packaged serializer bundle is injected into that page under the
+activeTab grant to read its rendered content, and a small notice reports
+progress and outcomes there. On enabled chat hosts it also places the captured
+Markdown on the clipboard when the chat accepts no file attachments. Injected
+files ship in the package; injected functions come from the packaged
+background script.
 
 
 ================================================================
@@ -56,9 +58,11 @@ hotkey binding, and the saved default answer for the convert-or-not prompt. It
 uses sync storage so these settings follow the user across the Chrome browsers
 they are signed in to, the same way bookmarks do.
 
-chrome.storage.local holds one number: a running total of estimated tokens
-saved, displayed on the options page. It is kept out of sync storage because it
-is written after every conversion, and sync storage has an 8KB-per-item quota.
+chrome.storage.local holds two small machine-local values: a running total of
+estimated tokens saved (displayed on the options page), and the hostname of the
+enabled chat site that last received files — used only as the default
+destination for page capture when no chat tab is open. Both are kept out of
+sync storage because they are frequently written device state.
 
 No document content, file names, page content, or browsing activity is stored.
 Nothing in storage is transmitted anywhere — Decant operates no server.
@@ -68,21 +72,68 @@ Nothing in storage is transmitted anywhere — Decant operates no server.
 HOST PERMISSION JUSTIFICATION
 ================================================================
 
-Decant intercepts a file upload inside the page and substitutes a converted
-version, so it has to run on the chat site where the upload happens. The four
-bundled hosts — claude.ai, chatgpt.com, gemini.google.com and www.perplexity.ai
-— are the LLM chats enabled by default.
+Decant substitutes converted uploads inside the chat page, so it must run on
+the chat sites where uploads happen. The four bundled hosts — claude.ai,
+chatgpt.com, gemini.google.com, www.perplexity.ai — are the defaults.
 
-The optional_host_permissions entries are never requested as wildcards. They
-exist so a user can add their own chat host on the options page; the extension
-then calls permissions.request() with that one concrete origin only, as
-https://<host>/*. Nothing broader is ever granted, nothing beyond the four
-bundled hosts is granted at install, and removing a host revokes its permission.
+The optional_host_permissions entries are never requested as wildcards: adding
+a chat host on the options page requests that one concrete origin only
+(https://<host>/*). Nothing beyond the four bundled hosts is granted at
+install, and disabling or removing a host revokes its permission.
 
-The declared surface is deliberately narrow: https://*/* rather than *://*/*,
-so plain HTTP is out of scope, plus http://localhost/* and http://127.0.0.1/*,
-needed only for the optional companion service — it runs on the user's own
-machine and is reachable no other way.
+The declared surface is deliberately narrow: https://*/* rather than *://*/*
+(plain HTTP out of scope), plus http://localhost/* and http://127.0.0.1/*
+solely for the optional companion service on the user's own machine.
+
+The same grants also serve page-capture delivery: URL-pattern tabs.query finds
+the user's most recent enabled-chat tab (Decant holds no "tabs" permission),
+and the converted page is injected there. Captured pages need no host
+permission — they are read once under activeTab.
+
+
+================================================================
+ACTIVETAB JUSTIFICATION  (new in 0.3.1)
+================================================================
+
+activeTab is the entire permission design for page capture. Capture runs only
+from an explicit user gesture — a toolbar click, the capture keyboard shortcut,
+or a context-menu pick — and the activeTab grant that gesture produces is what
+lets Decant read the one page the user invoked it on, once. The packaged
+serializer is injected into that tab to read its rendered content; the result
+is converted to Markdown locally and attached in the user's chosen chat. The
+same grant shows a small status notice on that page (capturing / delivered /
+failure reason), so the user is never left guessing.
+
+Decant requests no host permission for captured pages: no wildcard, no
+per-origin prompts, no access before or after the gesture, and no reading of
+any tab the user did not invoke it on. Nothing read from a captured page is
+transmitted anywhere; conversion happens inside the browser.
+
+
+================================================================
+CONTEXTMENUS JUSTIFICATION  (new in 0.3.1)
+================================================================
+
+contextMenus renders the page-capture controls as native browser UI instead of
+UI injected into pages. One parent item ("Decant page to…") lists the chat
+sites the user has enabled — picking one captures the current page to that
+chat instead of the default last-used one — plus a single checkbox ("Include
+page images") that mirrors the options-page toggle for attaching the page's
+images. The menu is built only from the user's own enabled-sites list; a site
+the user disabled never appears, and with no sites enabled there is no menu at
+all. A menu click is also the user gesture that grants activeTab for that
+capture. Nothing is tracked and no other items are shown.
+
+
+================================================================
+COMMANDS JUSTIFICATION  (new in 0.3.1)
+================================================================
+
+commands registers one keyboard shortcut, capture-page (suggested Alt+Shift+C,
+rebindable by the user at chrome://extensions/shortcuts). It does exactly what
+the toolbar click does — capture the page the user is on and attach it in
+their last-used chat — under the activeTab grant the shortcut gesture
+provides. No other shortcuts are registered.
 
 
 ================================================================
@@ -103,6 +154,10 @@ dashboard answer (checked 2026-07-21 against the packaged build).
   content_security_policy is declared, so the MV3 default CSP applies.
 - The only external URL in the extension is the GitHub bug-report link, opened
   as a tab navigation, never loaded as code.
+- The page-capture serializer (capture/inject.js, new in 0.3.1) injected via
+  executeScript files: is a packaged asset exactly like the content scripts;
+  the accompanying func: injections serialize functions from the packaged
+  background script. Neither path can carry remote or user-supplied code.
 - The companion/http transport receives data (text or JSON) that becomes
   document content. It is never evaluated, and it is unreachable unless the
   user configures an endpoint.
