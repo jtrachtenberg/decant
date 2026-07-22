@@ -33,7 +33,7 @@ export function displayName(host) {
 // Menu descriptors for the enabled hosts. One host needs no submenu — a
 // picker with a single choice is just a longer click. `figures` is the
 // current config value, rendered as a checkbox item at the end (the
-// menu-reachable face of the options toggle — SPEC §3.11 default-off).
+// menu-reachable face of the options toggle — SPEC §3.11, default-on).
 export function menuItems(hosts, { figures = false } = {}) {
   if (!hosts.length) return [];
   const contexts = ["page", "selection", "link", "image"];

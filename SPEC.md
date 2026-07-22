@@ -408,9 +408,11 @@ permission analysis, and phase-0 spike results in
   never-silent applies doubly when the failure happens in a tab the user
   isn't watching. Hosts with no usable input (kimi/Gemini,
   ADR 0020) get clipboard-copy + notification as the passthrough analogue.
-- **Figures, default-off.** One opt-in (`capture.figures`, an options-page
-  toggle and a checkbox at the end of the capture menu, kept in step through
-  the config-change event) reuses extract-and-reference (ADR 0006): `<img>`s
+- **Figures, default-on.** One toggle (`capture.figures` — an options-page
+  checkbox and one at the end of the capture menu, kept in step through the
+  config-change event; on by default since a captured page's images are
+  usually part of its meaning, and unreadable ones degrade to URL references
+  harmlessly) reuses extract-and-reference (ADR 0006): `<img>`s
   filtered by *rendered* significance (≥120×90 on screen, outside site
   furniture, visible), deduped, largest-first, capped at 5 figures / 8 MB
   total, attached after `page.md` with an association footer naming them.

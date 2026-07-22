@@ -329,10 +329,11 @@ test("normalizeConfig coerces non-boolean hotkey modifiers", () => {
   });
 });
 
-test("normalizeConfig keeps the capture figures opt-in and defaults it off", () => {
-  assert.equal(normalizeConfig({}).capture.figures, false);
+test("normalizeConfig defaults capture figures ON, honors an explicit off", () => {
+  assert.equal(normalizeConfig({}).capture.figures, true);
+  assert.equal(normalizeConfig({ capture: { figures: false } }).capture.figures, false);
   assert.equal(normalizeConfig({ capture: { figures: true } }).capture.figures, true);
-  // Hand-edited junk falls back to off — attaching images is opt-in only.
-  assert.equal(normalizeConfig({ capture: { figures: "yes" } }).capture.figures, false);
-  assert.equal(normalizeConfig({ capture: "nonsense" }).capture.figures, false);
+  // Hand-edited junk falls back to the default (on); only explicit false opts out.
+  assert.equal(normalizeConfig({ capture: { figures: "yes" } }).capture.figures, true);
+  assert.equal(normalizeConfig({ capture: "nonsense" }).capture.figures, true);
 });
