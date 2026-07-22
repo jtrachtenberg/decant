@@ -50,6 +50,10 @@ drag-and-drop zones and clipboard paste. Plan to hook all three paths.
 - `drop` on the page's drop zone — most chat UIs.
 - `paste` — files pasted from clipboard.
 
+**A fourth path (M5): URL paste.** A `paste`/`drop` carrying a single `http(s)`
+URL rather than a file is its own interception surface — the page is fetched and
+converted, not a file swapped in. Mechanics in §3.10.
+
 **The swap technique (well-documented):**
 1. Capture the `File` from the event, `preventDefault()` / stop propagation.
 2. Run it through the converter interface → get Markdown text.
@@ -306,6 +310,56 @@ of this replaces:
   cases, low generality, high maintenance. Raster-image charts and choropleth
   maps stay OCR/companion territory regardless.
 
+### 3.10 Web-page interception — pasted URLs → Markdown (M5)
+
+The same-named page→AI extractor does manually what our pipeline does
+automatically: turn a web page into clean Markdown for the model. We close that
+gap as a **fourth interception surface** — a URL pasted or dropped into the
+composer — routed through the machinery §3.2–§3.7 already provide. Full
+rationale and competitive context in [ADR 0022](./docs/adr/0022-web-page-interception.md).
+
+- **Trigger.** A `paste`/`drop` whose payload is a *single* `http(s)` URL (not a
+  file, not prose with a link in it) on an activated host. Multiple URLs (batch)
+  and URLs mid-sentence are out of v1 scope — the user is attaching a page, not
+  writing.
+- **Input to the router.** The URL is a new input type the router dispatches by
+  the existing actions:
+  - `inbrowser` — fetch the page, run the HTML→Markdown engine already shipped
+    in M2 (Turndown + parsers). Default.
+  - `companion` / `http` — POST the URL; the endpoint fetches and converts
+    (MarkItDown accepts a URL). `onEmpty` escalation (§3.3) sends a page the thin
+    in-browser fetch can't read (JS-rendered, empty extract) to the companion,
+    which can render it; native articles stay fast and local.
+  - `passthrough` — leave the URL text in the composer untouched. Default when
+    unmatched, and the analogue of file passthrough.
+- **Ask-first choice.** The composer prompt grammar of the ambiguous file case
+  (§3.7): *Attach as Markdown* / *Convert + attach figures* / *Keep the link*,
+  with a **set-as-default** toggle (ADR 0008) so "automatic" is a one-time
+  opt-in, never a silent swap.
+- **Substitution.** The converted page is rebuilt as a `page.md` `File` and
+  injected via `injectViaInput` (§2). Where no usable input exists (kimi/Gemini,
+  ADR 0020) or the user keeps the link, the URL text stays in the composer — no
+  loss.
+- **Figures as a separate document.** *Convert + attach figures* reuses
+  extract-and-reference (ADR 0006): the page's content images, size-filtered to
+  skip icons/sprites/tracking pixels, attach as sibling files and overflow to a
+  labeled contact sheet; `[image omitted: alt-text]` markers anchor them in the
+  `.md`. HTML images are already separate resources, so this is the PPTX/DOCX
+  media path with no mini-PDF step.
+- **Permissions — no wildcard.** `inbrowser` URL conversion requests the **host
+  permission for that origin, just-in-time**, on first conversion there — the
+  activation-host pattern (§3.1, ADR 0003): `chrome.permissions.request` +
+  dynamic registration. The narrow manifest stays narrow; a companion-routed
+  user grants no extra browser host access. Fetching a page is a network request
+  to it, so the options page states that conversion fetches the pasted URL.
+- **Classifier.** The three-way verdict (§3.7) maps onto a page: text-heavy →
+  convert; thin/gallery → passthrough; text+figures → ambiguous with the figures
+  choice.
+
+Deferred tiers: reading an **already-open tab's live rendered DOM** (best
+fidelity for SPA/auth pages — the namesakes' actual mechanism — but needs a
+`tabs`-permission design), and **batch** multi-URL conversion.
+
 ---
 
 ## 4. MVP scope (prove the risky part first)
@@ -366,6 +420,15 @@ a dumb converter and a single site:
   endpoint on another.
 - Options-page profile editor; `normalizeConfig` validation with wholesale
   fallback to global routing on malformed profiles.
+
+**Milestone 5 — Web-page interception (pasted URLs)**
+- Fourth interception surface (§3.10): a single `http(s)` URL pasted/dropped
+  into the composer converts to clean Markdown via the existing router and HTML
+  engine, ask-first with a set-as-default opt-in.
+- Just-in-time per-origin host permission (no manifest wildcard); companion
+  `onEmpty` escalation for JS-rendered/auth pages.
+- Figures via extract-and-reference (ADR 0006) as sibling files / contact sheet.
+- Deferred: live open-tab DOM extraction (needs `tabs`), batch multi-URL.
 
 ---
 
