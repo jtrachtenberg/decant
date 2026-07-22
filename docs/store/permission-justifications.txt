@@ -72,9 +72,9 @@ Nothing in storage is transmitted anywhere — Decant operates no server.
 HOST PERMISSION JUSTIFICATION
 ================================================================
 
-Decant substitutes converted uploads inside the chat page, so it must run on
-the chat sites where uploads happen. The four bundled hosts — claude.ai,
-chatgpt.com, gemini.google.com, www.perplexity.ai — are the defaults.
+Decant substitutes converted uploads inside the chat page, so it must run
+where uploads happen. The four bundled hosts — claude.ai, chatgpt.com,
+gemini.google.com, www.perplexity.ai — are the defaults.
 
 The optional_host_permissions entries are never requested as wildcards: adding
 a chat host on the options page requests that one concrete origin only
