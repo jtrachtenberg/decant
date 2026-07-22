@@ -401,9 +401,12 @@ permission analysis, and phase-0 spike results in
 - **Delivery.** Focus or create the target tab; on cold tabs wait for the
   content-script ready ping plus composer mount; ship `page.md` over
   `tabs.sendMessage` (spike: 32 MB fits one message, 64 MB does not — chunk or
-  cap figure batches); inject via `injectViaInput` (§2). Failures notify on
-  the **source** page — never-silent applies doubly when the failure happens
-  in a tab the user isn't watching. Hosts with no usable input (kimi/Gemini,
+  cap figure batches); inject via `injectViaInput` (§2). The source page
+  narrates progress from the gesture on ("capturing…" → "sending to X…" →
+  outcome) — the handshake and input waits are seconds long, and a silent
+  gap reads as a failed click. Failures notify on the **source** page —
+  never-silent applies doubly when the failure happens in a tab the user
+  isn't watching. Hosts with no usable input (kimi/Gemini,
   ADR 0020) get clipboard-copy + notification as the passthrough analogue.
 - **Figures, default-off.** One opt-in (`capture.figures`, an options-page
   toggle and a checkbox at the end of the capture menu, kept in step through

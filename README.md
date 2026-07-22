@@ -357,8 +357,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
     click *is* the consent — no wildcard, no per-origin prompts, no `tabs`
     permission). Delivery focuses the chat only after the file lands; a chat
     with no file slot (Gemini/kimi) gets the Markdown on the clipboard with a
-    paste hint, and every failure reports as an on-page notice — never a
-    silent loss. With the images opt-in on (options page or the capture
+    paste hint, and the page you clicked narrates the whole run ("capturing…"
+    → "sending…" → outcome); every failure reports as an on-page notice —
+    never a silent loss. With the images opt-in on (options page or the capture
     menu's checkbox), the page's content images attach as sibling files
     (extract-and-reference,
     [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)), capped at

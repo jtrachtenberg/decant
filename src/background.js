@@ -16,7 +16,7 @@ import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
 import { capturePage, captureFileName } from "./capture/capture.js";
-import { menuItems, hostFromMenuId, FIGURES_MENU_ID } from "./capture/menus.js";
+import { menuItems, hostFromMenuId, displayName, FIGURES_MENU_ID } from "./capture/menus.js";
 import { resolveTarget } from "./capture/target.js";
 import { deliverCapture, focusTab, copyToTab, showPageNotice } from "./capture/deliver.js";
 import { recordLastTarget } from "./capture/last-target.js";
@@ -139,14 +139,16 @@ browser.runtime.onStartup.addListener(syncMenus);
 onConfigChanged(syncMenus);
 
 // Toolbar badge — the glanceable outcome tick beside the on-page notices
-// (✓ delivered, ! failed, — skipped). Cleared on a timer so a stale tick
-// never reads as the current state.
+// (✓ delivered, ! failed, — skipped, … working). Cleared on a timer so a
+// stale tick never reads as the current state; the in-flight "…" gets a long
+// leash (cold delivery can legitimately take tens of seconds) and is always
+// replaced by an outcome tick.
 let badgeTimer = null;
-function flashBadge(text, color) {
+function flashBadge(text, color, ttlMs = 4000) {
   browser.action.setBadgeText({ text });
   browser.action.setBadgeBackgroundColor({ color });
   if (badgeTimer) clearTimeout(badgeTimer);
-  badgeTimer = setTimeout(() => browser.action.setBadgeText({ text: "" }), 4000);
+  badgeTimer = setTimeout(() => browser.action.setBadgeText({ text: "" }), ttlMs);
 }
 
 // One capture, from any trigger. `forcedHost` is the picked target (context
@@ -188,6 +190,14 @@ async function runCapture(tab, forcedHost) {
     return;
   }
 
+  // Immediate feedback on the page the user just clicked: the quiet stretch
+  // between the gesture and the outcome (figure fetches, the cold-tab
+  // handshake, the no-input wait) otherwise reads as a failed click. Each
+  // later notice replaces this one (same element id), and the in-flight badge
+  // outlives the default flash so it can't clear mid-delivery.
+  flashBadge("…", "#6b5cff", 60000);
+  showPageNotice(tab.id, "Decant: capturing this page…");
+
   const result = await capturePage(tab.id, url, { figures: cfg.capture.figures });
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
@@ -211,6 +221,8 @@ async function runCapture(tab, forcedHost) {
 
   const name = captureFileName(result.title, result.url);
   const figures = result.figures ?? [];
+  const targetName = displayName(target.host);
+  showPageNotice(tab.id, `Decant: sending "${name}" to ${targetName}…`);
   console.log(
     TAG,
     `captured ${name}: ${result.summary.chars} chars` +
@@ -228,6 +240,8 @@ async function runCapture(tab, forcedHost) {
     // recording here too covers it having no storage access mid-teardown.
     recordLastTarget(target.host);
     flashBadge("✓", "#1a7f37");
+    // Closure for the "sending…" notice if the user flips back to the source.
+    showPageNotice(tab.id, `Decant: delivered "${name}" to ${targetName}.`);
     console.log(TAG, `delivered ${name} to ${target.host}`);
   } else if (outcome.noInput) {
     // The chat has no usable file input (Gemini/kimi — ADR 0020's capture
@@ -241,6 +255,13 @@ async function runCapture(tab, forcedHost) {
       copied
         ? "Decant: this chat takes no file attachments — the page's Markdown is on your clipboard, paste it into the composer."
         : "Decant: this chat takes no file attachments, and the clipboard copy failed — capture again once this tab is focused.",
+      copied ? "info" : "error"
+    );
+    showPageNotice(
+      tab.id,
+      copied
+        ? `Decant: ${targetName} takes no file attachments — the page's Markdown is on your clipboard instead.`
+        : `Decant: ${targetName} takes no file attachments, and the clipboard copy failed — see that tab.`,
       copied ? "info" : "error"
     );
     console.warn(TAG, `no usable input on ${target.host} — clipboard fallback${copied ? "" : " ALSO failed"}`);
