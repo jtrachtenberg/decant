@@ -241,7 +241,14 @@ async function runCapture(tab, forcedHost) {
     recordLastTarget(target.host);
     flashBadge("✓", "#1a7f37");
     // Closure for the "sending…" notice if the user flips back to the source.
-    showPageNotice(tab.id, `Decant: delivered "${name}" to ${targetName}.`);
+    // When images were asked for, say what became of them — an all-skipped
+    // page (CORS-unreadable) otherwise looks like the toggle did nothing.
+    const figNote = figures.length
+      ? ` with ${figures.length} image(s)`
+      : result.figuresSkipped
+        ? ` — its images couldn't be read from the page, so they stay as links`
+        : "";
+    showPageNotice(tab.id, `Decant: delivered "${name}" to ${targetName}${figNote}.`);
     console.log(TAG, `delivered ${name} to ${target.host}`);
   } else if (outcome.noInput) {
     // The chat has no usable file input (Gemini/kimi — ADR 0020's capture

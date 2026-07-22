@@ -359,8 +359,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
     with no file slot (Gemini/kimi) gets the Markdown on the clipboard with a
     paste hint, and the page you clicked narrates the whole run ("capturing…"
     → "sending…" → outcome); every failure reports as an on-page notice —
-    never a silent loss. With the images opt-in on (options page or the capture
-    menu's checkbox), the page's content images attach as sibling files
+    never a silent loss. Page images attach by default — turn the toggle off
+    in options or the capture menu to send text only — as sibling files
     (extract-and-reference,
     [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)), capped at
     5 / 8 MB; images the page can't share (CORS) stay as URL references and

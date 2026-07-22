@@ -399,7 +399,10 @@ permission analysis, and phase-0 spike results in
   ungranted host fails fast, naming the re-enable remedy. Capture is disabled
   when the active tab is itself an activated LLM host (v1).
 - **Delivery.** Focus or create the target tab; on cold tabs wait for the
-  content-script ready ping plus composer mount; ship `page.md` over
+  content-script ready ping plus composer mount, then a post-load hydration
+  settle before injecting — an input *existing* is not the app *listening*
+  (copilot ships its file input in pre-hydration HTML and binds its
+  window-level handler at app boot; injecting sooner loses the files); ship `page.md` over
   `tabs.sendMessage` (spike: 32 MB fits one message, 64 MB does not — chunk or
   cap figure batches); inject via `injectViaInput` (§2). The source page
   narrates progress from the gesture on ("capturing…" → "sending to X…" →
@@ -408,9 +411,11 @@ permission analysis, and phase-0 spike results in
   never-silent applies doubly when the failure happens in a tab the user
   isn't watching. Hosts with no usable input (kimi/Gemini,
   ADR 0020) get clipboard-copy + notification as the passthrough analogue.
-- **Figures, default-off.** One opt-in (`capture.figures`, an options-page
-  toggle and a checkbox at the end of the capture menu, kept in step through
-  the config-change event) reuses extract-and-reference (ADR 0006): `<img>`s
+- **Figures, default-on.** One toggle (`capture.figures` — an options-page
+  checkbox and one at the end of the capture menu, kept in step through the
+  config-change event; on by default since a captured page's images are
+  usually part of its meaning, and unreadable ones degrade to URL references
+  harmlessly) reuses extract-and-reference (ADR 0006): `<img>`s
   filtered by *rendered* significance (≥120×90 on screen, outside site
   furniture, visible), deduped, largest-first, capped at 5 figures / 8 MB
   total, attached after `page.md` with an association footer naming them.

@@ -247,3 +247,13 @@ test("captureFiguresNote lists names and admits unreadable images", () => {
   const partial = captureFiguresNote(figs, 3);
   assert.match(partial, /3 more couldn't be read .* URL references/);
 });
+
+test("captureFiguresNote states the all-skipped outcome (CORS-only pages)", () => {
+  // A page whose only content images are cross-origin-unreadable (xkcd's
+  // comic on imgs.xkcd.com) must still say figures were attempted.
+  const note = captureFiguresNote([], 1);
+  assert.match(note, /None of this page's 1 content image/);
+  assert.match(note, /cross-origin/);
+  assert.match(note, /URL references/);
+  assert.ok(!note.includes("attached"));
+});
