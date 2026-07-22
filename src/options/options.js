@@ -25,6 +25,7 @@ const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
 const showSavingsEl = document.getElementById("show-savings");
+const captureFiguresEl = document.getElementById("capture-figures");
 const ambiguousDefaultEl = document.getElementById("ambiguous-default");
 const tokensSavedEl = document.getElementById("tokens-saved");
 const statusEl = document.getElementById("status");
@@ -69,6 +70,7 @@ function render() {
   renderRules();
   hotkeyDisplay.textContent = formatHotkey(config.hotkey);
   showSavingsEl.checked = config.showSavings;
+  captureFiguresEl.checked = config.capture.figures;
   ambiguousDefaultEl.value = config.ambiguousDefault;
 }
 
@@ -566,6 +568,11 @@ async function init() {
     config.showSavings = showSavingsEl.checked;
     if (!(await commit())) return;
     status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
+  });
+  captureFiguresEl.addEventListener("change", async () => {
+    config.capture = { ...config.capture, figures: captureFiguresEl.checked };
+    if (!(await commit())) return;
+    status(captureFiguresEl.checked ? "Captures will attach page images." : "Captures send text only.");
   });
   ambiguousDefaultEl.addEventListener("change", async () => {
     config.ambiguousDefault = ambiguousDefaultEl.value;

@@ -138,8 +138,8 @@ browser.runtime.onInstalled.addListener(syncMenus);
 browser.runtime.onStartup.addListener(syncMenus);
 onConfigChanged(syncMenus);
 
-// Toolbar badge — the only user-visible signal capture has until delivery
-// lands (phase 2 owns the on-page notice). Cleared on a timer so a stale tick
+// Toolbar badge — the glanceable outcome tick beside the on-page notices
+// (✓ delivered, ! failed, — skipped). Cleared on a timer so a stale tick
 // never reads as the current state.
 let badgeTimer = null;
 function flashBadge(text, color) {
@@ -245,8 +245,13 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
   const host = hostFromMenuId(info.menuItemId);
   if (host) runCapture(tab, host);
 });
-browser.commands.onCommand.addListener((command, tab) => {
-  if (command === "capture-page") runCapture(tab, null);
+browser.commands.onCommand.addListener(async (command, tab) => {
+  if (command !== "capture-page") return;
+  // Firefox only passes `tab` here since FF 126 and our floor is 121 — an
+  // absent tab resolves to the focused one (same tab the gesture targeted).
+  const target =
+    tab ?? (await browser.tabs.query({ active: true, currentWindow: true }))[0];
+  runCapture(target, null);
 });
 
 // The set of endpoints the stored, already-validated routing rules point at.

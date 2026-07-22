@@ -340,27 +340,27 @@ on it fall back gracefully (in-browser conversion or passthrough).
   type to a specific endpoint on another. Same rule shape as global routing,
   merged per file type and resolved most-specific-wins (one-shot hotkey → site
   profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
-- **M5 — Web-page capture and interception.** *(in progress — capture surface
-  built, delivery next)*
+- **M5 — Web-page capture and interception.** *(M5a built end-to-end — in
+  live QA)*
   - **M5a — page capture, the headline.** One click (or `Alt+Shift+C`, or a
     context-menu pick) on any page captures its **live rendered DOM** — SPAs
     and logged-in pages included — converts it to clean Markdown, and delivers
     it straight into the composer of the LLM chat you last used: the open tab
-    you touched most recently, or the site you last injected into. Read access
-    comes from `activeTab` (the click *is* the consent — no wildcard, no
-    per-origin prompts, no `tabs` permission); the page's images can attach as
-    a separate figures document (extract-and-reference,
-    [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)). Design and
-    spike results in [ADR 0023](./docs/adr/0023-page-capture-live-dom.md) and
-    `SPEC.md` §3.11.
-    - **Shipped:** the capture surface — triggers, the context-menu target
-      picker built from your enabled sites, and the serializer that reads the
-      rendered DOM (open shadow roots inlined, lazy/`srcset` images resolved,
-      CSS-hidden elements and site furniture dropped) straight into the M2
-      HTML engine. The page you capture is never modified.
-    - **Next:** delivery — resolving the last-used chat tab and injecting the
-      Markdown into its composer, with the on-page success/failure notice that
-      replaces today's toolbar badge.
+    you touched most recently (`lastAccessed`), or the site you last injected
+    into, or your first enabled site. Read access comes from `activeTab` (the
+    click *is* the consent — no wildcard, no per-origin prompts, no `tabs`
+    permission). Delivery focuses the chat only after the file lands; a chat
+    with no file slot (Gemini/kimi) gets the Markdown on the clipboard with a
+    paste hint, and every failure reports as an on-page notice — never a
+    silent loss. With the images opt-in on (options page or the capture
+    menu's checkbox), the page's content images attach as sibling files
+    (extract-and-reference,
+    [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)), capped at
+    5 / 8 MB; images the page can't share (CORS) stay as URL references and
+    the Markdown says so. Serializer: open shadow roots inlined,
+    lazy/`srcset` images resolved, CSS-hidden elements and site furniture
+    dropped, the captured page never modified. Design and spike results in
+    [ADR 0023](./docs/adr/0023-page-capture-live-dom.md) and `SPEC.md` §3.11.
   - **M5b — pasted URLs, follow-on tier.** A URL pasted into the composer
     converts in place, ask-first with a set-as-default opt-in — covers pages
     you haven't opened. Design in

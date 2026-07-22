@@ -47,8 +47,7 @@ function nameFor(src, index) {
       .replace(/[\\/:*?"<>|\s]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
-    if (/\.(png|jpe?g|gif|webp|avif|svg)$/i.test(clean)) return clean;
-    if (clean) return clean; // extension added from the MIME type below
+    if (clean) return clean; // extensionless names get one from the MIME type
   } catch {
     // data: URIs and oddities fall through to fig-N
   }

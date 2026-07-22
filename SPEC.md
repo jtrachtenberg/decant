@@ -373,11 +373,15 @@ permission analysis, and phase-0 spike results in
 [ADR 0023](./docs/adr/0023-page-capture-live-dom.md).
 
 - **Triggers.** Toolbar click = capture → last-used LLM. A context-menu entry
-  with a submenu of the enabled-sites list is the override picker; two
-  `commands` shortcuts mirror both. Every trigger is a user gesture granting
-  `activeTab` — temporary host access to the captured tab, no wildcard, no
-  per-origin prompt, no `tabs` permission. The gesture is the consent, so
-  there is no ask-first step (unlike a pasted URL, the intent is unambiguous).
+  with a submenu of the enabled-sites list is the override picker; one
+  `commands` shortcut (`Alt+Shift+C`, rebindable at chrome://extensions/
+  shortcuts) mirrors the automatic path — a second picker shortcut was
+  planned, but the picker UI *is* the context menu, so a keyboard route to it
+  would need a separate picker surface; deferred until someone wants it.
+  Every trigger is a user gesture granting `activeTab` — temporary host
+  access to the captured tab, no wildcard, no per-origin prompt, no `tabs`
+  permission. The gesture is the consent, so there is no ask-first step
+  (unlike a pasted URL, the intent is unambiguous).
 - **Capture.** `chrome.scripting.executeScript` injects a serializer into the
   page (no resident content script off the activation list): rendered text
   state, resolved lazy images, open shadow roots; scripts/styles/site chrome
@@ -396,10 +400,17 @@ permission analysis, and phase-0 spike results in
   the **source** page — never-silent applies doubly when the failure happens
   in a tab the user isn't watching. Hosts with no usable input (kimi/Gemini,
   ADR 0020) get clipboard-copy + notification as the passthrough analogue.
-- **Figures, default-off.** "Capture with figures" reuses
-  extract-and-reference (ADR 0006): size-filtered `<img>`s as sibling files /
-  contact sheet, `[image omitted: alt]` markers; CORS-opaque images skip with
-  the marker (best-effort v1).
+- **Figures, default-off.** One opt-in (`capture.figures`, an options-page
+  toggle and a checkbox at the end of the capture menu, kept in step through
+  the config-change event) reuses extract-and-reference (ADR 0006): `<img>`s
+  filtered by *rendered* significance (≥120×90 on screen, outside site
+  furniture, visible), deduped, largest-first, capped at 5 figures / 8 MB
+  total, attached after `page.md` with an association footer naming them.
+  Collection runs inside the captured page — that's where rendered sizes and
+  session cookies live. A cross-origin image whose host sends no CORS headers
+  renders but can't be *read*; it's skipped, the footer says so, and its
+  absolute URL stays in the Markdown (best-effort v1). An image that never
+  loaded is a broken placeholder, not a figure.
 
 ---
 
