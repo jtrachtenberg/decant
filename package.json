@@ -28,6 +28,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
+    "@mixmark-io/domino": "^2.2.0",
     "esbuild": "^0.28.1",
     "postject": "^1.0.0-alpha.6"
   },

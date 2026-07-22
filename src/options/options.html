@@ -36,6 +36,12 @@
     font-size: 14px; padding: 4px 8px; border-radius: 6px;
   }
   .remove:hover { color: var(--danger); background: #faeceb; }
+  .grant {
+    border: 1px solid #d4a72c; background: #fff8e5; color: #7a5901;
+    font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    cursor: pointer; margin-left: auto; margin-right: 8px; white-space: nowrap;
+  }
+  .grant:hover { background: #fdefc4; }
   .add { display: flex; gap: 8px; margin-top: 14px; }
   input[type=text] {
     flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
@@ -168,6 +174,20 @@
     <label>
       <input id="show-savings" type="checkbox" />
       <span class="host">Show the estimated token-savings badge after a conversion</span>
+    </label>
+  </section>
+
+  <section>
+    <h2>Page capture</h2>
+    <p class="hint">
+      The toolbar button (or <code>Alt+Shift+C</code>) converts the page you're
+      reading to Markdown and attaches it in the chat you last used — the
+      right-click menu picks a different chat. Reading the page needs no new
+      site permissions: the click itself grants one-time access to that tab.
+    </p>
+    <label>
+      <input id="capture-figures" type="checkbox" />
+      <span class="host">Also attach the page's images (up to 5; ones the page can't share stay as links)</span>
     </label>
   </section>
 

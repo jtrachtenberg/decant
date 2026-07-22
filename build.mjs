@@ -107,6 +107,11 @@ const config = {
   entryPoints: {
     "content/intercept": "src/content/intercept.js",
     "content/main-world": "src/content/main-world.js",
+    // Injected on demand into the captured page under activeTab (SPEC §3.11) —
+    // never registered as a content script, so it ships as its own bundle
+    // carrying the serializer plus the HTML engine (Turndown needs a DOM, and
+    // the service worker hasn't got one).
+    "capture/inject": "src/capture/inject.js",
     background: "src/background.js",
     "options/options": "src/options/options.js",
   },

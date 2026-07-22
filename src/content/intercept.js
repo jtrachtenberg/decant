@@ -79,6 +79,13 @@ import { creditOnSubmit } from "./submit-credit.js";
 import { MSG, bridgeMsg, isBridgeMsg, bridgeFiles } from "./bridge.js";
 import { loadConfig, saveConfig, onConfigChanged } from "../config/config.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { browser } from "../browser.js";
+import {
+  CAPTURE_PING_MSG,
+  CAPTURE_DELIVER_MSG,
+  deliveredFiles,
+} from "../capture/delivery.js";
+import { recordLastTarget } from "../capture/last-target.js";
 
 const TAG = "[decant]";
 const SENTINEL = "__decantSynthetic";
@@ -450,6 +457,9 @@ async function resolveAndInject(inject, fileArray) {
   // dropping one.
   const files = dedupeFileNames([...immediate, ...chosen]);
   const injected = files.length ? inject(files) : false;
+  // This host is now "the chat you last used" for capture's cold-start
+  // fallback (SPEC §3.11) — same success signal the savings credit keys off.
+  if (injected) recordLastTarget(location.hostname);
 
   // Estimated token savings (the eliminated PDF page-image layer) — a brief
   // positive badge after a successful conversion.
@@ -791,6 +801,55 @@ window.addEventListener("message", (ev) => {
 // Arm the shim: until this lands it lets picks flow natively, so a page whose
 // isolated script somehow failed degrades to no conversion, not lost uploads.
 window.postMessage(bridgeMsg(MSG.READY), location.origin);
+
+// -------------------------------------------------------- capture inbox ---
+// The receiving end of page capture (SPEC §3.11): the background delivers an
+// already-converted page.md (plus figures later) for injection into this
+// chat's composer. PING is the cold-tab handshake — the background retries it
+// until this listener exists, so its answer must be synchronous and
+// unconditional.
+//
+// Injection waits for a usable file input up to the background's deadline
+// (cold SPA composers mount seconds after the content script runs), and rides
+// the same injectChain as intercepted batches so a capture can't clobber a
+// concurrent upload's FileList. No conversion happens here — the payload
+// arrived converted.
+function waitForUsableInput(waitMs) {
+  const deadline = Date.now() + Math.min(Math.max(Number(waitMs) || 0, 0), 30000);
+  return new Promise((resolve) => {
+    const tick = () => {
+      const input = findUsableFileInput();
+      if (input) return resolve(input);
+      if (Date.now() >= deadline) return resolve(null);
+      setTimeout(tick, 300);
+    };
+    tick();
+  });
+}
+
+browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === CAPTURE_PING_MSG) {
+    sendResponse({ ok: true });
+    return;
+  }
+  if (msg?.type !== CAPTURE_DELIVER_MSG) return;
+  (async () => {
+    const files = deliveredFiles(msg); // validates hard; throws → catch below
+    console.log(TAG, "capture delivery:", files.map((f) => f.name));
+    const run = injectChain.then(async () => {
+      const input = await waitForUsableInput(msg.waitMs);
+      return input ? injectViaInput(input, files) : false;
+    });
+    injectChain = run.catch(() => {});
+    const injected = await run;
+    if (injected) recordLastTarget(location.hostname);
+    sendResponse(injected ? { ok: true } : { ok: false, reason: "no-input" });
+  })().catch((err) => {
+    console.warn(TAG, "capture delivery failed:", err);
+    sendResponse({ ok: false, reason: String(err?.message || err) });
+  });
+  return true; // sendResponse is async
+});
 
 installPassthroughHotkey();
 console.log(TAG, "intercept installed at", location.href);

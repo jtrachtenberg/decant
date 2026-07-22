@@ -158,6 +158,10 @@ brief notice ([ADR 0020](./docs/adr/0020-no-input-drop-stand-aside.md)).
 Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
+Disabling or removing a host releases its permission. If Chrome's grant for an
+enabled site disappears out-of-band (revoked via Chrome's own site-access
+settings), the site's row shows a **needs access — grant** button that restores
+it in one click.
 
 ### Routing — what happens to each file type
 Rules keyed by MIME type / extension decide each file's fate:
@@ -340,14 +344,34 @@ on it fall back gracefully (in-browser conversion or passthrough).
   type to a specific endpoint on another. Same rule shape as global routing,
   merged per file type and resolved most-specific-wins (one-shot hotkey → site
   profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
-- **M5 — Web-page interception.** A web page pasted as a URL into the composer
-  converts to clean Markdown in place — the automatic, in-chat version of the
-  page→AI extractors, built on the same `intercept → route → substitute`
-  pipeline. Ask-first with a set-as-default opt-in; the page's images attach as
-  a separate figures document (extract-and-reference,
-  [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)); read access is
-  requested per-site just-in-time rather than as a manifest wildcard. Design in
-  [ADR 0022](./docs/adr/0022-web-page-interception.md) and `SPEC.md` §3.10.
+- **M5 — Web-page capture and interception.** *(M5a built end-to-end — in
+  live QA)*
+  - **M5a — page capture, the headline.** One click (or `Alt+Shift+C`, or a
+    context-menu pick) on any page captures its **live rendered DOM** — SPAs
+    and logged-in pages included — converts it to clean Markdown, and delivers
+    it straight into the composer of the LLM chat you last used: the open tab
+    you touched most recently (`lastAccessed`), or the site you last injected
+    into, or your first enabled site (in every case, only sites Decant has
+    actually been granted access to — anything else could never receive the
+    delivery). Read access comes from `activeTab` (the
+    click *is* the consent — no wildcard, no per-origin prompts, no `tabs`
+    permission). Delivery focuses the chat only after the file lands; a chat
+    with no file slot (Gemini/kimi) gets the Markdown on the clipboard with a
+    paste hint, and the page you clicked narrates the whole run ("capturing…"
+    → "sending…" → outcome); every failure reports as an on-page notice —
+    never a silent loss. With the images opt-in on (options page or the capture
+    menu's checkbox), the page's content images attach as sibling files
+    (extract-and-reference,
+    [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)), capped at
+    5 / 8 MB; images the page can't share (CORS) stay as URL references and
+    the Markdown says so. Serializer: open shadow roots inlined,
+    lazy/`srcset` images resolved, CSS-hidden elements and site furniture
+    dropped, the captured page never modified. Design and spike results in
+    [ADR 0023](./docs/adr/0023-page-capture-live-dom.md) and `SPEC.md` §3.11.
+  - **M5b — pasted URLs, follow-on tier.** A URL pasted into the composer
+    converts in place, ask-first with a set-as-default opt-in — covers pages
+    you haven't opened. Design in
+    [ADR 0022](./docs/adr/0022-web-page-interception.md) and `SPEC.md` §3.10.
 
 ---
 

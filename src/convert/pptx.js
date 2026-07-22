@@ -28,7 +28,8 @@
 
 import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
-import { rowsToMarkdownTable, escapeMdInline, escapeMarkerLabel } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
+import { escapeMarkerLabel } from "./markdown.js";
 import { decodeEntities, parseChartXml } from "./chart.js";
 
 const JSZip = JSZipNs.default ?? JSZipNs;

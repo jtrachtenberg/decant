@@ -142,7 +142,32 @@ export const DEFAULT_CONFIG = {
   showSavings: true,
   // Ambiguous documents prompt by default; see AMBIGUOUS_CHOICES.
   ambiguousDefault: "ask",
+  // Page capture (SPEC §3.11). figures: also attach the page's content images
+  // — default off, like every automation here; toggled from the options page
+  // or the capture context menu.
+  capture: { figures: false },
 };
+
+// A host's match pattern — what permissions.request() asks Chrome for, what
+// content-script registration matches on, and what capture target-resolution
+// queries tabs with. HTTPS only, and deliberately: the string must sit inside
+// the manifest's optional_host_permissions (`https://*/*`, not `*://*/*`) or a
+// request for it can never be granted; every chat host Decant supports is TLS,
+// so the scheme costs nothing. Single source of truth — background.js,
+// options.js, and capture/target.js all feed permission and query APIs whose
+// strings must agree exactly.
+export function hostPattern(host) {
+  return `https://${host}/*`;
+}
+
+// The registrable hostname of a URL, lower-cased; "" when unparseable.
+export function hostOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
 
 // Enabled host patterns from a config, lower-cased and de-duplicated.
 export function enabledHosts(config) {
@@ -185,6 +210,7 @@ export function normalizeConfig(stored) {
     ambiguousDefault: AMBIGUOUS_CHOICES.includes(stored.ambiguousDefault)
       ? stored.ambiguousDefault
       : "ask",
+    capture: { figures: stored.capture?.figures === true },
   };
 }
 

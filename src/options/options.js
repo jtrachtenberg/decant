@@ -10,6 +10,7 @@ import { formatTokens } from "../convert/savings.js";
 import {
   DEFAULT_CONFIG,
   normalizeConfig,
+  hostPattern,
   isHttpEndpoint,
   RULE_ONEMPTY,
 } from "../config/defaults.js";
@@ -24,16 +25,16 @@ const hostsEl = document.getElementById("hosts");
 const rulesEl = document.getElementById("rules");
 const hotkeyDisplay = document.getElementById("hotkey-display");
 const showSavingsEl = document.getElementById("show-savings");
+const captureFiguresEl = document.getElementById("capture-figures");
 const ambiguousDefaultEl = document.getElementById("ambiguous-default");
 const tokensSavedEl = document.getElementById("tokens-saved");
 const statusEl = document.getElementById("status");
 
 let config;
 
-// Must stay identical to background.js's pattern(): both feed
-// permissions.request/contains/remove, and a mismatch would ask Chrome for an
-// origin the manifest never declared. HTTPS-only — see that function's note.
-const pattern = (host) => `https://${host}/*`;
+// Single source with the background worker and capture target queries — a
+// mismatch would ask Chrome for an origin the manifest never declared.
+const pattern = hostPattern;
 
 function status(msg) {
   statusEl.textContent = msg;
@@ -69,6 +70,7 @@ function render() {
   renderRules();
   hotkeyDisplay.textContent = formatHotkey(config.hotkey);
   showSavingsEl.checked = config.showSavings;
+  captureFiguresEl.checked = config.capture.figures;
   ambiguousDefaultEl.value = config.ambiguousDefault;
 }
 
@@ -95,7 +97,32 @@ function renderHosts() {
 
     li.append(label, remove);
     hostsEl.append(li);
+    if (rule.enabled) markIfUngranted(li, remove, rule.match);
   }
+}
+
+// An enabled site whose grant was revoked from Chrome's side (site-access
+// settings, profile changes) renders identically to a healthy one here, yet
+// its content script never runs — the desync live QA hit on kimi. Annotate
+// such rows with the state and the one-click remedy; the click is the user
+// gesture permissions.request needs. Async by necessity (permissions.contains),
+// so the row may have been re-rendered by the time we know — isConnected
+// guards against annotating a stale node.
+async function markIfUngranted(li, before, host) {
+  const granted = await browser.permissions
+    .contains({ origins: [pattern(host)] })
+    .catch(() => true); // can't tell → don't cry wolf
+  if (granted || !li.isConnected) return;
+  const fix = document.createElement("button");
+  fix.className = "grant";
+  fix.textContent = "needs access — grant";
+  fix.title = `Decant is on for ${host}, but Chrome no longer has an access grant for it, so nothing can run there.`;
+  fix.addEventListener("click", async () => {
+    const ok = await browser.permissions.request({ origins: [pattern(host)] }).catch(() => false);
+    if (ok) fix.remove(); // background re-registers via permissions.onAdded
+    status(ok ? `Access granted for ${host}.` : `Permission for ${host} was declined.`);
+  });
+  li.insertBefore(fix, before);
 }
 
 async function toggleHost(host, cb) {
@@ -566,6 +593,11 @@ async function init() {
     config.showSavings = showSavingsEl.checked;
     if (!(await commit())) return;
     status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
+  });
+  captureFiguresEl.addEventListener("change", async () => {
+    config.capture = { ...config.capture, figures: captureFiguresEl.checked };
+    if (!(await commit())) return;
+    status(captureFiguresEl.checked ? "Captures will attach page images." : "Captures send text only.");
   });
   ambiguousDefaultEl.addEventListener("change", async () => {
     config.ambiguousDefault = ambiguousDefaultEl.value;
