@@ -347,7 +347,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
     and logged-in pages included — converts it to clean Markdown, and delivers
     it straight into the composer of the LLM chat you last used: the open tab
     you touched most recently (`lastAccessed`), or the site you last injected
-    into, or your first enabled site. Read access comes from `activeTab` (the
+    into, or your first enabled site (in every case, only sites Decant has
+    actually been granted access to — anything else could never receive the
+    delivery). Read access comes from `activeTab` (the
     click *is* the consent — no wildcard, no per-origin prompts, no `tabs`
     permission). Delivery focuses the chat only after the file lands; a chat
     with no file slot (Gemini/kimi) gets the Markdown on the clipboard with a

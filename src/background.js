@@ -170,6 +170,24 @@ async function runCapture(tab, forcedHost) {
     return;
   }
 
+  // Only granted hosts can ever answer a delivery: the content script is
+  // registered on enabled ∩ granted, so an enabled-but-ungranted host would
+  // hang the ping for its full timeout and then fail vaguely. (Live QA hit
+  // exactly this: an ungranted kimi tab, made query-visible by an activeTab
+  // grant, was picked as the target and could never respond.) Resolution
+  // therefore ranks over granted hosts only, and an explicit pick of an
+  // ungranted host fails fast with the actual remedy.
+  const granted = await permittedHosts();
+  if (forcedHost && !granted.includes(forcedHost)) {
+    flashBadge("!", "#b3261e");
+    showPageNotice(
+      tab.id,
+      `Decant: ${forcedHost} is enabled but Decant was never granted access to it — re-enable it in Decant's options, then retry.`,
+      "error"
+    );
+    return;
+  }
+
   const result = await capturePage(tab.id, url, { figures: cfg.capture.figures });
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
@@ -178,10 +196,16 @@ async function runCapture(tab, forcedHost) {
     return;
   }
 
-  const target = await resolveTarget(enabled, forcedHost);
+  const target = await resolveTarget(granted, forcedHost);
   if (!target) {
     flashBadge("!", "#b3261e");
-    showPageNotice(tab.id, "Decant: no chat sites are enabled — enable one in Decant's options.", "error");
+    showPageNotice(
+      tab.id,
+      enabled.length
+        ? "Decant: no enabled chat site has been granted access — re-enable one in Decant's options."
+        : "Decant: no chat sites are enabled — enable one in Decant's options.",
+      "error"
+    );
     return;
   }
 

@@ -391,8 +391,13 @@ permission analysis, and phase-0 spike results in
   max `lastAccessed` (URL-pattern `tabs.query` works under the host
   permissions we already hold; `lastAccessed` is Chrome 121+/Firefox and not
   permission-gated — both spike-verified) → stored last-successful-injection
-  host (recorded at the savings-credit moment) → first enabled site. Capture
-  is disabled when the active tab is itself an activated LLM host (v1).
+  host (recorded at the savings-credit moment) → first eligible site. All
+  tiers rank over enabled ∩ **granted** hosts only: the content script exists
+  only where the grant does, so an enabled-but-ungranted host can never answer
+  a delivery and must not be a candidate (its tab can even be query-visible
+  through a stray `activeTab` grant — live-QA'd). Explicitly picking an
+  ungranted host fails fast, naming the re-enable remedy. Capture is disabled
+  when the active tab is itself an activated LLM host (v1).
 - **Delivery.** Focus or create the target tab; on cold tabs wait for the
   content-script ready ping plus composer mount; ship `page.md` over
   `tabs.sendMessage` (spike: 32 MB fits one message, 64 MB does not — chunk or

@@ -1,10 +1,15 @@
 // Capture target resolution (SPEC §3.11): which chat gets the captured page.
 //
-// Resolution order — forced pick → open enabled-host tab with max
-// lastAccessed → stored last-injected host → first enabled site. Verified in
-// phase 0: URL-pattern tabs.query works under the host permissions we already
-// hold, and lastAccessed (Chrome 121+/Firefox) is present ungated and tracks
-// focus order.
+// Resolution order — forced pick → open eligible-host tab with max
+// lastAccessed → stored last-injected host → first eligible site. Callers
+// pass enabled ∩ GRANTED hosts (background's permittedHosts): only granted
+// hosts carry the registered content script, and a target that can't answer
+// the delivery ping would hang the capture for the full ping timeout. (An
+// ungranted host's tab can even be query-visible via a stray activeTab grant
+// — live-QA'd on kimi — so the grant filter can't be left to the query.)
+// Verified in phase 0: URL-pattern tabs.query works under the host
+// permissions we already hold, and lastAccessed (Chrome 121+/Firefox) is
+// present ungated and tracks focus order.
 
 import { browser } from "../browser.js";
 import { hostOf, hostPattern } from "../config/defaults.js";
@@ -12,7 +17,7 @@ import { loadLastTarget } from "./last-target.js";
 
 // Pure ranking over already-queried tabs — exported for direct unit testing.
 // `tabs` is chrome Tab objects (id, url, lastAccessed) already limited to
-// enabled hosts by the query; `enabled` is the config-ordered host list.
+// eligible hosts by the query; `enabled` is the config-ordered eligible list.
 // Returns { host, tabId (null = must create), via (for the log line) },
 // or null when no target exists at all.
 export function pickTarget({ tabs = [], enabled = [], forcedHost = null, storedHost = null }) {
