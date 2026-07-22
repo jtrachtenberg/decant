@@ -144,6 +144,27 @@ export const DEFAULT_CONFIG = {
   ambiguousDefault: "ask",
 };
 
+// A host's match pattern — what permissions.request() asks Chrome for, what
+// content-script registration matches on, and what capture target-resolution
+// queries tabs with. HTTPS only, and deliberately: the string must sit inside
+// the manifest's optional_host_permissions (`https://*/*`, not `*://*/*`) or a
+// request for it can never be granted; every chat host Decant supports is TLS,
+// so the scheme costs nothing. Single source of truth — background.js,
+// options.js, and capture/target.js all feed permission and query APIs whose
+// strings must agree exactly.
+export function hostPattern(host) {
+  return `https://${host}/*`;
+}
+
+// The registrable hostname of a URL, lower-cased; "" when unparseable.
+export function hostOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 // Enabled host patterns from a config, lower-cased and de-duplicated.
 export function enabledHosts(config) {
   const hosts = (config?.activation?.rules ?? [])

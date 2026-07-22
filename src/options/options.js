@@ -10,6 +10,7 @@ import { formatTokens } from "../convert/savings.js";
 import {
   DEFAULT_CONFIG,
   normalizeConfig,
+  hostPattern,
   isHttpEndpoint,
   RULE_ONEMPTY,
 } from "../config/defaults.js";
@@ -30,10 +31,9 @@ const statusEl = document.getElementById("status");
 
 let config;
 
-// Must stay identical to background.js's pattern(): both feed
-// permissions.request/contains/remove, and a mismatch would ask Chrome for an
-// origin the manifest never declared. HTTPS-only — see that function's note.
-const pattern = (host) => `https://${host}/*`;
+// Single source with the background worker and capture target queries — a
+// mismatch would ask Chrome for an origin the manifest never declared.
+const pattern = hostPattern;
 
 function status(msg) {
   statusEl.textContent = msg;

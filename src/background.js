@@ -13,10 +13,13 @@
 
 import { browser } from "./browser.js";
 import { loadConfig, onConfigChanged } from "./config/config.js";
-import { enabledHosts, isHttpEndpoint } from "./config/defaults.js";
+import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
 import { capturePage, captureFileName } from "./capture/capture.js";
 import { menuItems, hostFromMenuId } from "./capture/menus.js";
+import { resolveTarget } from "./capture/target.js";
+import { deliverCapture, focusTab, copyToTab, showPageNotice } from "./capture/deliver.js";
+import { recordLastTarget } from "./capture/last-target.js";
 import {
   HTTP_CONVERT_MSG,
   fileToWire,
@@ -28,14 +31,9 @@ const SCRIPT_ID = "decant-intercept";
 const MAIN_SCRIPT_ID = "decant-picker-shim";
 const TAG = "[decant bg]";
 
-// A host's match pattern. HTTPS only, and deliberately: this string is what
-// permissions.request() asks Chrome for, so it must sit inside the manifest's
-// optional_host_permissions or the request can never be granted. That entry is
-// `https://*/*` rather than `*://*/*` to keep the declared surface off plain
-// HTTP — every chat host Decant supports is TLS, so the scheme costs nothing.
-function pattern(host) {
-  return `https://${host}/*`;
-}
+// The host match pattern (single source: defaults.js — permissions, script
+// registration, and capture tab queries must agree on the string exactly).
+const pattern = hostPattern;
 
 async function permittedHosts() {
   const hosts = enabledHosts(await loadConfig());
@@ -119,14 +117,6 @@ onConfigChanged(syncRegistration);
 // Read access comes from activeTab — the click/shortcut/menu-pick IS the
 // grant — so no host permission is requested for the captured page.
 
-function hostOf(url) {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
 // Menu ids are unique per registration, so a rebuild must remove before it
 // creates; concurrent rebuilds (install + a config change) would otherwise
 // race into duplicate-id errors. Serialized through one chain.
@@ -159,17 +149,22 @@ function flashBadge(text, color) {
 }
 
 // One capture, from any trigger. `forcedHost` is the picked target (context
-// menu); null means the automatic path — the last-used chat, resolved in
-// phase 2.
+// menu); null means the automatic path — the last-used chat. Every exit is
+// loud: a badge tick plus, wherever a page can be scripted, an on-page notice
+// (the failure may land in a tab the user isn't watching, so the source page
+// — where they just clicked — is the reporting surface of last resort).
 async function runCapture(tab, forcedHost) {
   if (!tab?.id) return;
   const url = tab.url ?? "";
+  const enabled = enabledHosts(await loadConfig());
+
   // v1: capturing a chat *into* a chat isn't a flow that makes sense, and the
   // enabled-hosts list is exactly the set of pages where the interception
   // surface already runs.
-  if (enabledHosts(await loadConfig()).includes(hostOf(url))) {
+  if (enabled.includes(hostOf(url))) {
     console.warn(TAG, "capture skipped: already on a chat host");
     flashBadge("—", "#8a8a8a");
+    showPageNotice(tab.id, "Decant: capture works on content pages — this is already a chat.");
     return;
   }
 
@@ -177,19 +172,57 @@ async function runCapture(tab, forcedHost) {
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
     flashBadge("!", "#b3261e");
+    showPageNotice(tab.id, `Decant couldn't capture this page — ${result.error}.`, "error");
     return;
   }
+
+  const target = await resolveTarget(enabled, forcedHost);
+  if (!target) {
+    flashBadge("!", "#b3261e");
+    showPageNotice(tab.id, "Decant: no chat sites are enabled — enable one in Decant's options.", "error");
+    return;
+  }
+
   const name = captureFileName(result.title, result.url);
   console.log(
     TAG,
-    `captured ${name}: ${result.summary.chars} chars` +
-      (result.summary.images ? `, ${result.summary.images} images omitted` : "") +
-      ` → ${forcedHost ?? "last-used chat"}`
+    `captured ${name}: ${result.summary.chars} chars → ${target.host} (${target.via})`
   );
-  flashBadge("✓", "#1a7f37");
-  // PHASE 2 SEAM (SPEC §3.11 "Delivery"): resolve the target tab by
-  // lastAccessed / stored last-injection host, hand off the Markdown, and
-  // replace the badge with a real on-page outcome notice.
+
+  const outcome = await deliverCapture(target, [
+    { name, type: "text/markdown", text: result.markdown },
+  ]);
+
+  if (outcome.ok) {
+    // The content side already recorded itself as last target on injection;
+    // recording here too covers it having no storage access mid-teardown.
+    recordLastTarget(target.host);
+    flashBadge("✓", "#1a7f37");
+    console.log(TAG, `delivered ${name} to ${target.host}`);
+  } else if (outcome.noInput) {
+    // The chat has no usable file input (Gemini/kimi — ADR 0020's capture
+    // analogue): put the Markdown on the clipboard and say so on the now-
+    // focused chat page itself.
+    await focusTab(outcome.tabId);
+    const copied = await copyToTab(outcome.tabId, result.markdown);
+    flashBadge("!", "#9a6700");
+    showPageNotice(
+      outcome.tabId,
+      copied
+        ? "Decant: this chat takes no file attachments — the page's Markdown is on your clipboard, paste it into the composer."
+        : "Decant: this chat takes no file attachments, and the clipboard copy failed — capture again once this tab is focused.",
+      copied ? "info" : "error"
+    );
+    console.warn(TAG, `no usable input on ${target.host} — clipboard fallback${copied ? "" : " ALSO failed"}`);
+  } else {
+    flashBadge("!", "#b3261e");
+    showPageNotice(
+      tab.id,
+      `Decant: captured, but couldn't deliver to ${target.host} — ${outcome.reason}`,
+      "error"
+    );
+    console.warn(TAG, `delivery to ${target.host} failed: ${outcome.reason}`);
+  }
 }
 
 browser.action.onClicked.addListener((tab) => runCapture(tab, null));
