@@ -142,6 +142,10 @@ export const DEFAULT_CONFIG = {
   showSavings: true,
   // Ambiguous documents prompt by default; see AMBIGUOUS_CHOICES.
   ambiguousDefault: "ask",
+  // Page capture (SPEC §3.11). figures: also attach the page's content images
+  // — default off, like every automation here; toggled from the options page
+  // or the capture context menu.
+  capture: { figures: false },
 };
 
 // A host's match pattern — what permissions.request() asks Chrome for, what
@@ -206,6 +210,7 @@ export function normalizeConfig(stored) {
     ambiguousDefault: AMBIGUOUS_CHOICES.includes(stored.ambiguousDefault)
       ? stored.ambiguousDefault
       : "ask",
+    capture: { figures: stored.capture?.figures === true },
   };
 }
 

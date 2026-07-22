@@ -12,11 +12,11 @@
 // permission grants/revocations.
 
 import { browser } from "./browser.js";
-import { loadConfig, onConfigChanged } from "./config/config.js";
+import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
 import { capturePage, captureFileName } from "./capture/capture.js";
-import { menuItems, hostFromMenuId } from "./capture/menus.js";
+import { menuItems, hostFromMenuId, FIGURES_MENU_ID } from "./capture/menus.js";
 import { resolveTarget } from "./capture/target.js";
 import { deliverCapture, focusTab, copyToTab, showPageNotice } from "./capture/deliver.js";
 import { recordLastTarget } from "./capture/last-target.js";
@@ -124,8 +124,9 @@ let menuSync = Promise.resolve();
 function syncMenus() {
   menuSync = menuSync
     .then(async () => {
+      const cfg = await loadConfig();
       await browser.contextMenus.removeAll();
-      for (const item of menuItems(enabledHosts(await loadConfig()))) {
+      for (const item of menuItems(enabledHosts(cfg), cfg.capture)) {
         browser.contextMenus.create(item);
       }
     })
@@ -156,7 +157,8 @@ function flashBadge(text, color) {
 async function runCapture(tab, forcedHost) {
   if (!tab?.id) return;
   const url = tab.url ?? "";
-  const enabled = enabledHosts(await loadConfig());
+  const cfg = await loadConfig();
+  const enabled = enabledHosts(cfg);
 
   // v1: capturing a chat *into* a chat isn't a flow that makes sense, and the
   // enabled-hosts list is exactly the set of pages where the interception
@@ -168,7 +170,7 @@ async function runCapture(tab, forcedHost) {
     return;
   }
 
-  const result = await capturePage(tab.id, url);
+  const result = await capturePage(tab.id, url, { figures: cfg.capture.figures });
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
     flashBadge("!", "#b3261e");
@@ -184,13 +186,17 @@ async function runCapture(tab, forcedHost) {
   }
 
   const name = captureFileName(result.title, result.url);
+  const figures = result.figures ?? [];
   console.log(
     TAG,
-    `captured ${name}: ${result.summary.chars} chars → ${target.host} (${target.via})`
+    `captured ${name}: ${result.summary.chars} chars` +
+      (figures.length ? ` + ${figures.length} figure(s)` : "") +
+      ` → ${target.host} (${target.via})`
   );
 
   const outcome = await deliverCapture(target, [
     { name, type: "text/markdown", text: result.markdown },
+    ...figures,
   ]);
 
   if (outcome.ok) {
@@ -226,9 +232,19 @@ async function runCapture(tab, forcedHost) {
 }
 
 browser.action.onClicked.addListener((tab) => runCapture(tab, null));
-browser.contextMenus.onClicked.addListener((info, tab) =>
-  runCapture(tab, hostFromMenuId(info.menuItemId))
-);
+browser.contextMenus.onClicked.addListener((info, tab) => {
+  // The checkbox item is a setting, not a capture: persist the new state (the
+  // config change triggers syncMenus, which re-renders the checkmark; the
+  // options page toggle stays in step the same way).
+  if (info.menuItemId === FIGURES_MENU_ID) {
+    loadConfig()
+      .then((c) => saveConfig({ ...c, capture: { ...c.capture, figures: info.checked === true } }))
+      .catch((err) => console.warn(TAG, "couldn't save figures toggle:", err));
+    return;
+  }
+  const host = hostFromMenuId(info.menuItemId);
+  if (host) runCapture(tab, host);
+});
 browser.commands.onCommand.addListener((command, tab) => {
   if (command === "capture-page") runCapture(tab, null);
 });

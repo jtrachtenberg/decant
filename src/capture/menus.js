@@ -7,6 +7,7 @@
 
 export const MENU_PARENT_ID = "decant-capture";
 export const MENU_PREFIX = "decant-capture:";
+export const FIGURES_MENU_ID = "decant-capture-figures";
 
 // Chat hosts render under the name users know them by; anything else falls
 // back to its domain label, so a self-added host still reads sensibly.
@@ -30,10 +31,20 @@ export function displayName(host) {
 }
 
 // Menu descriptors for the enabled hosts. One host needs no submenu — a
-// picker with a single choice is just a longer click.
-export function menuItems(hosts) {
+// picker with a single choice is just a longer click. `figures` is the
+// current config value, rendered as a checkbox item at the end (the
+// menu-reachable face of the options toggle — SPEC §3.11 default-off).
+export function menuItems(hosts, { figures = false } = {}) {
   if (!hosts.length) return [];
   const contexts = ["page", "selection", "link", "image"];
+  const figuresItem = (parentId) => ({
+    id: FIGURES_MENU_ID,
+    ...(parentId ? { parentId } : {}),
+    title: "Include page images",
+    type: "checkbox",
+    checked: figures === true,
+    contexts,
+  });
   if (hosts.length === 1) {
     return [
       {
@@ -41,6 +52,7 @@ export function menuItems(hosts) {
         title: `Decant page to ${displayName(hosts[0])}`,
         contexts,
       },
+      figuresItem(),
     ];
   }
   return [
@@ -51,6 +63,7 @@ export function menuItems(hosts) {
       title: displayName(host),
       contexts,
     })),
+    figuresItem(MENU_PARENT_ID),
   ];
 }
 

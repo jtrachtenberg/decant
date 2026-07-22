@@ -44,10 +44,11 @@ export function captureFileName(title, url) {
 }
 
 // Capture one tab. Resolves to the injected payload — { ok: true, title, url,
-// decision, reason, summary, markdown } — or { ok: false, error } for anything
-// that went wrong, including a refused injection. Never throws: every caller
-// is a user gesture that must end in a reportable outcome.
-export async function capturePage(tabId, url = "") {
+// decision, reason, summary, markdown, figures? } — or { ok: false, error }
+// for anything that went wrong, including a refused injection. Never throws:
+// every caller is a user gesture that must end in a reportable outcome.
+// `opts.figures` asks the page side to also collect content images.
+export async function capturePage(tabId, url = "", opts = {}) {
   const blocked = captureBlockedReason(url);
   if (blocked) return { ok: false, error: blocked };
   try {
@@ -57,11 +58,14 @@ export async function capturePage(tabId, url = "") {
     });
     const [res] = await browser.scripting.executeScript({
       target: { tabId },
-      func: () =>
-        globalThis.__decantCapture?.() ?? {
+      // The capture global is async (figure fetches) — executeScript resolves
+      // a returned Promise before reporting the result.
+      func: (o) =>
+        globalThis.__decantCapture?.(o) ?? {
           ok: false,
           error: "capture script did not load",
         },
+      args: [{ figures: opts.figures === true }],
     });
     const payload = res?.result;
     if (!payload) return { ok: false, error: "capture returned no result" };

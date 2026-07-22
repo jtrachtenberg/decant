@@ -22,7 +22,15 @@ import {
   serializePage,
 } from "../src/capture/serialize.js";
 import { captureFileName, captureBlockedReason } from "../src/capture/capture.js";
-import { menuItems, hostFromMenuId, displayName, MENU_PARENT_ID, MENU_PREFIX } from "../src/capture/menus.js";
+import {
+  menuItems,
+  hostFromMenuId,
+  displayName,
+  MENU_PARENT_ID,
+  MENU_PREFIX,
+  FIGURES_MENU_ID,
+} from "../src/capture/menus.js";
+import { captureFiguresNote } from "../src/capture/figures.js";
 
 // domino gives no location/baseURI, so tests that need a base pass one in via
 // a stub document wrapper.
@@ -185,7 +193,7 @@ test("browser-internal and gallery pages report a friendly reason", () => {
 
 test("one enabled host needs no submenu", () => {
   const items = menuItems(["claude.ai"]);
-  assert.equal(items.length, 1);
+  assert.equal(items.length, 2); // the action + the figures checkbox
   assert.equal(items[0].title, "Decant page to Claude");
   assert.equal(items[0].id, MENU_PREFIX + "claude.ai");
   assert.ok(!items[0].parentId);
@@ -195,10 +203,20 @@ test("several hosts nest under one parent, in config order", () => {
   const items = menuItems(["claude.ai", "chatgpt.com", "www.perplexity.ai"]);
   assert.equal(items[0].id, MENU_PARENT_ID);
   assert.deepEqual(
-    items.slice(1).map((i) => i.title),
+    items.slice(1, -1).map((i) => i.title),
     ["Claude", "ChatGPT", "Perplexity"]
   );
   assert.ok(items.slice(1).every((i) => i.parentId === MENU_PARENT_ID));
+});
+
+test("the figures checkbox rides last and reflects the config", () => {
+  const off = menuItems(["claude.ai", "chatgpt.com"]).at(-1);
+  assert.equal(off.id, FIGURES_MENU_ID);
+  assert.equal(off.type, "checkbox");
+  assert.equal(off.checked, false);
+  const on = menuItems(["claude.ai"], { figures: true }).at(-1);
+  assert.equal(on.checked, true);
+  assert.ok(!on.parentId, "single-host layout has no parent to nest under");
 });
 
 test("no enabled hosts means no menu at all", () => {
@@ -214,6 +232,18 @@ test("unknown hosts get a readable name from their domain", () => {
 test("hostFromMenuId round-trips ours and ignores foreign ids", () => {
   assert.equal(hostFromMenuId(MENU_PREFIX + "claude.ai"), "claude.ai");
   assert.equal(hostFromMenuId(MENU_PARENT_ID), null);
+  assert.equal(hostFromMenuId(FIGURES_MENU_ID), null);
   assert.equal(hostFromMenuId("someone-elses-item"), null);
   assert.equal(hostFromMenuId(undefined), null);
+});
+
+// -------------------------------------------------------- figures note ---
+
+test("captureFiguresNote lists names and admits unreadable images", () => {
+  const figs = [{ name: "chart.png" }, { name: "photo.jpg" }];
+  const clean = captureFiguresNote(figs, 0);
+  assert.match(clean, /"chart\.png", "photo\.jpg"/);
+  assert.ok(!clean.includes("couldn't be read"));
+  const partial = captureFiguresNote(figs, 3);
+  assert.match(partial, /3 more couldn't be read .* URL references/);
 });
