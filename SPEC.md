@@ -50,9 +50,14 @@ drag-and-drop zones and clipboard paste. Plan to hook all three paths.
 - `drop` on the page's drop zone — most chat UIs.
 - `paste` — files pasted from clipboard.
 
-**A fourth path (M5): URL paste.** A `paste`/`drop` carrying a single `http(s)`
+**A fourth path (M5b): URL paste.** A `paste`/`drop` carrying a single `http(s)`
 URL rather than a file is its own interception surface — the page is fetched and
 converted, not a file swapped in. Mechanics in §3.10.
+
+**A fifth surface, reversed (M5a): page capture.** The other four intercept
+content arriving *at* the composer; capture starts on the page the user is
+reading — live DOM serialized under `activeTab` — and delivers the Markdown *to*
+the last-used LLM's composer. Mechanics in §3.11.
 
 **The swap technique (well-documented):**
 1. Capture the `File` from the event, `preventDefault()` / stop propagation.
@@ -310,7 +315,7 @@ of this replaces:
   cases, low generality, high maintenance. Raster-image charts and choropleth
   maps stay OCR/companion territory regardless.
 
-### 3.10 Web-page interception — pasted URLs → Markdown (M5)
+### 3.10 Web-page interception — pasted URLs → Markdown (M5b)
 
 The same-named page→AI extractor does manually what our pipeline does
 automatically: turn a web page into clean Markdown for the model. We close that
@@ -356,9 +361,45 @@ rationale and competitive context in [ADR 0022](./docs/adr/0022-web-page-interce
   convert; thin/gallery → passthrough; text+figures → ambiguous with the figures
   choice.
 
-Deferred tiers: reading an **already-open tab's live rendered DOM** (best
-fidelity for SPA/auth pages — the namesakes' actual mechanism — but needs a
-`tabs`-permission design), and **batch** multi-URL conversion.
+Reading an **already-open tab's live rendered DOM** was deferred here as
+"needs a `tabs`-permission design"; it turned out to need no such design and
+became the M5 headline — §3.11. Batch multi-URL conversion stays deferred.
+
+### 3.11 Page capture — live DOM → last-used LLM (M5a)
+
+The reverse-direction surface: instead of intercepting an upload, capture the
+page the user is reading and hand it to the chat they last used. Rationale,
+permission analysis, and phase-0 spike results in
+[ADR 0023](./docs/adr/0023-page-capture-live-dom.md).
+
+- **Triggers.** Toolbar click = capture → last-used LLM. A context-menu entry
+  with a submenu of the enabled-sites list is the override picker; two
+  `commands` shortcuts mirror both. Every trigger is a user gesture granting
+  `activeTab` — temporary host access to the captured tab, no wildcard, no
+  per-origin prompt, no `tabs` permission. The gesture is the consent, so
+  there is no ask-first step (unlike a pasted URL, the intent is unambiguous).
+- **Capture.** `chrome.scripting.executeScript` injects a serializer into the
+  page (no resident content script off the activation list): rendered text
+  state, resolved lazy images, open shadow roots; scripts/styles/site chrome
+  stripped. The background runs the resulting HTML through the M2
+  HTML→Markdown engine — the serializer is the only new conversion code.
+- **Target resolution**, in order: forced pick → open activated-LLM tab with
+  max `lastAccessed` (URL-pattern `tabs.query` works under the host
+  permissions we already hold; `lastAccessed` is Chrome 121+/Firefox and not
+  permission-gated — both spike-verified) → stored last-successful-injection
+  host (recorded at the savings-credit moment) → first enabled site. Capture
+  is disabled when the active tab is itself an activated LLM host (v1).
+- **Delivery.** Focus or create the target tab; on cold tabs wait for the
+  content-script ready ping plus composer mount; ship `page.md` over
+  `tabs.sendMessage` (spike: 32 MB fits one message, 64 MB does not — chunk or
+  cap figure batches); inject via `injectViaInput` (§2). Failures notify on
+  the **source** page — never-silent applies doubly when the failure happens
+  in a tab the user isn't watching. Hosts with no usable input (kimi/Gemini,
+  ADR 0020) get clipboard-copy + notification as the passthrough analogue.
+- **Figures, default-off.** "Capture with figures" reuses
+  extract-and-reference (ADR 0006): size-filtered `<img>`s as sibling files /
+  contact sheet, `[image omitted: alt]` markers; CORS-opaque images skip with
+  the marker (best-effort v1).
 
 ---
 
@@ -421,14 +462,19 @@ a dumb converter and a single site:
 - Options-page profile editor; `normalizeConfig` validation with wholesale
   fallback to global routing on malformed profiles.
 
-**Milestone 5 — Web-page interception (pasted URLs)**
-- Fourth interception surface (§3.10): a single `http(s)` URL pasted/dropped
-  into the composer converts to clean Markdown via the existing router and HTML
-  engine, ask-first with a set-as-default opt-in.
-- Just-in-time per-origin host permission (no manifest wildcard); companion
-  `onEmpty` escalation for JS-rendered/auth pages.
-- Figures via extract-and-reference (ADR 0006) as sibling files / contact sheet.
-- Deferred: live open-tab DOM extraction (needs `tabs`), batch multi-URL.
+**Milestone 5 — Web-page capture and interception**
+- **M5a — page capture (§3.11, ADR 0023), the headline.** Capture the live DOM
+  of the page being read under `activeTab` and deliver it as `page.md` to the
+  last-used LLM tab — toolbar click / context-menu picker / shortcuts, target
+  resolved by open-tab `lastAccessed` with a stored fallback, existing
+  HTML engine and `injectViaInput` reused. Figures optional via
+  extract-and-reference (ADR 0006).
+- **M5b — pasted URLs (§3.10, ADR 0022), follow-on tier.** A single `http(s)`
+  URL pasted/dropped into the composer converts via the router, ask-first with
+  a set-as-default opt-in; just-in-time per-origin host permission; companion
+  `onEmpty` escalation for JS-rendered pages. Main non-redundant case once M5a
+  ships: a page the user hasn't opened.
+- Deferred: batch (multi-URL / multi-tab) capture, chat-to-chat capture.
 
 ---
 
