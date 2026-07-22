@@ -131,8 +131,17 @@ export async function collectFigures(doc) {
 
 // The association footer for the captured Markdown — same voice as
 // figures.js's separateFilesNote, with the page-capture caveat when some
-// images couldn't be read.
+// images couldn't be read. Also covers the all-skipped case (a page whose
+// only content images are CORS-unreadable, e.g. a comic hosted on a bare
+// image CDN): image capture was asked for, so its outcome must be stated
+// even when nothing attached.
 export function captureFiguresNote(figures, skipped) {
+  if (!figures.length) {
+    return (
+      `None of this page's ${skipped} content image(s) could be read from the ` +
+      `page (their hosts don't allow cross-origin reads); they remain as URL references.`
+    );
+  }
   let note =
     `The page's images are attached as separate files, in page order: ` +
     `${figures.map((f) => `"${f.name}"`).join(", ")}.`;

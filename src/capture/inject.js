@@ -31,8 +31,12 @@ globalThis.__decantCapture = async (opts) => {
       // text-only exactly like the interception figures path does.
       try {
         const { figures, skipped } = await collectFigures(document);
-        if (figures.length) {
-          out.figures = figures;
+        if (figures.length) out.figures = figures;
+        if (skipped > 0) out.figuresSkipped = skipped;
+        if (figures.length || skipped > 0) {
+          // The footer states the outcome either way — an all-skipped page
+          // (CORS-unreadable images) must not look like figures were never
+          // attempted (SPEC §3.11: "it's skipped, and the footer says so").
           out.markdown =
             markdown.trimEnd() + `\n\n---\n\n${captureFiguresNote(figures, skipped)}\n`;
         }
