@@ -340,6 +340,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
   type to a specific endpoint on another. Same rule shape as global routing,
   merged per file type and resolved most-specific-wins (one-shot hotkey → site
   profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
+- **M5 — Web-page interception.** A web page pasted as a URL into the composer
+  converts to clean Markdown in place — the automatic, in-chat version of the
+  page→AI extractors, built on the same `intercept → route → substitute`
+  pipeline. Ask-first with a set-as-default opt-in; the page's images attach as
+  a separate figures document (extract-and-reference,
+  [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)); read access is
+  requested per-site just-in-time rather than as a manifest wildcard. Design in
+  [ADR 0022](./docs/adr/0022-web-page-interception.md) and `SPEC.md` §3.10.
 
 ---
 
