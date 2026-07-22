@@ -26,7 +26,8 @@
 import * as mammothNs from "mammoth/mammoth.browser.js";
 import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
-import { rowsToMarkdownTable, escapeMdInline, escapeMarkerLabel } from "./xlsx.js";
+import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
+import { escapeMarkerLabel } from "./markdown.js";
 import { chartTablesFromZip } from "./chart.js";
 
 const mammoth = mammothNs.default ?? mammothNs;

@@ -3,7 +3,7 @@
   "name": "Decant",
   "version": "0.3.0",
   "description": "Convert PDF, Word, Excel, PowerPoint & HTML to Markdown before uploading to LLM chats - cut token cost, all in-browser.",
-  "permissions": ["scripting", "storage"],
+  "permissions": ["scripting", "storage", "activeTab", "contextMenus"],
   "host_permissions": ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://www.perplexity.ai/*"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": {
@@ -12,6 +12,20 @@
   "options_ui": {
     "page": "options/options.html",
     "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Decant this page to your last-used chat",
+    "default_icon": {
+      "16": "decant_icon16.png",
+      "48": "decant_icon48.png",
+      "128": "decant_icon.png"
+    }
+  },
+  "commands": {
+    "capture-page": {
+      "suggested_key": { "default": "Alt+Shift+C" },
+      "description": "Decant this page to your last-used chat"
+    }
   },
   "icons": {
   "16": "decant_icon16.png",

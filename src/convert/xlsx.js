@@ -48,23 +48,6 @@ export function escapeMdInline(text) {
     .trim();
 }
 
-// Sanitize document-supplied text (image alt / drawing descr / name) for use
-// INSIDE an `[image omitted: …]` marker. Three hazards: a literal `]` closes
-// the marker early and defeats the `\[image omitted[^\]]*\]` stripping regex
-// (marker residue then counts as "real text", flipping a pure-image doc from
-// passthrough to convert); a newline injects a structural line (a decoded
-// `&#10;` in a DrawingML descr can smuggle a `# heading`); and a `|` breaks a
-// GFM row if the marker lands in a table cell. Brackets are dropped, newlines
-// collapse, pipes are escaped. Exported for direct unit testing.
-export function escapeMarkerLabel(text) {
-  return String(text ?? "")
-    .replace(/[[\]]/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\\/g, "\\\\")
-    .replace(/\|/g, "\\|")
-    .trim();
-}
-
 // Render one sheet's rows (array-of-arrays, as from sheet_to_json with
 // header:1) to a Markdown table. Pure — exported for direct unit testing.
 // The first row is treated as the header row, matching the overwhelmingly

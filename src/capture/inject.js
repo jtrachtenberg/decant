@@ -1,0 +1,32 @@
+// Injected capture entry — runs inside the captured page's isolated world
+// under the activeTab grant (SPEC §3.11).
+//
+// Both the serialize and the convert step run *here*, not in the background,
+// for a structural reason: Turndown needs a DOM, and an MV3 service worker has
+// none (no DOMParser). A content script has the page's full DOM, so injecting
+// the engine alongside the serializer keeps conversion in one place and makes
+// the value that crosses back a plain JSON object.
+//
+// Delivery of that value is deliberately the caller's job: an injected `files:`
+// script has no return value (esbuild's IIFE completion value is discarded), so
+// capture.js injects this file to define the global, then evaluates a tiny
+// `func:` that calls it and returns the payload.
+
+import { serializePage } from "./serialize.js";
+import { htmlAnalysis } from "../convert/html.js";
+
+// Redefined on every capture — the isolated world persists between injections
+// within a page's lifetime, and a fresh definition is how a rebuilt extension
+// replaces a stale one.
+globalThis.__decantCapture = () => {
+  try {
+    const { html, title, url } = serializePage(document);
+    const { decision, reason, summary, markdown } = htmlAnalysis(html);
+    return { ok: true, title, url, decision, reason, summary, markdown };
+  } catch (err) {
+    // Never throw across the injection boundary: a thrown error surfaces as an
+    // opaque scripting failure, while this reaches the caller as a reportable
+    // reason the user can be shown.
+    return { ok: false, error: String(err?.message || err) };
+  }
+};

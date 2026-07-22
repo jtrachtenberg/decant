@@ -15,6 +15,8 @@ import { browser } from "./browser.js";
 import { loadConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
+import { capturePage, captureFileName } from "./capture/capture.js";
+import { menuItems, hostFromMenuId } from "./capture/menus.js";
 import {
   HTTP_CONVERT_MSG,
   fileToWire,
@@ -110,6 +112,93 @@ browser.runtime.onStartup.addListener(syncRegistration);
 browser.permissions.onAdded.addListener(syncRegistration);
 browser.permissions.onRemoved.addListener(syncRegistration);
 onConfigChanged(syncRegistration);
+
+// ------------------------------------------------------- page capture ---
+// The reverse-direction surface (SPEC §3.11): capture the page being read and
+// send it to a chat, rather than intercepting a file on its way into one.
+// Read access comes from activeTab — the click/shortcut/menu-pick IS the
+// grant — so no host permission is requested for the captured page.
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+// Menu ids are unique per registration, so a rebuild must remove before it
+// creates; concurrent rebuilds (install + a config change) would otherwise
+// race into duplicate-id errors. Serialized through one chain.
+let menuSync = Promise.resolve();
+function syncMenus() {
+  menuSync = menuSync
+    .then(async () => {
+      await browser.contextMenus.removeAll();
+      for (const item of menuItems(enabledHosts(await loadConfig()))) {
+        browser.contextMenus.create(item);
+      }
+    })
+    .catch((err) => console.warn(TAG, "context-menu sync failed:", err));
+  return menuSync;
+}
+
+browser.runtime.onInstalled.addListener(syncMenus);
+browser.runtime.onStartup.addListener(syncMenus);
+onConfigChanged(syncMenus);
+
+// Toolbar badge — the only user-visible signal capture has until delivery
+// lands (phase 2 owns the on-page notice). Cleared on a timer so a stale tick
+// never reads as the current state.
+let badgeTimer = null;
+function flashBadge(text, color) {
+  browser.action.setBadgeText({ text });
+  browser.action.setBadgeBackgroundColor({ color });
+  if (badgeTimer) clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(() => browser.action.setBadgeText({ text: "" }), 4000);
+}
+
+// One capture, from any trigger. `forcedHost` is the picked target (context
+// menu); null means the automatic path — the last-used chat, resolved in
+// phase 2.
+async function runCapture(tab, forcedHost) {
+  if (!tab?.id) return;
+  const url = tab.url ?? "";
+  // v1: capturing a chat *into* a chat isn't a flow that makes sense, and the
+  // enabled-hosts list is exactly the set of pages where the interception
+  // surface already runs.
+  if (enabledHosts(await loadConfig()).includes(hostOf(url))) {
+    console.warn(TAG, "capture skipped: already on a chat host");
+    flashBadge("—", "#8a8a8a");
+    return;
+  }
+
+  const result = await capturePage(tab.id, url);
+  if (!result.ok) {
+    console.warn(TAG, "capture failed:", result.error);
+    flashBadge("!", "#b3261e");
+    return;
+  }
+  const name = captureFileName(result.title, result.url);
+  console.log(
+    TAG,
+    `captured ${name}: ${result.summary.chars} chars` +
+      (result.summary.images ? `, ${result.summary.images} images omitted` : "") +
+      ` → ${forcedHost ?? "last-used chat"}`
+  );
+  flashBadge("✓", "#1a7f37");
+  // PHASE 2 SEAM (SPEC §3.11 "Delivery"): resolve the target tab by
+  // lastAccessed / stored last-injection host, hand off the Markdown, and
+  // replace the badge with a real on-page outcome notice.
+}
+
+browser.action.onClicked.addListener((tab) => runCapture(tab, null));
+browser.contextMenus.onClicked.addListener((info, tab) =>
+  runCapture(tab, hostFromMenuId(info.menuItemId))
+);
+browser.commands.onCommand.addListener((command, tab) => {
+  if (command === "capture-page") runCapture(tab, null);
+});
 
 // The set of endpoints the stored, already-validated routing rules point at.
 // The relay only fetches one of these — never an arbitrary URL that arrived in

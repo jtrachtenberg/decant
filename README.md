@@ -340,8 +340,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
   type to a specific endpoint on another. Same rule shape as global routing,
   merged per file type and resolved most-specific-wins (one-shot hotkey → site
   profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
-- **M5 — Web-page capture and interception.** *(in progress — phase 0 spec'd)*
-  - **M5a — page capture, the headline.** One click (or shortcut, or
+- **M5 — Web-page capture and interception.** *(in progress — capture surface
+  built, delivery next)*
+  - **M5a — page capture, the headline.** One click (or `Alt+Shift+C`, or a
     context-menu pick) on any page captures its **live rendered DOM** — SPAs
     and logged-in pages included — converts it to clean Markdown, and delivers
     it straight into the composer of the LLM chat you last used: the open tab
@@ -350,8 +351,16 @@ on it fall back gracefully (in-browser conversion or passthrough).
     per-origin prompts, no `tabs` permission); the page's images can attach as
     a separate figures document (extract-and-reference,
     [ADR 0006](./docs/adr/0006-extract-and-reference-figures.md)). Design and
-    phase-0 spike results in
-    [ADR 0023](./docs/adr/0023-page-capture-live-dom.md) and `SPEC.md` §3.11.
+    spike results in [ADR 0023](./docs/adr/0023-page-capture-live-dom.md) and
+    `SPEC.md` §3.11.
+    - **Shipped:** the capture surface — triggers, the context-menu target
+      picker built from your enabled sites, and the serializer that reads the
+      rendered DOM (open shadow roots inlined, lazy/`srcset` images resolved,
+      CSS-hidden elements and site furniture dropped) straight into the M2
+      HTML engine. The page you capture is never modified.
+    - **Next:** delivery — resolving the last-used chat tab and injecting the
+      Markdown into its composer, with the on-page success/failure notice that
+      replaces today's toolbar badge.
   - **M5b — pasted URLs, follow-on tier.** A URL pasted into the composer
     converts in place, ask-first with a set-as-default opt-in — covers pages
     you haven't opened. Design in

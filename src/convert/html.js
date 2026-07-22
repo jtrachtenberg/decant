@@ -26,7 +26,7 @@ import TurndownNs from "turndown";
 // "main", whose interop lexer surfaces `gfm` as a named export too.
 import { gfm } from "turndown-plugin-gfm";
 import { fileBytes } from "./read-file.js";
-import { escapeMarkerLabel } from "./xlsx.js";
+import { escapeMarkerLabel } from "./markdown.js";
 
 const TurndownService = TurndownNs.default ?? TurndownNs;
 
