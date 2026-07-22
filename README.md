@@ -158,6 +158,10 @@ brief notice ([ADR 0020](./docs/adr/0020-no-input-drop-stand-aside.md)).
 Manage the list from the **options page**. Enabling a host asks Chrome for
 permission to run there and registers the content script dynamically, so the
 install prompt stays minimal and nothing injects into sites you haven't opted in.
+Disabling or removing a host releases its permission. If Chrome's grant for an
+enabled site disappears out-of-band (revoked via Chrome's own site-access
+settings), the site's row shows a **needs access — grant** button that restores
+it in one click.
 
 ### Routing — what happens to each file type
 Rules keyed by MIME type / extension decide each file's fate:

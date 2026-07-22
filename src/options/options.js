@@ -97,7 +97,32 @@ function renderHosts() {
 
     li.append(label, remove);
     hostsEl.append(li);
+    if (rule.enabled) markIfUngranted(li, remove, rule.match);
   }
+}
+
+// An enabled site whose grant was revoked from Chrome's side (site-access
+// settings, profile changes) renders identically to a healthy one here, yet
+// its content script never runs — the desync live QA hit on kimi. Annotate
+// such rows with the state and the one-click remedy; the click is the user
+// gesture permissions.request needs. Async by necessity (permissions.contains),
+// so the row may have been re-rendered by the time we know — isConnected
+// guards against annotating a stale node.
+async function markIfUngranted(li, before, host) {
+  const granted = await browser.permissions
+    .contains({ origins: [pattern(host)] })
+    .catch(() => true); // can't tell → don't cry wolf
+  if (granted || !li.isConnected) return;
+  const fix = document.createElement("button");
+  fix.className = "grant";
+  fix.textContent = "needs access — grant";
+  fix.title = `Decant is on for ${host}, but Chrome no longer has an access grant for it, so nothing can run there.`;
+  fix.addEventListener("click", async () => {
+    const ok = await browser.permissions.request({ origins: [pattern(host)] }).catch(() => false);
+    if (ok) fix.remove(); // background re-registers via permissions.onAdded
+    status(ok ? `Access granted for ${host}.` : `Permission for ${host} was declined.`);
+  });
+  li.insertBefore(fix, before);
 }
 
 async function toggleHost(host, cb) {
