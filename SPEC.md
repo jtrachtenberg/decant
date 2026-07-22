@@ -399,7 +399,10 @@ permission analysis, and phase-0 spike results in
   ungranted host fails fast, naming the re-enable remedy. Capture is disabled
   when the active tab is itself an activated LLM host (v1).
 - **Delivery.** Focus or create the target tab; on cold tabs wait for the
-  content-script ready ping plus composer mount; ship `page.md` over
+  content-script ready ping plus composer mount, then a post-load hydration
+  settle before injecting — an input *existing* is not the app *listening*
+  (copilot ships its file input in pre-hydration HTML and binds its
+  window-level handler at app boot; injecting sooner loses the files); ship `page.md` over
   `tabs.sendMessage` (spike: 32 MB fits one message, 64 MB does not — chunk or
   cap figure batches); inject via `injectViaInput` (§2). The source page
   narrates progress from the gesture on ("capturing…" → "sending to X…" →

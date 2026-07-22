@@ -81,6 +81,10 @@ export async function deliverCapture(target, wireFiles) {
       type: CAPTURE_DELIVER_MSG,
       files: wireFiles,
       waitMs: cold ? COLD_INPUT_WAIT_MS : WARM_INPUT_WAIT_MS,
+      // Cold tabs additionally settle after the input appears: a file input
+      // present in pre-hydration HTML (copilot) is deaf until the app binds
+      // its handlers — injecting into it "succeeds" and loses the files.
+      cold,
     });
   } catch (err) {
     return { ok: false, tabId, reason: String(err?.message || err) };

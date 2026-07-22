@@ -827,6 +827,27 @@ function waitForUsableInput(waitMs) {
   });
 }
 
+// Cold tabs: an input EXISTING is not the app LISTENING. Copilot ships its
+// hidden file input in the pre-hydration HTML but binds its upload handler
+// (window-level, capture) only once the app boots — injecting the moment the
+// input appears dispatches change into a deaf page and silently loses the
+// files (live-QA'd: warm copilot delivered, cold "delivered" nothing). No
+// generic ready signal exists, so cold deliveries settle: wait out the load
+// event (bounded — an SPA that never fires it shouldn't stall the capture),
+// then give hydration a grace period before injecting.
+const COLD_HYDRATION_SETTLE_MS = 3000;
+const COLD_LOAD_CAP_MS = 15000;
+function coldSettle() {
+  const loaded =
+    document.readyState === "complete"
+      ? Promise.resolve()
+      : new Promise((r) => {
+          window.addEventListener("load", r, { once: true });
+          setTimeout(r, COLD_LOAD_CAP_MS);
+        });
+  return loaded.then(() => new Promise((r) => setTimeout(r, COLD_HYDRATION_SETTLE_MS)));
+}
+
 browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === CAPTURE_PING_MSG) {
     sendResponse({ ok: true });
@@ -838,7 +859,10 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     console.log(TAG, "capture delivery:", files.map((f) => f.name));
     const run = injectChain.then(async () => {
       const input = await waitForUsableInput(msg.waitMs);
-      return input ? injectViaInput(input, files) : false;
+      if (!input) return false;
+      if (msg.cold === true) await coldSettle();
+      // injectViaInput re-resolves if the settle outlived this input node.
+      return injectViaInput(input, files);
     });
     injectChain = run.catch(() => {});
     const injected = await run;
