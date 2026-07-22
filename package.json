@@ -1,6 +1,6 @@
 {
   "name": "decant",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Convert files to Markdown before they upload to LLM chat UIs.",
   "type": "module",
