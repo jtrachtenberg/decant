@@ -81,6 +81,17 @@ Options (environment variables):
 > image-only PDFs** (which the browser passes through untouched). Routing clean
 > text PDFs to **MarkItDown** can lower fidelity, not raise it.
 
+> **Considered and deferred — Unlimited-OCR** (Baidu 3B vision-language OCR
+> model, DeepSeek-OCR lineage). Evaluated 2026-07-22, not added. On a **native**
+> PDF it is strictly lossy versus parsing: a pass over the `table-heavy` eval doc
+> read styled panels as images (empty `image` blocks for the figure-9 matrix)
+> and dropped a Scope-1 emissions table the text layer carried. It earns its
+> place only on true scans, and it is far heavier than Docling — WSL + CUDA,
+> ~6 GB of weights, and a multi-second server cold start that rules out the
+> interactive path. A GPU-backed OCR tier, if ever wanted, belongs behind
+> `onEmpty` escalation like any recognition engine — never on the default
+> native-PDF route (see [ADR 0002](../docs/adr/0002-parsing-vs-recognition-boundary.md)).
+
 ## Wire it into Decant
 
 The default routing ships the built-in engines (`inbrowser`). To send a type to
