@@ -29,6 +29,7 @@ import {
   classifyDocument,
   hasFlattenedFigure,
   flattenedWithEvidence,
+  textLayerGarble,
   hasOmittedChartTable,
   shouldScanImages,
   extrapolateImages,
@@ -197,6 +198,10 @@ export async function analyzePdf(file) {
         : items;
       const { lines, gutter: pageGutter } = reconstructPage(pageItems, gutter);
       gutter = pageGutter;
+      // Judged on the RAW items, before reconstruction strips the undecodable
+      // runs — afterwards there is nothing left to measure. Uses the same
+      // items reconstruction saw so the two agree on the verdict.
+      const garble = textLayerGarble(pageItems);
       // Char count drives classification; count raw text so it's unaffected by
       // Markdown decoration (headings/tables) added for output. The symbol
       // judgment uses the UNINJECTED items — pseudo labels must not move the
@@ -241,6 +246,14 @@ export async function analyzePdf(file) {
             scan ? scan.images : null,
             vectorChart
           ),
+        // The page's fonts have no readable character map, so reconstruction
+        // dropped its glyph runs and left a marker promising the attachment.
+        // Kept apart from `flattened` because it needs no corroborating raster
+        // — the undecodable glyphs are themselves proof something unreadable
+        // is being painted — and because `garbledTotal` (nothing readable left
+        // at all) earns the same cap exemption a scanned page gets.
+        garbled: garble.garbled,
+        garbledTotal: garble.total,
       });
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).

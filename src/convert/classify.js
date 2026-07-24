@@ -283,16 +283,95 @@ export function reconstructLines(items) {
   return reconstructPage(items).lines;
 }
 
+// --- Undecodable text layer (Tier 2, SPEC §3.9) ---
+// pdf.js maps a glyph to U+FFFD when the font's encoding yields no character
+// for it — no usable ToUnicode, no standard-encoding fallback. Private-use
+// code points are the same failure in a different hat: the glyph mapped, but
+// only into a range whose meaning is the font's private business.
+//
+// Same root cause as the C0 controls tableHasCorruptCells looks for (a font
+// with no usable ToUnicode) but a different symptom and a far wider blast
+// radius: C0 junk lands in a few cells of an otherwise-real table, while this
+// arrives as whole pages of it. It is also the fingerprint of a specific and
+// otherwise invisible figure class — a map or chart drawn with a cartographic
+// or symbol font, where the glyphs ARE the artwork. Such a page paints no
+// raster and no colored fills, so every other figure signal reads zero while
+// its "text" extracts as long runs of U+FFFD carrying no information at all.
+const UNDECODABLE_GLYPH_RE = /[\uFFFD\uE000-\uF8FF]/g;
+
+// A page at least this fraction undecodable has a broken text layer: what it
+// emits is noise, not content. The threshold sits in an empty valley rather
+// than on a slope — across six clean text/chart/table corpus PDFs no page
+// reaches even 0.05, while affected pages run 0.41–1.00.
+export const GARBLED_TEXT_RATIO = 0.3;
+// Below this many non-space characters there isn't enough text to judge; a
+// caption fragment carrying one dingbat shouldn't condemn a page.
+export const GARBLED_MIN_CHARS = 50;
+// At/above this fraction essentially nothing readable survives, so the page
+// has no text fallback whatsoever — the same standing as a scanned exhibit,
+// and why such pages are exempt from the attachment cap (selectChartPages).
+export const GARBLED_TOTAL_RATIO = 0.8;
+
+// How much of what pdf.js extracted for a page is undecodable, and what that
+// implies. Pure, and shared: reconstruction strips the noise, classification
+// routes the page into the figures flow, and both must reach the same verdict
+// from the same raw items.
+//   { chars, ratio, garbled, total }
+export function textLayerGarble(items) {
+  let chars = 0;
+  let bad = 0;
+  for (const it of items || []) {
+    const s = typeof it?.str === "string" ? it.str : "";
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      // Whitespace is encoding-neutral — it survives a broken font map, so
+      // counting it would dilute the ratio toward "fine".
+      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) continue;
+      chars++;
+      if (c === 0xfffd || (c >= 0xe000 && c <= 0xf8ff)) bad++;
+    }
+  }
+  const ratio = chars ? bad / chars : 0;
+  const garbled = chars >= GARBLED_MIN_CHARS && ratio >= GARBLED_TEXT_RATIO;
+  return {
+    chars,
+    ratio,
+    garbled,
+    total: garbled && ratio >= GARBLED_TOTAL_RATIO,
+  };
+}
+
 // Single-page reconstruction with cross-page column context. `columnHint` is
 // the gutter x the previous page used (or null). Returns { lines, gutter }:
 // callers converting multi-page documents thread `gutter` into the next
 // page's call, which is what lets a short page-break remainder keep reading
 // column-first (see columnRegions).
 export function reconstructPage(items, columnHint = null) {
-  const glyphs = items.filter(
+  let glyphs = items.filter(
     (it) => typeof it.str === "string" && it.str.length
   );
-  if (!glyphs.length) return { lines: [], gutter: null };
+  // A broken text layer: the undecodable runs aren't content, they're a font
+  // we can't read painting artwork. Dropping them before reconstruction takes
+  // the noise out of the output AND stops it polluting column/grid detection
+  // for the real text that survives alongside it (a map's captions, a table's
+  // page number). The grid-band recursion below re-enters with already
+  // stripped glyphs, so this runs once per page and never double-marks.
+  let marker = null;
+  if (textLayerGarble(glyphs).garbled) {
+    marker = garbledTextMarker();
+    glyphs = glyphs
+      .map((g) => {
+        const str = g.str.replace(UNDECODABLE_GLYPH_RE, "");
+        if (str === g.str) return g;
+        // Advance width covers the whole run; keep it proportional to what
+        // survived so the surviving text's boxes stay honest.
+        return typeof g.width === "number"
+          ? { ...g, str, width: (g.width * str.length) / g.str.length }
+          : { ...g, str };
+      })
+      .filter((g) => g.str.trim().length);
+  }
+  if (!glyphs.length) return { lines: marker ? [marker] : [], gutter: null };
 
   // An aligned grid (a bordered/columnar table) must be read row-major and
   // rebuilt cell-by-cell at its column bands — column-splitting it (below)
@@ -332,7 +411,12 @@ export function reconstructPage(items, columnHint = null) {
       above.gutter ?? columnHint
     );
     return {
-      lines: [...above.lines, ...gridLines(grid), ...below.lines],
+      lines: [
+        ...(marker ? [marker] : []),
+        ...above.lines,
+        ...gridLines(grid),
+        ...below.lines,
+      ],
       gutter: below.lines.length ? below.gutter : above.gutter,
     };
   }
@@ -354,6 +438,9 @@ export function reconstructPage(items, columnHint = null) {
       lines.unshift(flattenedFigureMarker());
     }
   }
+  // Sorts above the confidence markers: "this text is unreadable" is the
+  // stronger claim, and it explains why what follows looks so thin.
+  if (marker) lines.unshift(marker);
   return { lines, gutter };
 }
 
@@ -1146,6 +1233,18 @@ function markerLine(text) {
     marker: true,
     cells: [{ text, x: 0, endX: 0 }],
   };
+}
+
+// What stands in for a page's undecodable glyph runs (textLayerGarble). The
+// runs themselves are dropped — printing thousands of U+FFFD teaches a reader
+// nothing and buries the text that did survive — so the marker is the only
+// notice that anything was there. It PROMISES an attached figure, so callers
+// must route the page into the figures flow (perPage[i].garbled — the same
+// invariant as hasOmittedChartTable and the vector-chart note).
+function garbledTextMarker() {
+  return markerLine(
+    "[this page's text could not be decoded — its fonts carry no readable character map, so the unreadable runs were dropped; the page's content is in the attached figure]"
+  );
 }
 
 function lowConfidenceMarker() {
@@ -2415,6 +2514,11 @@ export function classifyDocument(perPage) {
   // the page image, so they are exempt from the cap that governs text-backed
   // figures (selectChartPages). A subset of figurePageNumbers.
   const scanPageNumbers = [];
+  // Pages whose text layer is undecodable end to end (textLayerGarble's
+  // `total`). Like a scanned exhibit, their content exists ONLY as the page
+  // image — there is no text fallback to fall back to — so they join
+  // scanPageNumbers in being exempt from the attachment cap.
+  const unreadablePageNumbers = [];
   let figurePages = 0;
   perPage.forEach((p, i) => {
     // A flattened chart/figure page (perPage[i].flattened — Tier 2 column
@@ -2425,6 +2529,15 @@ export function classifyDocument(perPage) {
     const flattened = p.flattened === true;
     const significant = (p.figureImages ?? 0) >= 1;
     const hasText = p.chars >= MIN_TEXT_CHARS_PER_PAGE;
+    // The page's fonts carry no readable character map, so its glyphs were
+    // dropped as noise (textLayerGarble). This is figure evidence in its own
+    // right and needs no raster to corroborate it: undecodable glyphs PROVE
+    // something is being painted that we cannot read, which is exactly what
+    // low convergence alone cannot establish (flattenedWithEvidence). A map
+    // or chart drawn in a cartographic font paints no raster and no colored
+    // fills — the glyphs are the artwork — so without this the page shows
+    // zero on every other figure signal and silently converts to gibberish.
+    const garbled = p.garbled === true;
     // What makes page i a chart page depends on whether it carries usable
     // text. A TEXT page painting any raster is a candidate (an incidental
     // logo is filtered later by significance — selectChartPages). An
@@ -2434,12 +2547,23 @@ export function classifyDocument(perPage) {
     // unlike an incidental image on a text page, whose text still converts. A
     // bare image-only page with no significant figure stays out (that's the
     // document-level passthrough/convert decision's business), as does a
-    // flattened marker with no image behind it (nothing to attach).
-    const chartPage = hasText ? p.images >= 1 || flattened : significant;
+    // flattened marker with no image behind it (nothing to attach). A garbled
+    // page qualifies on EITHER side of that split, so its routing never hinges
+    // on how much text survived stripping: today the marker alone keeps such a
+    // page above the floor, but a page that ever landed on the image-only
+    // branch has no image to qualify on and would drop out silently — the very
+    // page the signal exists to rescue.
+    const chartPage = hasText
+      ? p.images >= 1 || flattened || garbled
+      : significant || garbled;
     if (!chartPage) return;
     chartPageNumbers.push(i + 1);
-    if (flattened) flattenedPageNumbers.push(i + 1);
-    else if (significant) {
+    // Garbled pages rank with the flattened ones: in both the emitted text
+    // misrepresents the page, so the attachment is the only faithful copy.
+    if (flattened || garbled) {
+      flattenedPageNumbers.push(i + 1);
+      if (p.garbledTotal === true) unreadablePageNumbers.push(i + 1);
+    } else if (significant) {
       figurePageNumbers.push(i + 1);
       if (!hasText) scanPageNumbers.push(i + 1);
     }
@@ -2449,7 +2573,7 @@ export function classifyDocument(perPage) {
     // MIN_CHART_PAGES_FOR_AMBIGUOUS and reach the prompt by volume — the
     // scanned-appendix case (a born-digital report with a scanned annex) that
     // must route into the figures flow so the scans attach.
-    if (hasText && (significant || flattened)) figurePages++;
+    if (hasText && (significant || flattened || garbled)) figurePages++;
   });
   const chartPages = chartPageNumbers.length;
   const totalChars = perPage.reduce((s, p) => s + p.chars, 0);
@@ -2462,6 +2586,7 @@ export function classifyDocument(perPage) {
     flattenedPageNumbers,
     figurePageNumbers,
     scanPageNumbers,
+    unreadablePageNumbers,
     figurePages,
     totalChars,
     totalImages,
@@ -2506,22 +2631,33 @@ export function classifyDocument(perPage) {
 // association footer read in document order. Every figure path (mini-PDF,
 // crops, decodes, page renders) selects through here so they agree on the set.
 //
-// Image-only scans (scanPageNumbers) are EXEMPT from the cap: a scanned page's
-// content exists only as its image — dropping one loses the whole page, with
-// no text fallback — so the cap governs only the text-backed figures, which
-// stay readable as Markdown even when their render is dropped. This is why a
-// born-digital report with a 30-page scanned annex attaches the whole annex;
-// an all-scan document never reaches here (it classifies passthrough).
+// Two page classes are EXEMPT from the cap, for one reason: their content
+// exists only as the page image, so dropping one loses the whole page with no
+// text fallback. Those are image-only scans (scanPageNumbers) and pages whose
+// text layer is undecodable end to end (unreadablePageNumbers — a data table
+// drawn in a font with no character map extracts as nothing at all). The cap
+// therefore governs only the text-backed figures, which stay readable as
+// Markdown even when their render is dropped. This is why a born-digital
+// report with a 30-page scanned annex attaches the whole annex; an all-scan
+// document never reaches here (it classifies passthrough).
 export function selectChartPages(meta, cap) {
   const all = meta?.chartPageNumbers ?? [];
   const flattened = new Set(meta?.flattenedPageNumbers ?? []);
   const figures = new Set(meta?.figurePageNumbers ?? []);
-  const scans = new Set(meta?.scanPageNumbers ?? []);
+  // Cap-exempt pages: image-only scans and pages whose text layer is
+  // undecodable end to end. Both have the same standing — no text fallback
+  // survives, so dropping one loses the page outright — which is exactly what
+  // the cap is allowed to do to a text-backed figure and must not do here.
+  const exempt = new Set([
+    ...(meta?.scanPageNumbers ?? []),
+    ...(meta?.unreadablePageNumbers ?? []),
+  ]);
   const strong = all.filter((n) => flattened.has(n) || figures.has(n));
   const pool = strong.length ? strong : all;
-  // Scans always attach; the cap applies only to the text-backed remainder.
-  const scanPages = pool.filter((n) => scans.has(n));
-  const capped = pool.filter((n) => !scans.has(n));
+  // Exempt pages always attach; the cap applies only to the remainder, which
+  // stays readable as Markdown even when its render is dropped.
+  const exemptPages = pool.filter((n) => exempt.has(n));
+  const capped = pool.filter((n) => !exempt.has(n));
   const rank = (n) => (flattened.has(n) ? 0 : figures.has(n) ? 1 : 2);
   const kept =
     capped.length <= cap
@@ -2533,5 +2669,5 @@ export function selectChartPages(meta, cap) {
           .sort((a, b) => rank(a.n) - rank(b.n) || a.i - b.i)
           .slice(0, cap)
           .map((e) => e.n);
-  return [...scanPages, ...kept].sort((a, b) => a - b);
+  return [...exemptPages, ...kept].sort((a, b) => a - b);
 }

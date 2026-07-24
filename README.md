@@ -341,6 +341,20 @@ on it fall back gracefully (in-browser conversion or passthrough).
     rebound panel heading (PHASE 1/2/3), fixing a measured LLM
     phase-attribution miss
     ([ADR 0018](./docs/adr/0018-panel-heading-rebinding.md)).
+  - **Unreadable fonts stop passing as text**
+    ([ADR 0024](./docs/adr/0024-undecodable-text-layer.md)): some maps and
+    data tables are drawn *as font glyphs*, from a font carrying no character
+    map — so they paint no raster and no colored fills, and their "text"
+    extracts as page after page of replacement characters that every gate read
+    as healthy prose. Decant now measures how much of a page decoded, drops
+    the unreadable runs (keeping the captions and labels they were burying),
+    and treats the failure as figure evidence on its own — no corroborating
+    image needed, because undecodable glyphs prove something is being painted
+    that can't be read. Pages with nothing readable left attach regardless of
+    the cap, like scans. On the calibration document that is 43,159
+    replacement characters gone from the Markdown and the whole figures
+    section reaching the charts PDF (35 → 66 pages), with the other six corpus
+    docs byte-identical.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

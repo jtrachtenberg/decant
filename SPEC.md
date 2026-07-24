@@ -306,6 +306,19 @@ of this replaces:
   **floating text boxes** outside a grid's column bands (chart legends, axis
   labels) are excluded from grid row merging so they can't shred
   fragment-by-fragment into data rows.
+  The same broken-font disease also arrives a page at a time rather than a
+  cell at a time — a map or data table drawn *as glyphs* of a cartographic or
+  tabular font, extracting as U+FFFD runs that count as text while the page
+  paints no raster and no colored fills. `textLayerGarble` scores the fraction
+  of a page's non-space characters pdf.js could not decode (U+FFFD plus
+  private-use code points); past `GARBLED_TEXT_RATIO` (0.3 — corpus-separated,
+  clean docs never reach 0.05) reconstruction drops those runs and marks the
+  page, and classification routes it into the figures flow on that signal
+  alone. Unlike the convergence flag it needs no corroborating raster: the
+  undecodable glyphs *are* the proof something unreadable is being painted.
+  Past `GARBLED_TOTAL_RATIO` (0.8) nothing readable survives, so the page has
+  no text fallback and is cap-exempt like an image-only scan.
+  See [ADR 0024](./docs/adr/0024-undecodable-text-layer.md).
 - **Tier 3 — PDF vector reconstruction (recorded, likely deferred to the
   companion).** `getOperatorList()` exposes filled rects + fills, so traffic-
   light tables / bar charts are *theoretically* recoverable by overlaying text
