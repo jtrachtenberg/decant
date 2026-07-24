@@ -28,6 +28,7 @@ import {
   extrapolateImages,
   createFurnitureDetector,
   stripFurniture,
+  textLayerGarble,
   MAX_ANALYZE_PAGES,
   IMAGE_OP_NAMES,
 } from "../src/convert/classify.js";
@@ -263,9 +264,10 @@ for (let n = 1; n <= pdf.numPages; n++) {
       entries: plan.entries.map((e) => `${e.label} ×${e.usages.length}`),
     });
   }
-  const lines = reconstructLines(
-    plan ? [...items, ...symbolLabelItems(plan)] : items
-  );
+  const withSymbols = plan ? [...items, ...symbolLabelItems(plan)] : items;
+  // Measured on the raw items — reconstruction strips the undecodable runs.
+  const garble = textLayerGarble(withSymbols);
+  const lines = reconstructLines(withSymbols);
   const chars = countChars(linesToText(lines));
   const conv = columnConvergence(lines);
   // Does the page carry the pre-existing *table* low-confidence marker (the
@@ -349,6 +351,11 @@ for (let n = 1; n <= pdf.numPages; n++) {
       images,
       vectorChart
     ),
+    // Undecodable text layer (textLayerGarble): joins the figures flow on its
+    // own evidence, and when nothing readable survives it is cap-exempt.
+    garble,
+    garbled: garble.garbled,
+    garbledTotal: garble.total,
   });
 }
 
@@ -382,7 +389,14 @@ filled.forEach(({ chars, images }, i) => {
       kind + (perPage[i].figureImages ? " f" : "") +
       (perPage[i].decodable ? " d" : "") +
       (perPage[i].vectorChart ? " v" : "") +
-      (perPage[i].symbolKey ? " k" : "")
+      (perPage[i].symbolKey ? " k" : "") +
+      // " g" = the page's text layer is undecodable (its glyph runs were
+      // dropped); " G" = undecodable end to end, so it is also cap-exempt.
+      (perPage[i].garbledTotal
+        ? ` G${(perPage[i].garble.ratio * 100).toFixed(0)}%`
+        : perPage[i].garbled
+          ? ` g${(perPage[i].garble.ratio * 100).toFixed(0)}%`
+          : "")
   );
 });
 
@@ -403,9 +417,15 @@ console.log(`Decision: ${decision.toUpperCase()} (${reason})`);
 // pages first, then significant-figure pages, then the rest.
 if (summary.chartPageNumbers.length) {
   const attached = selectChartPages(summary, MAX_SUBSET_PAGES);
-  const scanNote = summary.scanPageNumbers?.length
-    ? `, ${summary.scanPageNumbers.length} image-only scans cap-exempt`
-    : "";
+  const exempt = [
+    summary.scanPageNumbers?.length
+      ? `${summary.scanPageNumbers.length} image-only scans`
+      : null,
+    summary.unreadablePageNumbers?.length
+      ? `${summary.unreadablePageNumbers.length} undecodable-text pages`
+      : null,
+  ].filter(Boolean);
+  const scanNote = exempt.length ? `, ${exempt.join(" + ")} cap-exempt` : "";
   console.log(
     `Attached (cap ${MAX_SUBSET_PAGES}${scanNote}): ${attached.length} of ` +
       `${summary.chartPageNumbers.length} figure pages → ${attached.join(", ")}` +
