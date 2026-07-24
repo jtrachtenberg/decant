@@ -156,8 +156,26 @@ function flashBadge(text, color, ttlMs = 4000) {
 // loud: a badge tick plus, wherever a page can be scripted, an on-page notice
 // (the failure may land in a tab the user isn't watching, so the source page
 // — where they just clicked — is the reporting surface of last resort).
+// One capture per source tab at a time: a double-click on the toolbar (or an
+// impatient re-trigger while a cold delivery settles) would otherwise run two
+// full captures and attach the same page twice.
+const capturesInFlight = new Set();
+
 async function runCapture(tab, forcedHost) {
   if (!tab?.id) return;
+  if (capturesInFlight.has(tab.id)) {
+    console.warn(TAG, "capture already running for this tab — ignoring re-trigger");
+    return;
+  }
+  capturesInFlight.add(tab.id);
+  try {
+    await runCaptureInner(tab, forcedHost);
+  } finally {
+    capturesInFlight.delete(tab.id);
+  }
+}
+
+async function runCaptureInner(tab, forcedHost) {
   const url = tab.url ?? "";
   const cfg = await loadConfig();
   const enabled = enabledHosts(cfg);
