@@ -3,7 +3,7 @@ Each field has a 1000-character limit.
 
 
 ================================================================
-SINGLE PURPOSE  (revised for 0.3.1 — page capture added)
+SINGLE PURPOSE  (revised since 0.3.0 — page capture added)
 ================================================================
 
 Decant has one purpose: turn content into Markdown at the moment the user sends
@@ -25,7 +25,7 @@ user files only if the user configures an endpoint.
 
 
 ================================================================
-SCRIPTING JUSTIFICATION  (revised for 0.3.1 — executeScript now used)
+SCRIPTING JUSTIFICATION  (revised since 0.3.0 — executeScript now used)
 ================================================================
 
 The scripting permission does two jobs, both user-controlled, executing only
@@ -92,7 +92,7 @@ permission — they are read once under activeTab.
 
 
 ================================================================
-ACTIVETAB JUSTIFICATION  (new in 0.3.1)
+ACTIVETAB JUSTIFICATION  (new since 0.3.0)
 ================================================================
 
 activeTab is the entire permission design for page capture. Capture runs only
@@ -111,7 +111,7 @@ transmitted anywhere; conversion happens inside the browser.
 
 
 ================================================================
-CONTEXTMENUS JUSTIFICATION  (new in 0.3.1)
+CONTEXTMENUS JUSTIFICATION  (new since 0.3.0)
 ================================================================
 
 contextMenus renders the page-capture controls as native browser UI instead of
@@ -126,7 +126,7 @@ capture. Nothing is tracked and no other items are shown.
 
 
 ================================================================
-COMMANDS JUSTIFICATION  (new in 0.3.1)
+COMMANDS JUSTIFICATION  (new since 0.3.0)
 ================================================================
 
 commands registers one keyboard shortcut, capture-page (suggested Alt+Shift+C,
@@ -141,7 +141,9 @@ REMOTE CODE  —  answer: No, I am not using remote code
 ================================================================
 
 Not a 1000-character field; recorded here as the verified basis for the
-dashboard answer (checked 2026-07-21 against the packaged build).
+dashboard answer (first checked 2026-07-21 against the 0.3.0 package;
+re-verified 2026-07-26 against release/decant-0.3.2-chrome.zip — same counts,
+still no quickjs).
 
 - Every executable asset resolves through browser.runtime.getURL() to the
   packaged extension root (src/convert/assets.js). The pdf.js worker, the WASM
@@ -154,7 +156,7 @@ dashboard answer (checked 2026-07-21 against the packaged build).
   content_security_policy is declared, so the MV3 default CSP applies.
 - The only external URL in the extension is the GitHub bug-report link, opened
   as a tab navigation, never loaded as code.
-- The page-capture serializer (capture/inject.js, new in 0.3.1) injected via
+- The page-capture serializer (capture/inject.js, new since 0.3.0) injected via
   executeScript files: is a packaged asset exactly like the content scripts;
   the accompanying func: injections serialize functions from the packaged
   background script. Neither path can carry remote or user-supplied code.
@@ -180,6 +182,20 @@ remote code (audited against the packaged zip, 2026-07-21):
   which is why DOCX, XLSX and PPTX conversion all work in the shipped
   extension. Critically, no string these touch comes from outside the package:
   nothing is fetched, downloaded or received over the network and then run.
+- Three dynamic import( calls, all inside bundled pdf.js, every one of them
+  resolving to a file inside the package:
+    * the worker loader imports GlobalWorkerOptions.workerSrc, which Decant
+      sets to runtime.getURL("pdf.worker.mjs") (src/convert/inbrowser.js);
+    * the worker's no-WASM fallback imports wasm/*_nowasm_fallback.js from the
+      packaged wasm/ directory;
+    * _createCDNWrapper builds a one-line blob module, await import("<url>"),
+      for the case where the worker URL is not same-origin with the page —
+      which an extension URL never is. The URL it wraps is the packaged worker
+      and nothing else: the string is generated locally from runtime.getURL,
+      never fetched, and if the host page's CSP refuses the blob worker pdf.js
+      falls back to running the same packaged worker code on the main thread.
+  No network-fetched string is imported, executed, or wrapped on any of these
+  paths.
 - pdf.js's wasm/ directory ships a quickjs-eval JavaScript interpreter for
   scripts embedded in PDF forms. Decant excludes it at build time (build.mjs):
   its only consumer is pdf.sandbox.mjs, which is never bundled, so it could

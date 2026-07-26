@@ -1,5 +1,5 @@
-Decant converts documents to Markdown before they upload to an LLM chat —
-locally, in your browser, without interrupting how you already work.
+Decant converts documents — and whole web pages — to Markdown before they reach
+an LLM chat, locally, in your browser, without interrupting how you already work.
 
 
 THE PROBLEM
@@ -22,6 +22,25 @@ in place. You get a .md attachment instead of a 15 MB PDF.
 No extra steps. No separate app to open. No copy-paste dance.
 
 
+CAPTURE THE PAGE YOU'RE READING
+
+The same conversion runs in the other direction. Click Decant's toolbar button
+on any page — or press Alt+Shift+C, or right-click and pick a chat — and the
+page becomes Markdown and lands in the composer of the LLM chat you last used.
+
+Because it reads the page as rendered, single-page apps and logged-in views
+capture correctly, rather than the empty shell a re-fetch would return. Site
+furniture — nav bars, banners, hidden elements — is left behind. The page's own
+images come along as separate attachments; a checkbox sends text only instead.
+If the chat you're sending to accepts no file attachments, the Markdown goes to
+your clipboard with a paste hint. Either way the page you clicked on tells you
+what happened — captured, delivered, or why it failed.
+
+Reading a page takes no standing permission: the click is the consent. Decant
+reads the one page you invoked it on, once. No browsing history, no background
+access, no permission to run everywhere.
+
+
 SUPPORTED FORMATS
 
 • PDF (digital / text-based)
@@ -29,6 +48,7 @@ SUPPORTED FORMATS
 • Excel — .xlsx, .xls
 • PowerPoint — .pptx
 • HTML — saved web pages
+• Live web pages — captured from the tab you're on
 
 Charts in Office files are recovered as data tables rather than lost as pictures.
 
@@ -43,6 +63,10 @@ drag-and-drop, and paste. Gemini and kimi.com convert through the file picker;
 their uploaders reject synthetic drops, so on those two, drag-and-drop and paste
 deliberately send your original file through unchanged rather than lose it, and
 say so on screen.
+
+Page capture works on any site you're reading. The Markdown it produces is
+delivered to one of the chat sites you've enabled — those are the only places
+Decant can put it.
 
 
 IT WON'T QUIETLY WRECK YOUR DOCUMENT
@@ -65,6 +89,8 @@ PRIVACY
 • No analytics, no telemetry, no tracking, no data sold or shared.
 • Default-deny: Decant does nothing on any site until you enable that site
   yourself, and enabling one asks Chrome for permission to run there.
+• Page capture reads only the tab you invoke it on, only when you invoke it.
+  Decant holds no permission to watch what you browse.
 • Settings sync through Chrome's own storage, like your bookmarks. They never
   reach a Decant server, because there isn't one.
 
@@ -98,7 +124,9 @@ CONFIGURABLE
 • Which sites Decant runs on
 • What happens per file type — convert, pass through, or route to your own
   endpoint
-• The passthrough hotkey
+• The passthrough hotkey (the capture shortcut rebinds through Chrome's own
+  keyboard-shortcuts page)
+• Whether captured pages bring their images along
 • A default answer for the convert-or-not prompt, so it stops asking
 
 
