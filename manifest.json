@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Decant",
-  "version": "0.3.1",
-  "description": "Convert PDF, Word, Excel, PowerPoint & HTML to Markdown before uploading to LLM chats - cut token cost, all in-browser.",
+  "name": "Decant - In-Browser Document & Web Page to Markdown for AI, Cut Token Cost",
+  "version": "0.3.2",
+  "description": "Convert PDF, Word, Excel, PowerPoint, HTML & web pages to Markdown before uploading to LLM chats - cut token cost, in-browser.",
   "permissions": ["scripting", "storage", "activeTab", "contextMenus"],
   "host_permissions": ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://www.perplexity.ai/*"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
