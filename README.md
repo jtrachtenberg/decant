@@ -20,12 +20,15 @@ many chat backends render every page of a PDF as an image and bill you for it
 alongside the text. Handing the model Markdown instead drops that cost. The model spends tokens on your content,
 not on re-reading pictures of pages.
 
-> **Status: working, M3 complete.** The browser extension
-> converts PDF, Word, Excel, PowerPoint, and HTML to Markdown on `claude.ai`
-> and ChatGPT — through the file picker, drag-and-drop, and paste — and on
-> Gemini through the file picker — recovering native chart data and passing
-> scanned or image-only documents through untouched so it never silently
-> degrades them. The optional
+> **Status: working, M3 complete, M5a (page capture) shipped.** The browser
+> extension converts PDF, Word, Excel, PowerPoint, and HTML to Markdown on
+> `claude.ai` and ChatGPT — through the file picker, drag-and-drop, and paste —
+> and on Gemini through the file picker — recovering native chart data and
+> passing scanned or image-only documents through untouched so it never
+> silently degrades them. It also captures **the page you're reading**: one
+> click (or `Alt+Shift+C`) converts the live page to Markdown and delivers it
+> into the chat you last used, reading that one tab under `activeTab` and
+> nothing else. The optional
 > **local companion service** adds the higher-fidelity tier: scans escalate to
 > OCR, and ambiguous documents can convert without dropping their visuals.
 > It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
@@ -365,8 +368,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
   type to a specific endpoint on another. Same rule shape as global routing,
   merged per file type and resolved most-specific-wins (one-shot hotkey → site
   profile → global). Design in `SPEC.md` §3.8 and `docs/ARCHITECTURE.md` §2.1.
-- **M5 — Web-page capture and interception.** *(M5a built end-to-end — in
-  live QA)*
+- **M5 — Web-page capture and interception.** *(M5a shipped — live QA closed;
+  in the store from 0.3.2)*
   - **M5a — page capture, the headline.** One click (or `Alt+Shift+C`, or a
     context-menu pick) on any page captures its **live rendered DOM** — SPAs
     and logged-in pages included — converts it to clean Markdown, and delivers
