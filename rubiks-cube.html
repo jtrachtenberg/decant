@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rubik's Cube — three.js</title>
+<style>
+  :root {
+    --bg: #0d1017;
+    --panel: rgba(20, 24, 33, 0.82);
+    --line: rgba(255, 255, 255, 0.10);
+    --text: #e7ebf3;
+    --muted: #8d97ab;
+    --accent: #57b9ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(120% 90% at 50% 0%, #1c2436 0%, var(--bg) 55%, #06080c 100%);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; padding: 18px 22px;
+    pointer-events: none;
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .2px; }
+  h1 span { color: var(--muted); font-weight: 400; }
+
+  #panel {
+    position: fixed; left: 18px; bottom: 18px;
+    width: min(320px, calc(100vw - 36px));
+    padding: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+  #buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  button {
+    font: inherit; font-weight: 550; color: var(--text);
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid var(--line);
+    border-radius: 9px; padding: 9px 6px; cursor: pointer;
+    transition: background .15s, border-color .15s, transform .06s;
+  }
+  button:hover:not(:disabled) { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .22); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .38; cursor: default; }
+  button.primary { background: rgba(87, 185, 255, .18); border-color: rgba(87, 185, 255, .45); color: #d5ecff; }
+  button.primary:hover:not(:disabled) { background: rgba(87, 185, 255, .3); }
+
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .row label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+
+  #status { margin-top: 14px; font-size: 13px; min-height: 1.5em; }
+  #status b { color: var(--accent); font-weight: 600; }
+  #status.done b { color: #6ede9a; }
+
+  #help { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+  #help kbd {
+    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(255, 255, 255, .08); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 5px; color: var(--text);
+  }
+
+  #ribbon {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    max-width: calc(100vw - 720px);
+    display: none; gap: 6px; align-items: center;
+    padding: 10px 14px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow: hidden; white-space: nowrap;
+  }
+  #ribbon i { font-style: normal; color: var(--muted); transition: color .15s; }
+  #ribbon i.done { color: rgba(231, 235, 243, .45); }
+  #ribbon i.now { color: #06131f; background: var(--accent); border-radius: 4px; padding: 0 4px; margin: 0 -2px; }
+
+  #fatal {
+    position: fixed; inset: 0; display: none; place-items: center; padding: 32px;
+    background: rgba(9, 11, 16, .94); text-align: center;
+  }
+  #fatal div { max-width: 460px; }
+  #fatal code { color: var(--muted); font-size: 12px; word-break: break-all; }
+
+  @media (max-width: 1024px) { #ribbon { display: none !important; } }
+  @media (max-width: 760px) { #panel { left: 12px; right: 12px; bottom: 12px; width: auto; } }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<header><h1>Rubik's Cube <span>— three.js + a self-solving layer-by-layer solver</span></h1></header>
+
+<div id="panel">
+  <div id="buttons">
+    <button id="scramble">Scramble</button>
+    <button id="solve" class="primary">Solve</button>
+    <button id="reset">Reset</button>
+  </div>
+  <div class="row">
+    <label for="speed">Speed</label>
+    <input id="speed" type="range" min="40" max="420" value="170" step="10">
+  </div>
+  <div id="status">Solved.</div>
+  <div id="help">
+    Drag an outer row of the cube to turn it · drag the background — or right-drag — to orbit<br>
+    <kbd>U</kbd> <kbd>D</kbd> <kbd>L</kbd> <kbd>R</kbd> <kbd>F</kbd> <kbd>B</kbd> turn a face
+    (<kbd>shift</kbd> reverses) · <kbd>space</kbd> solve · <kbd>S</kbd> scramble
+  </div>
+</div>
+
+<div id="ribbon"></div>
+
+<div id="fatal"><div>
+  <h2>Couldn't load three.js</h2>
+  <p>This page pulls three.js from a CDN, so it needs a network connection.</p>
+  <code id="fatal-msg"></code>
+</div></div>
+
+<script type="module">
+/* ==================================================================== *
+ *  0. three.js (from CDN)
+ * ==================================================================== */
+let THREE, OrbitControls;
+try {
+  THREE = await import('three');
+  ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+} catch (err) {
+  document.getElementById('fatal').style.display = 'grid';
+  document.getElementById('fatal-msg').textContent = String(err);
+  throw err;
+}
+
+/* ==================================================================== *
+ *  1. Cube model
+ *
+ *  Directions are indexed 0..5. A cubie's "colour" is simply the index
+ *  of the face that sticker belongs to on a solved cube, so colours and
+ *  directions share one set of indices.
+ * ==================================================================== */
+const DIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const FACES = ['R', 'L', 'U', 'D', 'F', 'B'];
+const FI = { R: 0, L: 1, U: 2, D: 3, F: 4, B: 5 };
+
+const dirIndex = (v) => DIRS.findIndex((d) => d[0] === v[0] && d[1] === v[1] && d[2] === v[2]);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/* A rotation is a permutation of the six directions: rot(DIRS[d]) = DIRS[perm[d]]. */
+const composeRot = (a, b) => b.map((d) => a[d]); // apply b, then a
+
+/* Quarter turn about `axis`, clockwise as seen from the +sign end:
+   v' = n(n.v) - (n x v), i.e. a -90 degree turn about n. */
+function quarterRot(axis, sign) {
+  const n = [0, 0, 0];
+  n[axis] = sign;
+  return DIRS.map((v) => {
+    const d = dot(n, v);
+    const c = [n[1] * v[2] - n[2] * v[1], n[2] * v[0] - n[0] * v[2], n[0] * v[1] - n[1] * v[0]];
+    return dirIndex([n[0] * d - c[0], n[1] * d - c[1], n[2] * d - c[2]]);
+  });
+}
+
+/* The 24 cubie orientations, generated as the closure of the axis turns. */
+const ROTS = [];
+const rotKey = (r) => r.join(',');
+const rotId = new Map();
+{
+  const seed = [0, 1, 2, 3, 4, 5];
+  const queue = [seed];
+  rotId.set(rotKey(seed), 0);
+  ROTS.push(seed);
+  const gens = [quarterRot(0, 1), quarterRot(1, 1), quarterRot(2, 1)];
+  while (queue.length) {
+    const r = queue.shift();
+    for (const g of gens) {
+      const n = composeRot(g, r);
+      if (!rotId.has(rotKey(n))) {
+        rotId.set(rotKey(n), ROTS.length);
+        ROTS.push(n);
+        queue.push(n);
+      }
+    }
+  }
+}
+const ROT_MUL = ROTS.map((a) => ROTS.map((b) => rotId.get(rotKey(composeRot(a, b)))));
+const ROT_INV = ROTS.map((_, i) => ROT_MUL[i].indexOf(0));
+
+/* The 27 slots, indexed by (x+1)*9 + (y+1)*3 + (z+1). */
+const posIndex = (v) => (v[0] + 1) * 9 + (v[1] + 1) * 3 + (v[2] + 1);
+const POS = [];
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) POS[posIndex([x, y, z])] = [x, y, z];
+
+const rotVec = (perm, v) => {
+  const out = [0, 0, 0];
+  [0, 2, 4].forEach((axisDir, i) => {
+    const d = DIRS[perm[axisDir]];
+    out[0] += v[i] * d[0];
+    out[1] += v[i] * d[1];
+    out[2] += v[i] * d[2];
+  });
+  return out;
+};
+const ROT_POS = ROTS.map((r) => POS.map((p) => posIndex(rotVec(r, p))));
+
+/* The 18 face turns. */
+const FACE_AXIS = { R: [0, 1], L: [0, -1], U: [1, 1], D: [1, -1], F: [2, 1], B: [2, -1] };
+const MOVE_NAMES = [];
+const MOVE = {};
+for (const f of FACES) {
+  const [axis, sign] = FACE_AXIS[f];
+  const q = rotId.get(rotKey(quarterRot(axis, sign)));
+  for (const [suffix, times] of [['', 1], ["'", 3], ['2', 2]]) {
+    let rot = 0;
+    for (let i = 0; i < times; i++) rot = ROT_MUL[q][rot];
+    MOVE[f + suffix] = { face: f, axis, sign, times, rot };
+    MOVE_NAMES.push(f + suffix);
+  }
+}
+
+/* State: pp[i] is the slot the cubie born in slot i currently occupies,
+   po[i] is its orientation. */
+const solvedState = () => ({ pp: POS.map((_, i) => i), po: POS.map(() => 0) });
+const cloneState = (s) => ({ pp: s.pp.slice(), po: s.po.slice() });
+
+function applyMove(s, name) {
+  const m = MOVE[name];
+  for (let i = 0; i < 27; i++) {
+    if (POS[s.pp[i]][m.axis] !== m.sign) continue;
+    s.pp[i] = ROT_POS[m.rot][s.pp[i]];
+    s.po[i] = ROT_MUL[m.rot][s.po[i]];
+  }
+  return s;
+}
+const applySeq = (s, seq) => { for (const m of seq) applyMove(s, m); return s; };
+
+/* Colour of the sticker of cubie `id` that currently points along world
+   direction `wd`; -1 when that side of the cubie is internal. */
+function colourAt(s, id, wd) {
+  const local = ROTS[ROT_INV[s.po[id]]][wd];
+  return dot(POS[id], DIRS[local]) === 1 ? local : -1;
+}
+
+const pieceOf = (...faceLetters) => {
+  const v = [0, 0, 0];
+  for (const f of faceLetters) {
+    const d = DIRS[FI[f]];
+    v[0] += d[0]; v[1] += d[1]; v[2] += d[2];
+  }
+  return posIndex(v);
+};
+
+function isPieceSolved(s, id) {
+  if (s.pp[id] !== id) return false;
+  for (let d = 0; d < 6; d++) if (dot(POS[id], DIRS[d]) === 1 && colourAt(s, id, d) !== d) return false;
+  return true;
+}
+
+function isSolved(s) {
+  for (let i = 0; i < 27; i++) {
+    for (let d = 0; d < 6; d++) {
+      if (dot(POS[s.pp[i]], DIRS[d]) !== 1) continue;
+      if (colourAt(s, i, d) !== d) return false;
+    }
+  }
+  return true;
+}
+
+/* ==================================================================== *
+ *  2. Solver — beginner layer-by-layer, first layer on D, last on U.
+ * ==================================================================== */
+const SIDES = ['F', 'R', 'B', 'L']; // U' sends slot F -> R -> B -> L -> F
+const nextSide = (f) => SIDES[(SIDES.indexOf(f) + 1) % 4];
+const invMove = (m) => (m.length === 1 ? m + "'" : m[1] === '2' ? m : m[0]);
+const invertSeq = (seq) => seq.slice().reverse().map(invMove);
+const sideFacesAt = (p) => SIDES.filter((f) => dot(POS[p], DIRS[FI[f]]) === 1);
+
+class Solver {
+  constructor(state, offsets = [0, 0, 0]) {
+    this.s = cloneState(state);
+    this.moves = [];
+    this.order = offsets.map((o) => SIDES.slice(o).concat(SIDES.slice(0, o)));
+  }
+
+  do(...names) {
+    for (const n of names.flat()) {
+      applyMove(this.s, n);
+      this.moves.push(n);
+    }
+  }
+
+  /* Turn U until cubie `id` sits in the slot made of `faceLetters`. */
+  alignU(id, faceLetters) {
+    const target = pieceOf(...faceLetters);
+    for (const seq of [[], ['U'], ['U2'], ["U'"]]) {
+      if (applySeq(cloneState(this.s), seq).pp[id] === target) { this.do(seq); return; }
+    }
+  }
+
+  /* ---- step 1: the cross on D ---- */
+  cross() {
+    for (const X of this.order[0]) {
+      const id = pieceOf('D', X);
+      for (let guard = 0; guard < 12 && !isPieceSolved(this.s, id); guard++) {
+        const p = POS[this.s.pp[id]];
+        if (p[1] === -1) {
+          this.do(sideFacesAt(this.s.pp[id])[0] + '2'); // wrong D slot: lift it to U
+        } else if (p[1] === 0) {
+          /* Middle layer: raise it with m U m', which puts back whatever
+             cross edge m disturbed. */
+          const f = sideFacesAt(this.s.pp[id])[0];
+          const m = ['', "'"].map((suffix) => f + suffix)
+            .find((c) => POS[applySeq(cloneState(this.s), [c]).pp[id]][1] === 1);
+          this.do(m, 'U', invMove(m));
+        } else {
+          this.alignU(id, ['U', X]);
+          if (colourAt(this.s, id, FI.U) === FI.D) this.do(X + '2');
+          else this.do("U'", nextSide(X) + "'", X, nextSide(X));
+        }
+      }
+    }
+  }
+
+  /* ---- step 2: the corners of the D layer ---- */
+  firstLayerCorners() {
+    for (const A of this.order[1]) {
+      const B = nextSide(A);
+      const id = pieceOf('D', A, B);
+      if (isPieceSolved(this.s, id)) continue;
+      if (POS[this.s.pp[id]][1] === -1) {
+        const [f1, f2] = sideFacesAt(this.s.pp[id]);
+        const trigger = nextSide(f1) === f2 ? f2 : f1;
+        this.do(trigger, 'U', invMove(trigger)); // wrong D slot: pop it up to U
+      }
+      this.alignU(id, ['U', A, B]);
+      const a = invMove(A);
+      const insertions = [ // one of these drops it in, whichever way it is twisted
+        [B, 'U', invMove(B)],
+        [a, "U'", A],
+        [B, 'U2', invMove(B), "U'", B, 'U', invMove(B)],
+      ];
+      this.do(insertions.find((c) => isPieceSolved(applySeq(cloneState(this.s), c), id)));
+    }
+  }
+
+  /* ---- step 3: the four middle-layer edges ---- */
+  middleEdges() {
+    for (const A of this.order[2]) {
+      const B = nextSide(A);
+      const id = pieceOf(A, B);
+      if (isPieceSolved(this.s, id)) continue;
+      if (POS[this.s.pp[id]][1] === 0) {
+        const [f1, f2] = sideFacesAt(this.s.pp[id]);
+        const a = nextSide(f1) === f2 ? f1 : f2;
+        this.do(this.insertRight(a, nextSide(a))); // kick the wrong edge up to U
+      }
+      for (const seq of [[], ['U'], ['U2'], ["U'"]]) {
+        const t = applySeq(cloneState(this.s), seq);
+        if (t.pp[id] === pieceOf('U', A) && colourAt(t, id, FI[A]) === FI[A]) {
+          this.do(seq, this.insertRight(A, B));
+          break;
+        }
+        if (t.pp[id] === pieceOf('U', B) && colourAt(t, id, FI[B]) === FI[B]) {
+          this.do(seq, this.insertLeft(A, B));
+          break;
+        }
+      }
+    }
+  }
+
+  insertRight(A, B) { return ['U', B, "U'", invMove(B), "U'", invMove(A), 'U', A]; }
+  insertLeft(A, B) { return ["U'", invMove(A), 'U', A, 'U', B, "U'", invMove(B)]; }
+
+  /* ---- steps 4-7: the last layer, by searching short chains of algorithms
+     separated by U turns. Depth is tiny, so plain iterative deepening. ---- */
+  llSearch(algs, goal, maxDepth) {
+    const AUF = [[], ['U'], ['U2'], ["U'"]];
+    const rec = (st, depth, acc) => {
+      for (const auf of AUF) {
+        const t = applySeq(cloneState(st), auf);
+        const seq = acc.concat(auf);
+        if (goal(t)) return seq;
+        if (depth === 0) continue;
+        for (const alg of algs) {
+          const r = rec(applySeq(cloneState(t), alg), depth - 1, seq.concat(alg));
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    for (let d = 0; d <= maxDepth; d++) {
+      const r = rec(this.s, d, []);
+      if (r) { this.do(r); return true; }
+    }
+    return false;
+  }
+
+  lastLayer() {
+    const uEdges = SIDES.map((f) => pieceOf('U', f));
+    const uCorners = SIDES.map((f) => pieceOf('U', f, nextSide(f)));
+    const orientedEdges = (s) => uEdges.every((id) => colourAt(s, id, FI.U) === FI.U);
+    const orientedCorners = (s) => uCorners.every((id) => colourAt(s, id, FI.U) === FI.U);
+    const placedCorners = (s) => uCorners.every((id) => s.pp[id] === id);
+
+    const CROSS_ALG = ['F', 'R', 'U', "R'", "U'", "F'"];
+    const SUNE = ['R', 'U', "R'", 'U', 'R', 'U2', "R'"];
+    const ANTISUNE = ['R', 'U2', "R'", "U'", 'R', "U'", "R'"];
+    const CORNER_CYCLE = ["R'", 'F', "R'", 'B2', 'R', "F'", "R'", 'B2', 'R2']; // A perm
+    const EDGE_CYCLE = ['R2', 'U', 'R', 'U', "R'", "U'", "R'", "U'", "R'", 'U', "R'"]; // U perm
+
+    const stages = [
+      [[CROSS_ALG], orientedEdges, 3],
+      [[SUNE, ANTISUNE], (s) => orientedEdges(s) && orientedCorners(s), 3],
+      [[CORNER_CYCLE, invertSeq(CORNER_CYCLE)], (s) => orientedEdges(s) && orientedCorners(s) && placedCorners(s), 2],
+      [[EDGE_CYCLE, invertSeq(EDGE_CYCLE)], isSolved, 2],
+    ];
+    for (const [algs, goal, depth] of stages) {
+      if (!this.llSearch(algs, goal, depth)) throw new Error('last layer search failed');
+    }
+  }
+
+  run() {
+    this.cross();
+    this.firstLayerCorners();
+    this.middleEdges();
+    this.lastLayer();
+    if (!isSolved(this.s)) throw new Error('solver finished on an unsolved cube');
+    return tidy(this.moves);
+  }
+}
+
+/* Collapse runs of turns of the same face: U U' drops out, U U becomes U2. */
+function tidy(moves) {
+  const out = [];
+  for (const m of moves) {
+    const face = m[0];
+    const amount = m.length === 1 ? 1 : m[1] === '2' ? 2 : 3;
+    if (out.length && out[out.length - 1].face === face) {
+      const total = (out.pop().amount + amount) % 4;
+      if (total) out.push({ face, amount: total });
+    } else {
+      out.push({ face, amount });
+    }
+  }
+  return out.map(({ face, amount }) => face + ['', '', '2', "'"][amount]);
+}
+
+/* A single pass is cheap (well under a millisecond), so solve the cube once
+   per ordering of the four slots and keep the shortest answer. */
+function solve(state) {
+  let best = null;
+  for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) for (let c = 0; c < 4; c++) {
+    const moves = new Solver(state, [a, b, c]).run();
+    if (!best || moves.length < best.length) best = moves;
+  }
+  return best;
+}
+
+function scrambleMoves(n = 25) {
+  const out = [];
+  let last = '';
+  while (out.length < n) {
+    const m = MOVE_NAMES[Math.floor(Math.random() * MOVE_NAMES.length)];
+    if (m[0] === last) continue;
+    last = m[0];
+    out.push(m);
+  }
+  return out;
+}
+
+/* ==================================================================== *
+ *  3. Scene
+ * ==================================================================== */
+const STICKER = ['#d5342c', '#f0801a', '#f4f6f8', '#f5d020', '#2fa84f', '#1668d4']; // R L U D F B
+const GAP = 1.0, CUBIE = 0.965;
+
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+camera.position.set(4.2, 3.8, 5.6);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.minDistance = 5;
+controls.maxDistance = 16;
+controls.rotateSpeed = 0.9;
+/* Left-drag on the cube turns a layer, so right-drag always orbits. */
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x202430, 1.1));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+keyLight.position.set(6, 9, 7);
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0x9fc2ff, 0.6);
+fillLight.position.set(-7, -4, -6);
+scene.add(fillLight);
+
+/* A soft blob under the cube, so it doesn't float in a void. */
+{
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, 'rgba(0,0,0,0.5)');
+  grad.addColorStop(0.5, 'rgba(0,0,0,0.2)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  const blob = new THREE.Mesh(
+    new THREE.PlaneGeometry(7, 7),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }),
+  );
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.y = -1.85;
+  scene.add(blob);
+}
+
+const cubeGroup = new THREE.Group();
+scene.add(cubeGroup);
+const pivot = new THREE.Group();
+cubeGroup.add(pivot);
+
+function roundedSquare(size, radius) {
+  const s = size / 2, r = radius;
+  const shape = new THREE.Shape();
+  shape.moveTo(-s + r, -s);
+  shape.lineTo(s - r, -s);
+  shape.quadraticCurveTo(s, -s, s, -s + r);
+  shape.lineTo(s, s - r);
+  shape.quadraticCurveTo(s, s, s - r, s);
+  shape.lineTo(-s + r, s);
+  shape.quadraticCurveTo(-s, s, -s, s - r);
+  shape.lineTo(-s, -s + r);
+  shape.quadraticCurveTo(-s, -s, -s + r, -s);
+  return new THREE.ShapeGeometry(shape, 6);
+}
+
+const bodyGeo = new THREE.BoxGeometry(CUBIE, CUBIE, CUBIE);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.72, metalness: 0.08 });
+const stickerGeo = roundedSquare(0.8, 0.12);
+const stickerMats = STICKER.map((c) => new THREE.MeshStandardMaterial({
+  color: new THREE.Color(c), roughness: 0.34, metalness: 0.02, side: THREE.DoubleSide,
+}));
+
+const FORWARD = new THREE.Vector3(0, 0, 1);
+const meshes = [];
+for (let id = 0; id < 27; id++) {
+  const home = POS[id];
+  if (home[0] === 0 && home[1] === 0 && home[2] === 0) continue; // the hidden core
+  const cubie = new THREE.Group();
+  cubie.userData.cubie = id;
+  cubie.add(new THREE.Mesh(bodyGeo, bodyMat));
+  for (let d = 0; d < 6; d++) {
+    if (dot(home, DIRS[d]) !== 1) continue;
+    const sticker = new THREE.Mesh(stickerGeo, stickerMats[d]);
+    const n = new THREE.Vector3(...DIRS[d]);
+    sticker.quaternion.setFromUnitVectors(FORWARD, n);
+    sticker.position.copy(n).multiplyScalar(CUBIE / 2 + 0.004);
+    cubie.add(sticker);
+  }
+  meshes[id] = cubie;
+  cubeGroup.add(cubie);
+}
+
+const basisMatrix = new THREE.Matrix4();
+const tmpX = new THREE.Vector3(), tmpY = new THREE.Vector3(), tmpZ = new THREE.Vector3();
+function syncMeshes() {
+  for (let id = 0; id < 27; id++) {
+    const mesh = meshes[id];
+    if (!mesh) continue;
+    const p = POS[state.pp[id]];
+    mesh.position.set(p[0] * GAP, p[1] * GAP, p[2] * GAP);
+    const r = ROTS[state.po[id]];
+    basisMatrix.makeBasis(
+      tmpX.set(...DIRS[r[0]]),
+      tmpY.set(...DIRS[r[2]]),
+      tmpZ.set(...DIRS[r[4]]),
+    );
+    mesh.quaternion.setFromRotationMatrix(basisMatrix);
+  }
+}
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+addEventListener('resize', resize);
+resize();
+
+/* ==================================================================== *
+ *  4. Move queue and animation
+ * ==================================================================== */
+let state = solvedState();
+const queue = [];
+let anim = null;
+let plan = null;
+
+const el = {
+  status: document.getElementById('status'),
+  ribbon: document.getElementById('ribbon'),
+  speed: document.getElementById('speed'),
+  scramble: document.getElementById('scramble'),
+  solve: document.getElementById('solve'),
+  reset: document.getElementById('reset'),
+};
+
+const busy = () => anim !== null || queue.length > 0;
+const turnDuration = () => Number(el.speed.value);
+
+function startMove(name) {
+  const m = MOVE[name];
+  for (let id = 0; id < 27; id++) {
+    const mesh = meshes[id];
+    if (mesh && POS[state.pp[id]][m.axis] === m.sign) pivot.attach(mesh);
+  }
+  const axisVec = new THREE.Vector3();
+  axisVec.setComponent(m.axis, m.sign);
+  /* A face turn is clockwise seen from outside, i.e. -90 degrees about the
+     outward axis; a prime turn (times 3) is shown as +90 the other way. */
+  anim = {
+    name,
+    axisVec,
+    angle: (m.times === 3 ? Math.PI / 2 : -Math.PI / 2 * m.times),
+    start: performance.now(),
+    duration: turnDuration() * (m.times === 2 ? 1.45 : 1),
+  };
+}
+
+function finishMove() {
+  applyMove(state, anim.name);
+  for (const child of pivot.children.slice()) cubeGroup.add(child);
+  pivot.quaternion.identity();
+  anim = null;
+  syncMeshes();
+  if (plan) { plan.index++; renderRibbon(); }
+  if (plan && !busy()) planFinished();
+  else updateStatus();
+}
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  if (!anim && queue.length) startMove(queue.shift());
+  if (anim) {
+    const t = Math.min(1, (now - anim.start) / anim.duration);
+    const eased = t * t * (3 - 2 * t);
+    pivot.setRotationFromAxisAngle(anim.axisVec, anim.angle * eased);
+    if (t >= 1) finishMove();
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+syncMeshes();
+requestAnimationFrame(tick);
+
+/* ==================================================================== *
+ *  5. Actions and status
+ * ==================================================================== */
+function runPlan(moves, kind) {
+  queue.length = 0;
+  queue.push(...moves);
+  plan = { moves, index: 0, kind };
+  renderRibbon();
+  updateStatus();
+}
+
+function planFinished() {
+  const { kind, moves } = plan;
+  plan = null;
+  updateStatus();
+  if (kind === 'solve') setStatus(`Solved in <b>${moves.length}</b> moves.`, true);
+  else setStatus(`Scrambled with <b>${moves.length}</b> moves — press <b>Solve</b>.`);
+  setTimeout(renderRibbon, 1200); // leave the finished list up for a moment
+}
+
+function setStatus(html, done = false) {
+  el.status.innerHTML = html;
+  el.status.classList.toggle('done', done);
+}
+
+function updateStatus() {
+  const solving = plan && plan.kind === 'solve';
+  if (busy() && plan) {
+    setStatus(`${solving ? 'Solving' : 'Scrambling'} — move <b>${plan.index + 1}</b> of ${plan.moves.length}`);
+  } else if (!busy() && !plan) {
+    if (isSolved(state)) setStatus('Solved.', true);
+    else setStatus('Scrambled — press <b>Solve</b>.');
+  }
+  const b = busy();
+  el.scramble.disabled = b;
+  el.solve.disabled = b || isSolved(state);
+  el.reset.disabled = b;
+}
+
+/* Long solutions don't fit, so show a window of moves that follows along. */
+const RIBBON_WINDOW = 22;
+function renderRibbon() {
+  if (!plan) { el.ribbon.style.display = 'none'; el.ribbon.textContent = ''; return; }
+  const start = Math.max(0, Math.min(plan.index - 7, plan.moves.length - RIBBON_WINDOW));
+  const end = start + RIBBON_WINDOW;
+  const cell = (m, i) => `<i class="${i < plan.index ? 'done' : i === plan.index ? 'now' : ''}">${m}</i>`;
+  el.ribbon.style.display = 'flex';
+  el.ribbon.innerHTML = (start > 0 ? '<i class="done">…</i>' : '')
+    + plan.moves.slice(start, end).map((m, i) => cell(m, start + i)).join('')
+    + (end < plan.moves.length ? '<i>…</i>' : '');
+}
+
+el.scramble.addEventListener('click', () => { if (!busy()) runPlan(scrambleMoves(25), 'scramble'); });
+el.solve.addEventListener('click', () => {
+  if (busy() || isSolved(state)) return;
+  setStatus('Thinking…');
+  el.scramble.disabled = el.solve.disabled = el.reset.disabled = true;
+  /* Give the browser a frame to paint the status before the search runs. */
+  requestAnimationFrame(() => requestAnimationFrame(() => runPlan(solve(state), 'solve')));
+});
+el.reset.addEventListener('click', () => {
+  if (busy()) return;
+  state = solvedState();
+  plan = null;
+  syncMeshes();
+  renderRibbon();
+  updateStatus();
+});
+
+/* ==================================================================== *
+ *  6. Input: keyboard and dragging a layer
+ * ==================================================================== */
+addEventListener('keydown', (ev) => {
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const letter = ev.key.toUpperCase();
+  if (FACES.includes(letter)) {
+    ev.preventDefault();
+    if (!busy()) { plan = null; renderRibbon(); queue.push(letter + (ev.shiftKey ? "'" : '')); updateStatus(); }
+  } else if (ev.key === ' ') {
+    ev.preventDefault();
+    el.solve.click();
+  } else if (letter === 'S') {
+    el.scramble.click();
+  }
+});
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let drag = null;
+
+const setPointer = (ev) => pointer.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+const majorAxis = (v) => [0, 1, 2].reduce((best, a) => (Math.abs(v.getComponent(a)) > Math.abs(v.getComponent(best)) ? a : best), 0);
+
+canvas.addEventListener('pointerdown', (ev) => {
+  if (ev.button !== 0 || busy()) return;
+  setPointer(ev);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(cubeGroup.children, true)[0];
+  if (!hit || !hit.face) return;
+  const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  const axis = majorAxis(normal);
+  normal.set(0, 0, 0).setComponent(axis, Math.sign(normal.getComponent(axis)));
+  let node = hit.object;
+  while (node && node.userData.cubie === undefined) node = node.parent;
+  if (!node) return;
+  drag = {
+    cubie: node.userData.cubie,
+    normal,
+    point: hit.point.clone(),
+    plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
+  };
+  controls.enabled = false;
+  canvas.setPointerCapture(ev.pointerId);
+});
+
+const dragPoint = new THREE.Vector3();
+canvas.addEventListener('pointermove', (ev) => {
+  if (!drag || drag.turned) return;
+  setPointer(ev);
+  raycaster.setFromCamera(pointer, camera);
+  if (!raycaster.ray.intersectPlane(drag.plane, dragPoint)) return;
+  const delta = dragPoint.clone().sub(drag.point);
+  if (delta.length() < 0.3) return;
+  /* One turn per gesture, and the orbit stays off until the pointer goes up —
+     re-enabling it here would let the rest of the drag swing the camera. */
+  drag.turned = true;
+  const move = moveFromDrag(drag, delta);
+  if (move) {
+    plan = null;
+    renderRibbon();
+    queue.push(move);
+    updateStatus();
+  } else {
+    setStatus('That would be a middle slice — drag an outer row instead.');
+  }
+});
+
+for (const type of ['pointerup', 'pointercancel', 'pointerleave']) canvas.addEventListener(type, endDrag);
+
+function endDrag(ev) {
+  if (!drag) return;
+  drag = null;
+  controls.enabled = true;
+  if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
+}
+
+/* Dragging along `delta` on the face pointing along `normal` turns the layer
+   about normal x delta. That axis is a right-handed +90; a face turn is a
+   clockwise -90 seen from outside, so an axis pointing out of the layer's own
+   face means the turn is a prime one. */
+function moveFromDrag({ normal, cubie }, delta) {
+  const nAxis = majorAxis(normal);
+  const inPlane = [0, 1, 2].filter((a) => a !== nAxis);
+  const dragAxis = Math.abs(delta.getComponent(inPlane[0])) > Math.abs(delta.getComponent(inPlane[1])) ? inPlane[0] : inPlane[1];
+  const u = new THREE.Vector3().setComponent(dragAxis, Math.sign(delta.getComponent(dragAxis)));
+  const rotAxis = new THREE.Vector3().crossVectors(normal, u);
+  const axis = majorAxis(rotAxis);
+  const sign = Math.sign(rotAxis.getComponent(axis));
+  const coord = POS[state.pp[cubie]][axis];
+  if (coord === 0) return null;
+  const face = FACES.find((f) => FACE_AXIS[f][0] === axis && FACE_AXIS[f][1] === coord);
+  return face + (sign === coord ? "'" : '');
+}
+
+updateStatus();
+
+/* A small hook so the page can be driven from a test harness. */
+window.__cube = { get state() { return state; }, isSolved: () => isSolved(state), busy };
+</script>
+</body>
+</html>
