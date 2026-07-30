@@ -27,10 +27,9 @@ const watch = process.argv.includes("--watch");
 const firefox = process.argv.includes("--firefox");
 
 const outdir = firefox ? "dist-firefox" : "dist";
-// esbuild's transpilation floor. Firefox 121 is the gecko strict_min_version in
-// manifest.json (first release that ignores the MV3 service_worker key and runs
-// the background.scripts fallback); Chrome 120 matches our MV3 baseline.
-const target = firefox ? "firefox121" : "chrome120";
+// esbuild's transpilation floor, matching each target's manifest floor: Firefox
+// 140 is the gecko strict_min_version set below, Chrome 120 our MV3 baseline.
+const target = firefox ? "firefox140" : "chrome120";
 
 await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
@@ -39,18 +38,43 @@ await mkdir(outdir, { recursive: true });
 // source, differing only where MV3 Firefox genuinely diverges from Chrome:
 //   - background: FF runs a non-persistent event page (`scripts` + module type),
 //     not a service worker (`service_worker`).
-//   - browser_specific_settings.gecko: FF requires an add-on id.
+//   - name: AMO rejects a name over 45 characters (addons-linter JSON_INVALID),
+//     where the Chrome Web Store allows 75 — the keyword-bearing store title
+//     doesn't fit, so Firefox gets a shorter one. Both name the same product.
+//   - browser_specific_settings.gecko: FF requires an add-on id, a version floor
+//     (see below), and — for anything submitted to AMO since 2025-11-03 — a
+//     data_collection_permissions declaration, without which signing is refused.
+//     Decant collects nothing of its own (conversion is local; converted files
+//     go only where the user was already sending them), hence required: none;
+//     the optional companion is the one path that puts content on the wire, so
+//     it is disclosed as opt-in. Reasoning in docs/store/firefox-amo.txt.
 //   - web_accessible_resources.use_dynamic_url: FF rejects it as an unknown key
 //     (harmless load warning); it buys a rotating resource URL on Chrome for
 //     fingerprint resistance, which FF already provides via a random per-install
 //     UUID origin, so it's redundant there. Stripped for FF.
 // Keeping this transform in the build (not a checked-in second manifest) means
 // the shared keys can't drift between targets.
+//
+// The 140 floor is the first release that understands every key above:
+// optional_host_permissions (adding your own chat site on the options page)
+// landed in 128, and data_collection_permissions in 140. It is also the current
+// ESR, so nothing in support still runs below it.
 if (firefox) {
   const manifest = JSON.parse(await readFile("manifest.json", "utf8"));
   manifest.background = { scripts: ["background.js"], type: "module" };
+  manifest.name = "Decant - Documents & Web Pages to Markdown";
   manifest.browser_specific_settings = {
-    gecko: { id: "decant@decant.tools", strict_min_version: "121.0" },
+    gecko: {
+      id: "decant@decant.tools",
+      strict_min_version: "140.0",
+      data_collection_permissions: {
+        required: ["none"],
+        optional: ["websiteContent"],
+      },
+    },
+    // Android shipped data_collection_permissions two releases later than
+    // desktop, so it carries its own floor rather than inheriting 140.
+    gecko_android: { strict_min_version: "142.0" },
   };
   for (const entry of manifest.web_accessible_resources ?? []) {
     delete entry.use_dynamic_url;

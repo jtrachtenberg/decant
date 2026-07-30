@@ -34,7 +34,8 @@ not on re-reading pictures of pages.
 > It builds for both **Chromium** (Chrome, Brave, Edge) and **Firefox** from a
 > single codebase, and is **live on the
 > [Chrome Web Store](https://chromewebstore.google.com/detail/decant/dnfnlmgofhdjdfodgjdagknbgdaehped)**.
-> A Firefox listing and the additional surfaces below are still planned. The
+> A Firefox build is packaged and awaiting submission to addons.mozilla.org; the
+additional surfaces below are still planned. The
 > [Project docs](#project-docs) cover the design; the [Roadmap](#roadmap) tracks
 > status.
 
@@ -189,8 +190,10 @@ text dropped into the upload.
 Decant is on the
 **[Chrome Web Store](https://chromewebstore.google.com/detail/decant/dnfnlmgofhdjdfodgjdagknbgdaehped)** —
 one click installs it in Chrome (and other Chromium browsers that support the
-store, like Brave and Edge). A Firefox listing is planned; until then Firefox
-uses the from-source route below.
+store, like Brave and Edge). A Firefox listing is awaiting submission to
+addons.mozilla.org (`docs/store/firefox-amo.txt` holds the submission notes);
+until then Firefox uses the from-source route below. The Firefox build needs
+**Firefox 140+** (142+ on Android).
 
 ### From source (development)
 
@@ -203,11 +206,13 @@ npm install
 npm run build            # Chromium (Chrome/Brave/Edge) → dist/
 npm run build:firefox    # Firefox                       → dist-firefox/
 npm run package          # build, then zip for store upload → release/
+npm run package:firefox  # same, for the Firefox add-on            → release/
 ```
 
 Both builds come from one source; the Firefox build is derived at build time
-(event-page background, gecko id) and a few Firefox-only content-script quirks
-are handled at runtime.
+(event-page background, gecko id, AMO-shaped name and version floors, data
+collection declaration) and a few Firefox-only content-script quirks are
+handled at runtime.
 
 **Chrome / Brave / Edge** (all load the `dist/` build unmodified):
 

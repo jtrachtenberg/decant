@@ -1,0 +1,135 @@
+addons.mozilla.org (AMO) submission — the Firefox-specific half of this folder.
+
+description.txt, the screenshots, and the privacy policy are shared with the
+Chrome listing; everything AMO wants that the Chrome Web Store doesn't is here.
+
+
+================================================================
+WHAT TO UPLOAD
+================================================================
+
+  npm run package:firefox        → release/decant-<version>-firefox.zip
+
+Then, before uploading, run Mozilla's own validator over that zip — it is the
+same linter AMO runs on submission, so a clean run here means a clean upload:
+
+  npx addons-linter release/decant-0.3.2-firefox.zip
+
+Expected result: 0 errors, ~15 warnings. Every warning is either eval / the
+Function constructor / dynamic import inside bundled third-party libraries, or
+an innerHTML assignment in our own status UI. The remote-code section of
+permission-justifications.txt audits each one by name and explains why none is
+reachable or remote; that audit answers the AMO reviewer as well as it answers
+Chrome's.
+
+Submit at addons.mozilla.org/developers/addon/submit/ → "On this site"
+(listed). A Mozilla account is all that's needed; AMO charges no fee.
+
+
+================================================================
+SOURCE CODE SUBMISSION  —  required, not optional
+================================================================
+
+AMO requires reviewable source whenever a build step makes the shipped code
+hard to read, and bundling counts on its own (esbuild, build.mjs) even though
+nothing here is minified or obfuscated. Uploading the zip alone gets the
+review paused with a request for source.
+
+Build the source archive from the tagged commit that produced the upload:
+
+  git archive --format=zip -o release/decant-0.3.2-source.zip HEAD
+
+That carries every tracked file — src/, build.mjs, scripts/, package.json,
+package-lock.json, the icons — and, because dist/, dist-firefox/ and release/
+are all gitignored, no build output.
+
+Paste into the "how to build" field:
+
+  Node 24 (built and verified on 24.15.0), npm 11.
+
+    npm ci
+    npm run build:firefox
+
+  The result is dist-firefox/, byte-comparable to the uploaded zip's contents.
+  manifest.json in the repo is the Chrome manifest; the Firefox manifest is
+  derived from it at build time in build.mjs (event-page background, add-on id,
+  version floors, data collection declaration, shorter name) — the comment
+  block above that code explains each difference.
+
+  One dependency note: xlsx (SheetJS) resolves to
+  https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz, not the npm registry.
+  SheetJS distributes from its own CDN rather than npm; the tarball is pinned
+  by version and integrity hash in package-lock.json, so `npm ci` fetches
+  exactly the reviewed bytes or fails. Every other dependency comes from npm.
+
+Those instructions were run end to end against decant-0.3.2-source.zip on
+2026-07-28 — extracted clean, `npm ci` with an empty cache (so the SheetJS CDN
+tarball was really fetched, not served from a local cache), then
+`npm run build:firefox`. The 42 resulting files are SHA256-identical to the
+uploaded zip's contents, so a reviewer following this reproduces the build
+byte for byte. Re-run the check if the toolchain or dependencies move.
+
+
+================================================================
+DATA COLLECTION DECLARATION
+================================================================
+
+Every add-on newly submitted to AMO since 2025-11-03 must declare data
+collection in browser_specific_settings.gecko.data_collection_permissions or
+be refused signing. build.mjs emits:
+
+  required: ["none"]              Decant collects and transmits nothing of its
+                                  own. Conversion runs in the browser, and a
+                                  converted file goes only where the user was
+                                  already sending it.
+
+  optional: ["websiteContent"]    The optional companion service is the one
+                                  path that puts document or page content on
+                                  the wire, to an endpoint the user configures
+                                  (normally on their own machine). Off unless
+                                  configured, so it is opt-in rather than
+                                  required — but disclosed rather than silent.
+
+Once a version ships these keys, every later version must keep them.
+
+
+================================================================
+VERSION FLOORS
+================================================================
+
+strict_min_version 140.0 (desktop), gecko_android 142.0. Both are the first
+releases that understand the manifest as shipped: optional_host_permissions —
+what "add your own chat site" on the options page uses — landed in Firefox 128,
+and data_collection_permissions in 140 desktop / 142 Android. 140 is also the
+current ESR, so nothing in support is excluded.
+
+
+================================================================
+LISTING FIELDS
+================================================================
+
+Name          Taken from the manifest — "Decant - Documents & Web Pages to
+              Markdown". AMO rejects anything over 45 characters, which is why
+              it is shorter than the Chrome Web Store title (75 allowed).
+
+Summary       The manifest description, 126 characters, well inside AMO's 250.
+
+Description   description.txt, with three browser-name swaps (AMO's audience is
+              on Firefox, and both statements are true there):
+                • "asks Chrome for permission to run there"
+                    → "asks Firefox for permission to run there"
+                • "Settings sync through Chrome's own storage"
+                    → "Settings sync through Firefox's own storage"
+                • "the capture shortcut rebinds through Chrome's own
+                   keyboard-shortcuts page"
+                    → "…through Firefox's own Manage Extension Shortcuts page"
+              Nothing else in the copy is Chrome-specific.
+
+Privacy       AMO takes the policy as text, not a URL: paste docs/privacy.md.
+policy
+
+Screenshots   screenshot1–4.png, as submitted to Chrome. AMO does not require
+              Firefox-captured screenshots.
+
+Categories    Suggested: "Other" plus "Privacy & Security" — Decant is a
+              productivity tool whose whole design point is local conversion.
