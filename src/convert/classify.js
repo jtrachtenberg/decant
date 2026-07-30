@@ -347,9 +347,12 @@ export function textLayerGarble(items) {
 // page's call, which is what lets a short page-break remainder keep reading
 // column-first (see columnRegions).
 export function reconstructPage(items, columnHint = null) {
-  let glyphs = items.filter(
-    (it) => typeof it.str === "string" && it.str.length
-  );
+  let glyphs = items
+    .filter((it) => typeof it.str === "string" && it.str.length)
+    .map((it) => {
+      const str = normalizeCompatText(it.str);
+      return str === it.str ? it : { ...it, str };
+    });
   // A broken text layer: the undecodable runs aren't content, they're a font
   // we can't read painting artwork. Dropping them before reconstruction takes
   // the noise out of the output AND stops it polluting column/grid detection
@@ -1461,6 +1464,148 @@ function bandSupport(xs, tol) {
     .sort((a, b) => b.support - a.support);
 }
 
+// --- Non-Latin scripts: compatibility code points and bidirectional text ---
+//
+// A PDF's text layer carries whatever code points the font's ToUnicode map
+// yields, and for non-Latin scripts that is routinely a LOOKALIKE rather than
+// the character a reader (or a model, or a search box) expects. Arabic is the
+// worst case: shaped glyphs map into the Arabic Presentation Forms blocks, so
+// "التقرير" extracts as seven isolated presentation forms that no Arabic
+// keyboard can reproduce. CJK has a quieter version of the same problem —
+// Kangxi Radicals (U+2F00–U+2FDF) stand in for the unified ideographs they are
+// visually identical to (⽂ for 文). Both have compatibility decompositions, so
+// NFKC maps them back; applying it ONLY to those ranges keeps the normalization
+// off everything else, where NFKC would also rewrite superscripts, fractions
+// and fullwidth forms that carry meaning of their own.
+const COMPAT_LOOKALIKE_RE = /[\u2F00-\u2FDF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+const COMPAT_LOOKALIKE_RE_G = new RegExp(COMPAT_LOOKALIKE_RE.source, "g");
+
+// Exported for direct unit testing.
+export function normalizeCompatText(str) {
+  if (!COMPAT_LOOKALIKE_RE.test(str)) return str;
+  return str.replace(COMPAT_LOOKALIKE_RE_G, (ch) => ch.normalize("NFKC"));
+}
+
+// Strongly right-to-left: Hebrew, Arabic, Syriac, Thaana, and the presentation
+// forms above (a line is classified before normalization has necessarily
+// reached every glyph, so both spellings must count).
+const RTL_CHAR_RE =
+  /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0780-\u07BF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+// Strongly left-to-right: Latin, Greek, Cyrillic letters.
+const RTL_NEUTRAL_LTR_RE = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/;
+// Numbers run left-to-right even inside right-to-left text (Unicode bidi treats
+// them as their own direction), so "1,240" and "٢٠٢٦" must survive the mirror
+// unreversed — both the Western and the Arabic-Indic digits.
+const RTL_NUMBER_RE = /[0-9\u0660-\u0669\u06F0-\u06F9]/;
+// Direction-neutral characters a number can pull into its run. Signs and
+// terminators ("+12%", "-3") attach to a number on EITHER side; separators
+// only bind two numbers together ("1,240", "3.14", "9:30"). They are kept
+// apart because the looser rule, applied to separators, also drags the full
+// stop that ends an Arabic sentence into an embedded English word (".PDF").
+const RTL_NUMBER_SIGN_RE = /^[%$\u00B0\u066A]+$/;
+const RTL_NUMBER_SEPARATOR_RE = /^[.,:\/+\-\u066B\u066C]+$/;
+
+// What share of a line's strong characters must be right-to-left for the line
+// to READ right-to-left. Not a bare majority: an Arabic caption quoting a long
+// English product name ("مثل Markdown") is still an Arabic line, and a bare
+// majority hands it to the left-to-right path, where it comes out backwards.
+// The far commoner opposite case — an English sentence quoting a word or two of
+// Hebrew — sits well under this share and stays left-to-right. A genuinely
+// balanced line (an English sentence quoting a long Arabic phrase) is ambiguous
+// either way; this errs toward reading it right-to-left.
+const RTL_LINE_SHARE = 1 / 3;
+
+// Does this line read right-to-left? Digits and punctuation are direction-
+// neutral, so only strongly-directional letters get a vote.
+function isRtlLine(glyphs) {
+  let rtl = 0;
+  let ltr = 0;
+  for (const g of glyphs)
+    for (const ch of g.str) {
+      if (RTL_CHAR_RE.test(ch)) rtl++;
+      else if (RTL_NEUTRAL_LTR_RE.test(ch)) ltr++;
+    }
+  return rtl > 0 && rtl >= (rtl + ltr) * RTL_LINE_SHARE;
+}
+
+// Punctuation and signs that take the surrounding paragraph's direction rather
+// than one of their own. Inside a right-to-left line they are laid out at the
+// OPPOSITE edge of an embedded left-to-right run from the one they belong to,
+// so a producer that writes such a run as a single item hands back "12%+" for
+// "+12%" and ".PDF" for "PDF." — the string itself is in visual order.
+// Deliberately excludes "%", "$" and "°": Unicode bidi resolves those to the
+// number they touch, so they are NOT mirrored and must stay put.
+const MIRRORED_NEUTRAL_RE = /[.,;:!?()[\]{}«»"'+\-‐-―‘-‟]/;
+
+// Combining marks (Arabic vowel/shadda marks, Latin/Greek diacritics) — drawn
+// over the preceding letter with no advance of their own.
+const COMBINING_MARK_RE = /[\u0300-\u036F\u064B-\u065F\u0670\u06D6-\u06ED]/;
+
+// Undo that mirroring for one item: leading neutrals belong at the end and
+// trailing ones at the front. Bracket-like characters are already stored as
+// their mirror image, so moving them lands the right glyph on the right side.
+// Exported for direct unit testing.
+export function unmirrorNeutralEdges(str) {
+  let i = 0;
+  while (i < str.length && MIRRORED_NEUTRAL_RE.test(str[i])) i++;
+  let j = str.length;
+  while (j > i && MIRRORED_NEUTRAL_RE.test(str[j - 1])) j--;
+  if (i === j) return str; // all neutral: nothing to anchor the swap to
+  if (i === 0 && j === str.length) return str;
+  return str.slice(j) + str.slice(i, j) + str.slice(0, i);
+}
+
+// Within a mirrored right-to-left line, runs that are themselves left-to-right
+// (an English term, a number) were mirrored along with everything else and read
+// backwards. Reversing each such run in place restores it. Runs matter only
+// when the producer emits one item per glyph — where a whole word arrives as a
+// single item, its run is length 1 and this is a no-op.
+//
+// `slots` carries each position's mirrored geometry and `maxGap` the width at
+// which a gap means a COLUMN, not a space: a run must never span one, or two
+// numbers in neighbouring table cells reverse as a single run and trade places.
+function unmirrorLtrRuns(glyphs, slots, maxGap) {
+  const kind = glyphs.map((g) => {
+    if (RTL_NUMBER_RE.test(g.str)) return "num";
+    if (RTL_CHAR_RE.test(g.str)) return "rtl";
+    if (RTL_NEUTRAL_LTR_RE.test(g.str)) return "ltr";
+    if (RTL_NUMBER_SIGN_RE.test(g.str)) return "sign";
+    return RTL_NUMBER_SEPARATOR_RE.test(g.str) ? "sep" : "neutral";
+  });
+  // Which neutrals belong to the number beside them, following the Unicode
+  // bidi classes: a sign ("+", "-", "%") attaches to a number on EITHER side,
+  // a separator (".", ",", ":") only BETWEEN two numbers ("3.14", "1,240").
+  // The distinction is what keeps "+12%" whole without also swallowing the
+  // full stop that ends an Arabic sentence quoting an English term — that
+  // period belongs to the sentence, and dragging it into the run spells
+  // ".PDF".
+  const base = kind.slice(); // snapshot, so neutrals don't chain off each other
+  for (let i = 0; i < kind.length; i++) {
+    if (kind[i] === "sign" && (base[i - 1] === "num" || base[i + 1] === "num"))
+      kind[i] = "num";
+    else if (kind[i] === "sep" && base[i - 1] === "num" && base[i + 1] === "num")
+      kind[i] = "num";
+  }
+
+  const isRun = (i) => kind[i] === "ltr" || kind[i] === "num";
+  const columnBreak = (i) =>
+    i > 0 && slots[i].x - (slots[i - 1].x + slots[i - 1].w) > maxGap;
+
+  let start = -1;
+  for (let i = 0; i <= kind.length; i++) {
+    if (i < kind.length && isRun(i) && !columnBreak(i)) {
+      if (start < 0) start = i;
+      continue;
+    }
+    if (start >= 0) {
+      for (let a = start, b = i - 1; a < b; a++, b--)
+        [glyphs[a], glyphs[b]] = [glyphs[b], glyphs[a]];
+      start = -1;
+    }
+    if (i < kind.length && isRun(i)) start = i; // a run resumes after the break
+  }
+}
+
 // Group one region's glyphs into lines + cells (the core reconstruction).
 //
 // Two phases. Phase 1 assigns glyphs to lines in y-then-x order (the same
@@ -1523,7 +1668,37 @@ function linesFromGlyphs(glyphs) {
   // symbol ("R"/"S" commitment letters at 18pt beside 8pt entries) inflates —
   // emission decisions that mean "what size is this text really" read domH.
   for (const line of lines) {
-    line.glyphs.sort((a, b) => a.transform[4] - b.transform[4]);
+    // Reading order within a line is x order — but for a right-to-left script
+    // that means DESCENDING x. pdf.js hands back one item per glyph in
+    // ascending-x (visual) order, so an Arabic or Hebrew line assembled
+    // left-to-right comes out with its words, and its letters, backwards.
+    // Mirroring x lets the identical cell/gap logic below run unchanged: in
+    // mirrored space the line reads "ascending" like any other, and the cells'
+    // real coordinates are restored afterwards so every downstream geometric
+    // decision (columns, grid bands, marginalia) still sees the true page.
+    const rtl = isRtlLine(line.glyphs);
+    const gx = rtl
+      ? (g) => -(g.transform[4] + (g.width || 0))
+      : (g) => g.transform[4];
+    line.glyphs.sort((a, b) => gx(a) - gx(b));
+    // Geometry is read from the SORTED slot, not from the glyph that ends up
+    // in it. Un-mirroring a left-to-right run below moves glyph strings within
+    // the run, and a glyph carrying its own x back to the front of a run would
+    // make the gap to the previous cell read from the run's far edge — the
+    // column split between an Arabic label and the number beside it vanishes,
+    // or lands in the wrong place. The slots stay in reading order, so the
+    // gap arithmetic that follows is unchanged from the left-to-right case.
+    const slots = line.glyphs.map((g) => ({ x: gx(g), w: g.width || 0 }));
+    if (rtl) {
+      unmirrorLtrRuns(line.glyphs, slots, COLUMN_GAP * line.h);
+      // Multi-character items carry their own visual order, which the run
+      // reversal above cannot reach — it moves whole items, never inside one.
+      line.glyphs = line.glyphs.map((g) => {
+        if (g.str.length < 2 || RTL_CHAR_RE.test(g.str)) return g;
+        const str = unmirrorNeutralEdges(g.str);
+        return str === g.str ? g : { ...g, str };
+      });
+    }
     const cells = [];
     let hh = null; // rounded height -> char count, for the open cell
     let pendingSpace = false;
@@ -1540,13 +1715,13 @@ function linesFromGlyphs(glyphs) {
       cell.domH = domH ?? line.h;
     };
     let prevH = line.h;
-    for (const g of line.glyphs) {
+    for (let i = 0; i < line.glyphs.length; i++) {
+      const g = line.glyphs[i];
       if (!g.str.trim().length) {
         pendingSpace = true;
         continue;
       }
-      const x = g.transform[4];
-      const w = g.width || 0;
+      const { x, w } = slots[i];
       const h = g.height || 10;
       const cell = cells[cells.length - 1];
       const gap = cell ? x - cell.endX : Infinity;
@@ -1564,9 +1739,15 @@ function linesFromGlyphs(glyphs) {
         // not the line's tallest: a 34pt display glyph on the line would
         // stretch the space threshold past a real 8pt-text word gap and weld
         // neighbouring small-type words together ("SSignatory").
+        // A combining mark carries no advance of its own, so the glyph after
+        // it measures its gap from a base letter that the mark has already
+        // been drawn over — wide enough to read as a word space and split an
+        // Arabic word at its vowel mark ("محفوظً ا"). Nothing follows a mark
+        // across a real word boundary, so suppressing the space is safe.
         const needsSpace =
           (pendingSpace || gap > WORD_GAP * Math.min(prevH, h)) &&
           !/\s$/.test(cell.text) &&
+          !COMBINING_MARK_RE.test(cell.text.slice(-1)) &&
           !/^\s/.test(g.str);
         cell.text += (needsSpace ? " " : "") + g.str;
         if (x + w > cell.endX) cell.endX = x + w;
@@ -1577,6 +1758,18 @@ function linesFromGlyphs(glyphs) {
       pendingSpace = false;
     }
     finalize(cells[cells.length - 1]);
+    if (rtl) {
+      // Back out of mirrored space: a cell that spans [-endX, -x] there covers
+      // [x, endX] on the page. The cells themselves stay in READING order —
+      // rightmost first — which is what both a sentence's words and a table
+      // row's columns need in a right-to-left document.
+      for (const c of cells) {
+        const x0 = -c.endX;
+        c.endX = -c.x;
+        c.x = x0;
+      }
+      line.rtl = true;
+    }
     line.cells = cells;
     delete line.glyphs;
   }

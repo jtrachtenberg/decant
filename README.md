@@ -363,6 +363,16 @@ on it fall back gracefully (in-browser conversion or passthrough).
     replacement characters gone from the Markdown and the whole figures
     section reaching the charts PDF (35 → 66 pages), with the other six corpus
     docs byte-identical.
+  - **Right-to-left documents read in the right order.** pdf.js hands back one
+    item per glyph in left-to-right *visual* order, so Arabic and Hebrew pages
+    used to extract backwards — words reversed, table columns flipped, and
+    Arabic spelled in presentation-form code points no reader or search box
+    would match. Decant now detects a line's script direction and reconstructs
+    it in reading order, keeps embedded English terms and numbers unreversed,
+    puts bidi-mirrored punctuation back where it belongs (`12%+` → `+12%`), and
+    normalizes presentation forms to their base letters. The same
+    normalization fixes CJK pages whose fonts map ideographs to lookalike
+    Kangxi radicals. Latin documents are byte-identical.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
