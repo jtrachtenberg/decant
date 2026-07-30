@@ -167,6 +167,82 @@ export function stripFurniture(items, keys) {
 const WORD_GAP = 0.25;
 const COLUMN_GAP = 2.0;
 
+// Gap-derived word spacing assumes a space-delimited script. CJK and Thai are
+// not: they run words together, and their glyphs are set on a wider advance
+// than Latin at the same size, so at heading type the ordinary inter-glyph
+// advance clears WORD_GAP * h and a space lands between EVERY ideograph
+// ("第 一 章 概 要"). That also costs the line its heading detection, since the
+// spaced-out text no longer matches. A gap flanked by two such characters is
+// therefore never a word break, whatever its width. A mixed boundary is left
+// alone: Japanese prose with inline English ("日本語の中に 英単語 that appear
+// inline") reads correctly today and depends on those spaces.
+const UNSPACED_RANGES = [
+  [0x0e00, 0x0e7f], // Thai
+  [0x2f00, 0x2fdf], // Kangxi Radicals
+  [0x3000, 0x303f], // CJK symbols and punctuation
+  [0x3040, 0x30ff], // Hiragana + Katakana
+  [0x3400, 0x4dbf], // CJK Unified Ideographs Extension A
+  [0x4e00, 0x9fff], // CJK Unified Ideographs
+  [0xac00, 0xd7af], // Hangul syllables
+  [0xff00, 0xffef], // Halfwidth and fullwidth forms
+];
+
+function isUnspacedScript(cp) {
+  return cp != null && UNSPACED_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi);
+}
+
+// Last code point of a string, reading a surrogate pair as one character.
+function lastCodePoint(s) {
+  if (!s) return null;
+  const cp = s.codePointAt(s.length - 1);
+  return cp >= 0xdc00 && cp <= 0xdfff && s.length > 1
+    ? s.codePointAt(s.length - 2)
+    : cp;
+}
+
+// True when the characters on both sides of a gap belong to a non-space-
+// delimited script, so no geometric gap between them means a word break.
+function unspacedBoundary(before, after) {
+  return (
+    isUnspacedScript(lastCodePoint(before)) &&
+    isUnspacedScript(after ? after.codePointAt(0) : null)
+  );
+}
+
+// pdf.js makes the same assumption one layer earlier, and gets it wrong the
+// same way: it synthesizes a space of its own whenever the advance between two
+// glyphs lands in its "space in flow" window (0.1–0.6 of the font size). CJK
+// display type is routinely letterspaced by a fraction of an em, so a heading
+// arrives from the text layer already blown apart ("第 一 章 概 要") — with the
+// knock-on that the line no longer matches as a heading. Those spaces are
+// removed here, before anything measures or splits the text.
+//
+// Only a space with an ISOLATED unspaced-script character on BOTH sides goes.
+// That is the letterspaced-run fingerprint, and it spares a genuine CJK word
+// space: in "山田 太郎" neither 田 nor 太 stands alone. Spaces BETWEEN pdf.js
+// runs are never touched either — they carry the real break in "第一章 概要".
+function isolatedUnspacedChar(s, i, outward) {
+  if (i < 0 || i >= s.length || !isUnspacedScript(s.codePointAt(i)))
+    return false;
+  const j = i + outward;
+  return j < 0 || j >= s.length || s[j] === " ";
+}
+
+function unspaceLetterspacedRun(s) {
+  if (!s.includes(" ")) return s;
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (
+      s[i] === " " &&
+      isolatedUnspacedChar(s, i - 1, -1) &&
+      isolatedUnspacedChar(s, i + 1, 1)
+    )
+      continue;
+    out += s[i];
+  }
+  return out;
+}
+
 // Paragraph break when the vertical gap to the previous line exceeds this
 // multiple of line height.
 const PARA_GAP = 1.6;
@@ -347,9 +423,15 @@ export function textLayerGarble(items) {
 // page's call, which is what lets a short page-break remainder keep reading
 // column-first (see columnRegions).
 export function reconstructPage(items, columnHint = null) {
-  let glyphs = items.filter(
-    (it) => typeof it.str === "string" && it.str.length
-  );
+  // Letterspacing is undone first, so column detection, grid banding and the
+  // char counts all measure the text as written. The run's advance width is
+  // left alone: the spacing was really painted, so the box extent is honest.
+  let glyphs = items
+    .filter((it) => typeof it.str === "string" && it.str.length)
+    .map((it) => {
+      const str = unspaceLetterspacedRun(it.str);
+      return str === it.str ? it : { ...it, str };
+    });
   // A broken text layer: the undecodable runs aren't content, they're a font
   // we can't read painting artwork. Dropping them before reconstruction takes
   // the noise out of the output AND stops it polluting column/grid detection
@@ -1076,7 +1158,13 @@ function gridLines(grid) {
         for (const b of rs) {
           const gap = b.x0 - cover;
           if (text && gap > COLUMN_GAP * row.h) break;
-          if (text && gap > WORD_GAP * row.h && !/\s$/.test(text)) text += " ";
+          if (
+            text &&
+            gap > WORD_GAP * row.h &&
+            !/\s$/.test(text) &&
+            !unspacedBoundary(text, b.g.str)
+          )
+            text += " ";
           text += b.g.str;
           if (b.x1 > cover) cover = b.x1;
         }
@@ -1565,7 +1653,9 @@ function linesFromGlyphs(glyphs) {
         // stretch the space threshold past a real 8pt-text word gap and weld
         // neighbouring small-type words together ("SSignatory").
         const needsSpace =
-          (pendingSpace || gap > WORD_GAP * Math.min(prevH, h)) &&
+          (pendingSpace ||
+            (gap > WORD_GAP * Math.min(prevH, h) &&
+              !unspacedBoundary(cell.text, g.str))) &&
           !/\s$/.test(cell.text) &&
           !/^\s/.test(g.str);
         cell.text += (needsSpace ? " " : "") + g.str;

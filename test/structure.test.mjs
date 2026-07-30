@@ -281,6 +281,71 @@ test("a single-side fragment does not adopt the carried gutter", () => {
   assert.equal(linesToText(lines), "left only one\nleft only two");
 });
 
+// --- Word spacing in scripts that don't delimit words with spaces ----------
+// Live repro (2026-07-30, cjk-mincho.pdf): every heading in a Japanese PDF came
+// out as "第 一 章 概 要" and, being spaced out, no longer read as a heading.
+// Two independent sources, one assumption — that a gap means a word break.
+
+test("letterspaced CJK heading loses the fake spaces and reads as a heading", () => {
+  // pdf.js's own doing: it synthesizes a space whenever the advance between
+  // glyphs lands in its space-in-flow window, so display type letterspaced by a
+  // fraction of an em arrives pre-spaced INSIDE the run string. The real space
+  // between the two runs is a separate item and must survive.
+  const md = linesToMarkdown(
+    reconstructLines([
+      item("第 一 章", 0, 200, { w: 46, h: 14 }),
+      item(" ", 46, 200, { w: 7, h: 0 }),
+      item("概 要", 53, 200, { w: 30, h: 14 }),
+      item("日本語の本文が一行目です。", 0, 170, { w: 130, h: 10 }),
+      item("二行目の本文が続きます。", 0, 158, { w: 120, h: 10 }),
+      item("三行目の本文で終わります。", 0, 146, { w: 130, h: 10 }),
+    ])
+  );
+  assert.match(md, /^#+ 第一章 概要$/m);
+});
+
+test("a genuine CJK word space inside a run is kept", () => {
+  // Only ISOLATED characters on both sides mark a letterspaced run; in
+  // "山田 太郎" neither 田 nor 太 stands alone, so the space is real.
+  const lines = reconstructLines([item("山田 太郎", 0, 100, { w: 50, h: 10 })]);
+  assert.equal(linesToText(lines), "山田 太郎");
+});
+
+test("CJK glyphs at heading size get no gap-derived space", () => {
+  // Our own WORD_GAP rule, the second source: CJK is set on a wider advance
+  // than Latin, so at 20pt the ordinary inter-glyph gap (6 > 0.25*20) would
+  // have put a space between every ideograph.
+  const glyphs = ["第", "一", "章"].map((c, i) =>
+    item(c, i * 26, 200, { w: 20, h: 20 })
+  );
+  const lines = reconstructLines([
+    ...glyphs,
+    item("本文の一行目です。", 0, 170, { w: 90, h: 10 }),
+    item("本文の二行目です。", 0, 158, { w: 90, h: 10 }),
+  ]);
+  assert.match(linesToText(lines), /^第一章$/m);
+});
+
+test("a CJK/Latin boundary still gets its space", () => {
+  // Mixed Japanese prose with inline English reads correctly today and depends
+  // on these spaces — only a gap flanked by two unspaced-script characters is
+  // suppressed.
+  const lines = reconstructLines([
+    item("日本語", 0, 100, { w: 60, h: 20 }),
+    item("English", 66, 100, { w: 70, h: 20 }),
+    item("表記", 142, 100, { w: 40, h: 20 }),
+  ]);
+  assert.equal(linesToText(lines), "日本語 English 表記");
+});
+
+test("Latin word spacing is unchanged at the same geometry", () => {
+  const lines = reconstructLines([
+    item("Big", 0, 100, { w: 20, h: 20 }),
+    item("Title", 26, 100, { w: 50, h: 20 }),
+  ]);
+  assert.equal(linesToText(lines), "Big Title");
+});
+
 test("empty input yields empty output", () => {
   assert.equal(linesToMarkdown(reconstructLines([])), "");
   assert.equal(linesToText(reconstructLines([])), "");
