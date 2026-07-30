@@ -2097,7 +2097,8 @@ function findGutterByColumnStarts(rows, med, exclude = []) {
   const gx = rightBand.x - 1;
 
   // Measure the columns from rows that sit wholly on one side (a full-width
-  // heading straddles gx and is skipped, so it can't collapse the corridor).
+  // heading or intro paragraph straddles gx and is skipped, so it can't
+  // collapse the corridor).
   let leftRows = 0;
   let rightRows = 0;
   let leftMaxX1 = -Infinity;
@@ -2109,6 +2110,17 @@ function findGutterByColumnStarts(rows, med, exclude = []) {
   for (const r of rows) {
     const content = r.boxes.filter((b) => !b.ws);
     if (!content.length) continue;
+    // Full-width furniture is skipped by whether it CROSSES gx, not by where
+    // its center lands. A full-width intro paragraph set above the columns is
+    // one box per line running margin to margin, and its center falls a few
+    // points to the LEFT of the gutter (the left margin is wider than the
+    // right on a typical page) — so the center test below counted it as a
+    // left-column row and dragged leftMaxX1 past the right column's start,
+    // making the corridor negative and killing detection on genuinely tall
+    // two-column pages. The crossing margin matches columnRegions' own
+    // full-width test, so a column line overshooting gx by a point or two is
+    // still measured as column content rather than treated as furniture.
+    if (rowSpansGutter(r, gx, med * 0.5)) continue;
     if (content.every((b) => (b.x0 + b.x1) / 2 < gx)) {
       leftRows++;
       for (const b of content) if (b.x1 > leftMaxX1) leftMaxX1 = b.x1;

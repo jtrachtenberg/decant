@@ -147,3 +147,40 @@ test("a symbol rail is never split off from its referent column", () => {
     `orphaned symbol rail:\n${text}`
   );
 });
+
+test("full-width intro paragraph doesn't hide the gutter below it", () => {
+  // The columns are set on independent baselines (no row holds both), so the
+  // per-row gutter gap sees nothing and detection falls to the column-starts
+  // path. Above them sits a full-width intro paragraph whose lines run margin
+  // to margin — and whose CENTER lands left of the gutter, because the left
+  // margin is wider than the right. That paragraph used to be counted as
+  // left-column content, dragging the left column's right edge past the right
+  // column's start, so the whitespace-corridor check measured a NEGATIVE
+  // corridor and rejected a perfectly good two-column page. Both streams then
+  // interleaved line by line into false prose (real instance: a two-column
+  // financial primer's page 33).
+  const items = [];
+  // Full-width intro: x0=50, x1=540, center 295 — just left of the gutter.
+  for (let k = 0; k < 3; k++) {
+    items.push(item(`intro line ${k} running the full page width`, 50, 400 - k * 14, { w: 490, h: 10 }));
+  }
+  // Two columns, baselines offset by 7pt so no row ever holds both.
+  for (let k = 0; k < 12; k++) {
+    items.push(item(`LEFT ${k} left column running text`, 50, 300 - k * 14, { w: 230, h: 10 }));
+    items.push(item(`RIGHT ${k} right column running text`, 310, 293 - k * 14, { w: 230, h: 10 }));
+  }
+  const text = linesToText(reconstructLines(items));
+  const lines = text.split("\n");
+  const lastLeft = lines.findLastIndex((l) => l.includes("LEFT "));
+  const firstRight = lines.findIndex((l) => l.includes("RIGHT "));
+  assert.ok(lastLeft >= 0 && firstRight >= 0, `columns missing:\n${text}`);
+  assert.ok(
+    lastLeft < firstRight,
+    `columns interleaved instead of reading left-then-right:\n${text}`
+  );
+  // No line may carry both streams either (the glued-across-gutter failure).
+  assert.ok(
+    !lines.some((l) => l.includes("LEFT ") && l.includes("RIGHT ")),
+    `streams glued into one line:\n${text}`
+  );
+});

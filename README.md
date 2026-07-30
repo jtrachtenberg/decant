@@ -381,6 +381,19 @@ on it fall back gracefully (in-browser conversion or passthrough).
     normalizes presentation forms to their base letters. The same
     normalization fixes CJK pages whose fonts map ideographs to lookalike
     Kangxi radicals. Latin documents are byte-identical.
+  - **A full-width paragraph no longer hides the columns beneath it.** When two
+    columns sit on independent baselines — no printed line holds both — the
+    gutter is recovered from the two left-edge bands, confirmed by a clear
+    whitespace corridor between them. A full-width intro paragraph above the
+    columns was being measured as left-column content (its lines run margin to
+    margin, and their midpoint falls left of the gutter on a page with the
+    usual wider left margin), which put the "left column's right edge" past the
+    right column's start and collapsed the corridor to a negative width. The
+    page then failed detection and read straight across, alternating the two
+    streams line by line. Full-width rows are now identified by whether they
+    *cross* the gutter rather than by where their midpoint lands. Two of seven
+    corpus documents gained correctly ordered pages; the rest are
+    byte-identical.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
