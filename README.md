@@ -363,6 +363,14 @@ on it fall back gracefully (in-browser conversion or passthrough).
     replacement characters gone from the Markdown and the whole figures
     section reaching the charts PDF (35 → 66 pages), with the other six corpus
     docs byte-identical.
+  - **CJK headings keep their words together.** Word spacing was inferred from
+    geometry on both sides of the text layer — pdf.js's own space-in-flow
+    heuristic and Decant's gap threshold — which assumes a space-delimited
+    script. Japanese, Chinese, Korean and Thai are not, and their display type
+    is set on a wide enough advance that headings arrived split character by
+    character ("第 一 章 概 要"), losing their heading markers with it. A gap
+    flanked by two non-space-delimited characters no longer makes a word break,
+    while a mixed boundary (Japanese prose with inline English) still does.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
