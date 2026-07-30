@@ -94,7 +94,14 @@ export const PDFJS_DOC_OPTIONS = {
 
 const IMAGE_OPS = new Set(IMAGE_OP_NAMES.map((name) => pdfjsLib.OPS[name]));
 
-export async function analyzePdf(file) {
+// `onPage` is a read-only observation seam, used by the dev tools
+// (scripts/inspect-pdf.mjs) so a QA readout reports the signals this loop
+// actually produced instead of re-deriving them from a parallel copy (CLI.md
+// §2, C0 — a mirror drifts, and a drifted mirror reports a decision the
+// extension would never make). The extension and the CLI pass nothing. The
+// callback is handed the per-page internals as they are computed; it must not
+// mutate them, and analysis does not depend on anything it returns.
+export async function analyzePdf(file, { onPage } = {}) {
   const data = new Uint8Array(await fileBytes(file));
   const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   // getDocument eagerly spins up a worker; if the open itself rejects
@@ -228,7 +235,7 @@ export async function analyzePdf(file) {
       // figure is the faithful copy. Scan-gated like the image markers —
       // assert only what was seen.
       if (vectorChart) pageMd = appendVectorChartNote(pageMd, label);
-      perPage.push({
+      const entry = {
         chars: countChars(linesToText(lines)),
         images,
         figureImages: scan ? scan.figureImages : null,
@@ -254,10 +261,33 @@ export async function analyzePdf(file) {
         // at all) earns the same cap exemption a scanned page gets.
         garbled: garble.garbled,
         garbledTotal: garble.total,
-      });
+      };
+      perPage.push(entry);
       // Scanned pages with images get a visible omission marker in the output
       // (null = unscanned on a sampled large doc — assert only what was seen).
-      pageMarkdown.push(appendOmittedImagesNote(pageMd, images ?? 0, label));
+      const markdown = appendOmittedImagesNote(pageMd, images ?? 0, label);
+      pageMarkdown.push(markdown);
+      // Everything the page produced, handed to the observer (see onPage
+      // above): the classification signals, the emitted Markdown, and the
+      // intermediates a QA readout would otherwise have to recompute — the
+      // reconstructed lines, the operator scan and the significance options it
+      // was judged with, the icon-key plan, and the document-wide censuses.
+      onPage?.({
+        page: n,
+        label,
+        view: page.view,
+        signals: entry,
+        markdown,
+        lines,
+        items,
+        garble,
+        symbolPlan,
+        vectorChart,
+        scan: scan?.scan ?? null,
+        pageArea: scan?.pageArea ?? null,
+        imageOpts: scan?.opts ?? null,
+        census: { repeatedDims, repeatedFills },
+      });
     }
   } finally {
     // destroy() lives on the loading task in pdf.js v6; it tears down the
@@ -312,21 +342,36 @@ async function scanPage(page) {
 // is a backdrop, not a figure. `repeatedDims` (the document census) demotes
 // cross-page decoration. Also reports vectorChart — the colored-fill
 // symbol-chart signal (raster-gate.js hasVectorChartFills).
+//
+// The raw scan, the page area, and the significance options ride back out
+// alongside the counts so the onPage observer can report the same inputs the
+// judgment used (raster-gate's other gates — decode eligibility, crop bands —
+// take exactly these three).
 function judgePageImages(page, scanned, textItems, repeatedDims, repeatedFills) {
-  if (!scanned) return { images: 0, figureImages: 0, vectorChart: false };
+  if (!scanned) {
+    return {
+      images: 0,
+      figureImages: 0,
+      vectorChart: false,
+      scan: null,
+      pageArea: null,
+      opts: null,
+    };
+  }
   const [vx0, vy0, vx1, vy1] = page.view;
-  const figureImages = countSignificantImages(
-    scanned.scan,
-    (vx1 - vx0) * (vy1 - vy0),
-    {
-      view: page.view,
-      textPoints: textPointsFromItems(textItems),
-      repeatedDims,
-    }
-  );
+  const pageArea = (vx1 - vx0) * (vy1 - vy0);
+  const opts = {
+    view: page.view,
+    textPoints: textPointsFromItems(textItems),
+    repeatedDims,
+  };
+  const figureImages = countSignificantImages(scanned.scan, pageArea, opts);
   return {
     images: scanned.images,
     figureImages,
     vectorChart: hasVectorChartFills(scanned.scan, repeatedFills),
+    scan: scanned.scan,
+    pageArea,
+    opts,
   };
 }

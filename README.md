@@ -91,7 +91,7 @@ What the numbers say:
 - **Conversion is fast**: every document above converted in under ~3 seconds
   (0.2 s for the smallest, 3.1 s for the 627-image data supplement) — no
   noticeable pause between attaching a file and the swap.
-- **Five of the six carry real figures**, so Decant classified them *ambiguous*
+- **All six carry real figures**, so Decant classified every one *ambiguous*
   and would prompt instead of converting silently. Choosing **Convert + attach
   figures** keeps the charts as a cropped mini-PDF and honestly nets each
   attached page back out of the claimed savings.
