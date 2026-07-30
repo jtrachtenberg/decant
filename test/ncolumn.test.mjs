@@ -147,3 +147,147 @@ test("a symbol rail is never split off from its referent column", () => {
     `orphaned symbol rail:\n${text}`
   );
 });
+
+test("full-width intro paragraph doesn't hide the gutter below it", () => {
+  // The columns are set on independent baselines (no row holds both), so the
+  // per-row gutter gap sees nothing and detection falls to the column-starts
+  // path. Above them sits a full-width intro paragraph whose lines run margin
+  // to margin — and whose CENTER lands left of the gutter, because the left
+  // margin is wider than the right. That paragraph used to be counted as
+  // left-column content, dragging the left column's right edge past the right
+  // column's start, so the whitespace-corridor check measured a NEGATIVE
+  // corridor and rejected a perfectly good two-column page. Both streams then
+  // interleaved line by line into false prose (real instance: a two-column
+  // financial primer's page 33).
+  const items = [];
+  // Full-width intro: x0=50, x1=540, center 295 — just left of the gutter.
+  for (let k = 0; k < 3; k++) {
+    items.push(item(`intro line ${k} running the full page width`, 50, 400 - k * 14, { w: 490, h: 10 }));
+  }
+  // Two columns, baselines offset by 7pt so no row ever holds both.
+  for (let k = 0; k < 12; k++) {
+    items.push(item(`LEFT ${k} left column running text`, 50, 300 - k * 14, { w: 230, h: 10 }));
+    items.push(item(`RIGHT ${k} right column running text`, 310, 293 - k * 14, { w: 230, h: 10 }));
+  }
+  const text = linesToText(reconstructLines(items));
+  const lines = text.split("\n");
+  const lastLeft = lines.findLastIndex((l) => l.includes("LEFT "));
+  const firstRight = lines.findIndex((l) => l.includes("RIGHT "));
+  assert.ok(lastLeft >= 0 && firstRight >= 0, `columns missing:\n${text}`);
+  assert.ok(
+    lastLeft < firstRight,
+    `columns interleaved instead of reading left-then-right:\n${text}`
+  );
+  // No line may carry both streams either (the glued-across-gutter failure).
+  assert.ok(
+    !lines.some((l) => l.includes("LEFT ") && l.includes("RIGHT ")),
+    `streams glued into one line:\n${text}`
+  );
+});
+
+// --- Straddling the gutter is not by itself full-width furniture (ADR 0025) --
+// A run that crosses the gutter used to be promoted to a spanning region on
+// that fact alone. Three shapes cross, and they need opposite treatment.
+
+test("a figure's outdented label keeps its own dot-leader value", () => {
+  // The p31 shape: a specification column whose labels sit right of the gutter,
+  // except one outdented a few points left of it. Promoting that label to a
+  // spanning region separated it from the value on its own leader line, which
+  // stayed in the column — so the value read as belonging to the drawing
+  // callout printed above it. Meaning loss, not just lost structure.
+  // Coordinates are the real page's, which matter here: the callout is set in
+  // TALLER type (h=10) than the label (h=8), and it is the callout's own
+  // half-height reach — 5.0pt — that claims a label 4.7pt below it while
+  // leaving that label's leader, 5.4pt below, to start a fresh row.
+  const items = [];
+  // Well-information block, bottom left: gives the left margin its start band.
+  ["Well Number: DTX11", "Project", "U.S.G.S", "Longitude", "Local"].forEach(
+    (s, k) => items.push(item(s, 78, 526 - k * 11, { w: 126, h: 8 }))
+  );
+  // Drawing callouts, left stream, taller type.
+  [
+    [122.7, 659.8, "Locking Cap and Padlock", 93],
+    [169.3, 635.8, "Inner Well Cap", 54],
+    [197.7, 616.8, "Vent hole", 35],
+    [287, 596.4, "Drain", 18],
+    [163.5, 239.6, "Bottom Cap", 45],
+  ].forEach(([x, y, s, w]) => items.push(item(s, x, y, { w, h: 10 })));
+  // Specification column, right of the gutter.
+  [
+    [565.9, "Borehole Diameter", '8 5/8"'],
+    [549.6, "Casing Diameter", '2"'],
+    [536.6, "Material", "PVC, SCH.40"],
+    [415, "Setting", "24-31' BLS"],
+    [245.9, "Total Depth of Well", "30' BLS"],
+  ].forEach(([y, label, val]) => {
+    items.push(item(label, 318, y, { w: 71, h: 8 }));
+    items.push(item("...........", 392, y, { w: 33, h: 8 }));
+    items.push(item(val, 428, y, { w: 70, h: 8 }));
+  });
+  // …and ONE label outdented left of the gutter, level with the first callout,
+  // its leader and value on the next baseline down.
+  items.push(item("Protective Casing", 290.3, 655.1, { w: 65.8, h: 8 }));
+  items.push(item("...........", 357.7, 654.4, { w: 33.3, h: 8 }));
+  items.push(item('6" x 6" steel cover', 391.7, 654.4, { w: 82.7, h: 8 }));
+
+  const text = linesToText(reconstructLines(items));
+  const line = text.split("\n").find((l) => l.includes("Protective Casing"));
+  assert.ok(line, `label missing:\n${text}`);
+  assert.match(
+    line,
+    /6" x 6" steel cover/,
+    `label divorced from its own value — the value now reads as belonging to whatever precedes it:\n${text}`
+  );
+  // And the value must not have attached itself to a drawing callout instead.
+  assert.ok(
+    !text.split("\n").some((l) => /Inner Well Cap|Locking Cap/.test(l) && /steel cover/.test(l)),
+    `value bound to an unrelated callout:\n${text}`
+  );
+});
+
+test("a narrow column header above a value column still spans", () => {
+  // The table-of-contents shape: the gutter falls between the entry labels and
+  // the page numbers, and a short right-hand header ("Page") overhangs it. That
+  // header is ALONE on its row — a header, not one cell of a two-stream row —
+  // and demoting it costs the table the rows below it reconstruct into.
+  const items = [];
+  items.push(item("Page", 510, 400, { w: 25, h: 12 }));
+  const entries = [
+    ["FINANCIAL STATEMENT REQUIREMENTS", "3"],
+    ["LEGISLATIVE UPDATES", "4"],
+    ["SAMPLE FINANCIAL STATEMENTS", "5"],
+    ["Independent Auditors' Report", "7"],
+    ["Balance Sheet", "9"],
+    ["Statement of Operations", "11"],
+  ];
+  entries.forEach(([label, page], k) => {
+    const y = 370 - k * 26;
+    items.push(item(`${label}............`, 72, y, { w: 420, h: 12 }));
+    items.push(item(page, 519, y, { w: 7, h: 12 }));
+  });
+  const md = linesToMarkdown(reconstructLines(items));
+  assert.match(
+    md,
+    /\|\s*FINANCIAL STATEMENT REQUIREMENTS[.…]*\s*\|\s*3\s*\|/,
+    `dot-leader contents table no longer reconstructs its rows:\n${md}`
+  );
+});
+
+test("a letterspaced running footer is not split at the gutter", () => {
+  // The footer shape: one banner broken into several runs, straddling the
+  // gutter. It has row-mates, but they sit on its OWN side — so it is not a
+  // two-stream row, and splitting it severs the banner.
+  const items = [];
+  for (let k = 0; k < 10; k++) {
+    items.push(item(`left column line ${k} of running text`, 42, 300 - k * 14, { w: 150, h: 10 }));
+    items.push(item(`right column line ${k} of running text`, 303, 300 - k * 14, { w: 150, h: 10 }));
+  }
+  items.push(item("CL IMA TE R E", 290.8, 25.9, { w: 24, h: 6 }));
+  items.push(item("OR T 2025", 311.3, 25.9, { w: 27, h: 6 }));
+  items.push(item("MORGAN STANLEY", 375.4, 25.9, { w: 147, h: 6 }));
+  const lines = linesToText(reconstructLines(items)).split("\n");
+  assert.ok(
+    !lines.some((l) => /^\s*CL IMA TE R E\s*$/.test(l)),
+    `letterspaced footer split at the gutter:\n${lines.join("\n")}`
+  );
+});

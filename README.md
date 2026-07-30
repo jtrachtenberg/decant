@@ -381,6 +381,33 @@ on it fall back gracefully (in-browser conversion or passthrough).
     normalizes presentation forms to their base letters. The same
     normalization fixes CJK pages whose fonts map ideographs to lookalike
     Kangxi radicals. Latin documents are byte-identical.
+  - **A full-width paragraph no longer hides the columns beneath it.** When two
+    columns sit on independent baselines — no printed line holds both — the
+    gutter is recovered from the two left-edge bands, confirmed by a clear
+    whitespace corridor between them. A full-width intro paragraph above the
+    columns was being measured as left-column content (its lines run margin to
+    margin, and their midpoint falls left of the gutter on a page with the
+    usual wider left margin), which put the "left column's right edge" past the
+    right column's start and collapsed the corridor to a negative width. The
+    page then failed detection and read straight across, alternating the two
+    streams line by line. Full-width rows are now identified by whether they
+    *cross* the gutter rather than by where their midpoint lands. Two of seven
+    corpus documents gained correctly ordered pages; the rest are
+    byte-identical.
+  - **A label outdented past the gutter keeps its own value**
+    ([ADR 0025](./docs/adr/0025-straddling-runs-are-not-furniture.md)). Crossing
+    the gutter used to be enough, on its own, to treat a run as a full-width
+    heading. On a well-completion figure that promoted one specification label
+    to its own region and left the value on its dot-leader line behind in the
+    column, so a steel-cover dimension read as belonging to an unrelated
+    drawing callout — cleanly, with nothing to signal the error. A crossing run
+    must now also *look* full-width: alone on its baseline (a banner or a column
+    header), starting at the measure's left edge, or covering most of it. And it
+    is only pulled back into a column when its row really holds two streams —
+    when something shares the baseline on the far side of the gutter. Across
+    seven documents no page became newly low-confidence, one became clean, and a
+    financial primer gained a second repaired page whose prose had been glued to
+    a facing table column.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

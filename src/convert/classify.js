@@ -277,6 +277,13 @@ const V_GUTTER = 1.0;
 const MIN_COL_HEIGHT = 8;
 const MIN_COL_ROWS = 4;
 const GAP_FLUSH = 1.8;
+// Crossing the gutter makes a run a CANDIDATE for full-width furniture; these
+// decide whether it really is one (see isFurniture in columnRegions). Furniture
+// starts at the measure's left edge — headings and paragraphs do, including a
+// paragraph's short LAST line, which is why width alone cannot be the test — or
+// else covers most of the measure, as a centred banner does.
+const SPAN_LEFT_TOL = 2; // median heights of indent tolerance at the margin
+const SPAN_WIDE_FRAC = 0.5;
 
 // N-column generalization: after the page splits at its primary gutter, each
 // side may itself hold several side-by-side streams (designed reports run 3–4
@@ -1938,6 +1945,34 @@ function columnRegions(boxes, hint = null, exclude = []) {
   const spanMargin = med * 0.5;
   const crosses = (b) =>
     !b.ws && b.x0 < gx - spanMargin && b.x1 > gx + spanMargin;
+  // Straddling the gutter is not by itself full-width furniture. A figure's
+  // specification label outdented a few points past the gutter ("Protective
+  // Casing", 66pt of a 495pt measure) was promoted to a spanning region and so
+  // separated from the value on its own dot-leader line, which stayed in the
+  // column — the value then read as belonging to whatever callout preceded it,
+  // which is meaning loss, not merely lost structure.
+  //
+  // Three shapes are genuine furniture, and a straddler needs one of them:
+  //   - ALONE on its row. Nothing else shares the baseline, so it is a banner
+  //     or a column header, not one cell of a two-stream row. This is what
+  //     keeps a narrow right-hand header over a value column ("Page", above a
+  //     table of contents' page numbers) spanning, and with it the table the
+  //     rows below it reconstruct into.
+  //   - Starts at the measure's left edge — an ordinary full-width line.
+  //   - Covers most of the measure — a centred or outdented banner.
+  // A straddler with row-mates is none of these: it is that row's content, and
+  // it belongs in the column its center picks, beside its own value.
+  const content0 = boxes.filter((b) => !b.ws);
+  const measureX0 = content0.length
+    ? Math.min(...content0.map((b) => b.x0))
+    : 0;
+  const measureX1 = content0.length
+    ? Math.max(...content0.map((b) => b.x1))
+    : 0;
+  const isFurniture = (cl, rowClusters) =>
+    rowClusters === 1 ||
+    cl.x0 <= measureX0 + SPAN_LEFT_TOL * med ||
+    cl.x1 - cl.x0 >= SPAN_WIDE_FRAC * (measureX1 - measureX0);
   // Tag-rail adoption: a column of 1–2 LETTER chips hugging the gutter from
   // the left (G/RM/S/MT pillar tags beside each disclosure item) annotates
   // the column on its RIGHT — the gutter vote lands in the wide corridor the
@@ -2016,7 +2051,20 @@ function columnRegions(boxes, hint = null, exclude = []) {
         .join(" ")
         .replace(/\s+/g, " ")
         .trim();
-    const spanning = clusters.filter((cl) => cl.boxes.some(crosses));
+    // ...and demoting a straddler only makes sense if its row really holds two
+    // streams: it needs a row-mate on the OPPOSITE side of the gutter from
+    // where it would land. A running footer set in letterspaced type
+    // ("CL IMA TE R E POR T 2025 | MORGAN STANLEY…") also straddles and also
+    // has row-mates, but they sit on its own side — it is one banner broken
+    // into runs, not a row of two columns, and splitting it severs the banner.
+    const clusterSide = (cl) => (cl.x0 + cl.x1) / 2 >= gx;
+    const hasOpposingRowMate = (cl) =>
+      clusters.some((o) => o !== cl && clusterSide(o) !== clusterSide(cl));
+    const spanning = clusters.filter(
+      (cl) =>
+        cl.boxes.some(crosses) &&
+        (isFurniture(cl, clusters.length) || !hasOpposingRowMate(cl))
+    );
     if (spanning.length) {
       flush();
       for (const cl of clusters) {
@@ -2097,7 +2145,8 @@ function findGutterByColumnStarts(rows, med, exclude = []) {
   const gx = rightBand.x - 1;
 
   // Measure the columns from rows that sit wholly on one side (a full-width
-  // heading straddles gx and is skipped, so it can't collapse the corridor).
+  // heading or intro paragraph straddles gx and is skipped, so it can't
+  // collapse the corridor).
   let leftRows = 0;
   let rightRows = 0;
   let leftMaxX1 = -Infinity;
@@ -2109,6 +2158,17 @@ function findGutterByColumnStarts(rows, med, exclude = []) {
   for (const r of rows) {
     const content = r.boxes.filter((b) => !b.ws);
     if (!content.length) continue;
+    // Full-width furniture is skipped by whether it CROSSES gx, not by where
+    // its center lands. A full-width intro paragraph set above the columns is
+    // one box per line running margin to margin, and its center falls a few
+    // points to the LEFT of the gutter (the left margin is wider than the
+    // right on a typical page) — so the center test below counted it as a
+    // left-column row and dragged leftMaxX1 past the right column's start,
+    // making the corridor negative and killing detection on genuinely tall
+    // two-column pages. The crossing margin matches columnRegions' own
+    // full-width test, so a column line overshooting gx by a point or two is
+    // still measured as column content rather than treated as furniture.
+    if (rowSpansGutter(r, gx, med * 0.5)) continue;
     if (content.every((b) => (b.x0 + b.x1) / 2 < gx)) {
       leftRows++;
       for (const b of content) if (b.x1 > leftMaxX1) leftMaxX1 = b.x1;
