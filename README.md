@@ -475,6 +475,26 @@ on it fall back gracefully (in-browser conversion or passthrough).
     artwork and the 9pt margin notes pointing at it are the subject. Such text
     is now read back as its own band, one margin at a time. One of six corpus
     documents is byte-identical; residuals are characterised in the ADR.
+  - **A baseline band is not a printed row** *(in review — see the ADR's status
+    note)* ([ADR 0029](./docs/adr/0029-baseline-bands-and-printed-rows.md)).
+    Row grouping admitted a run when it fell within half the row's *tallest*
+    box, so the largest type on a line set how far that line reached down the
+    page, and the line claimed whatever it reached first rather than whatever
+    was closest. On a well-completion figure a 10pt drawing callout took the
+    specification label 4.7pt below it, leaving that label's own dot leader and
+    value — 0.7pt away — to start a row of their own. Runs now settle onto the
+    nearest baseline in reach. The reason this sat open since ADR 0025 turns out
+    not to be the financial tables it was blamed on: **correct rows destroy the
+    evidence gutter detection runs on**. Where two columns are typeset on
+    independent baselines, no printed line holds both streams, so no printed
+    line shows the corridor between them — the old mis-grouped rows did, and
+    gutter detection had been reading the right answer off the wrong unit. So
+    the two notions are now separate: a *band* (everything printed at about this
+    height) measures the page's vertical whitespace, and a *printed row* (a band
+    settled onto nearest baselines) says which cells share a line. Grid binding,
+    column blocks, the rail detector and column routing read rows; gutter
+    detection reads bands, and is byte-identical across a sweep that moves the
+    corridor around.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
