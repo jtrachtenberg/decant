@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   groupRows,
+  columnRegions,
   reconstructPage,
   linesToMarkdown,
 } from "../src/convert/classify.js";
@@ -162,6 +163,54 @@ test("p31's spec labels keep their own values through reconstruction", () => {
       new RegExp(`${esc(label)}\\.+${esc(value)}`),
       `"${label}" lost its value:\n${md}`
     );
+});
+
+// ADR 0025's straddler demotion asks whether a run crossing the gutter is
+// furniture or one cell of a two-stream row, and answers it from what shares
+// the run's line. Settling is exactly what takes that row-mate away: on the
+// corpus, "Protective Casing" alone on its settled row read as a banner, the
+// span region flushed the accumulated column blocks apart, and messy-scan p31
+// dropped from column-major to y-order — callout, spec, callout, spec. The
+// question is what is printed AT THIS HEIGHT, so it is asked of the band.
+//
+// Two columns on independent baselines: callouts down the left, a specification
+// list on the right whose first label is outdented across the gutter.
+function twoStreamPage() {
+  const boxes = [];
+  for (let i = 0; i < 8; i++) {
+    boxes.push(box(`Callout ${i}`, 123, 659.8 - i * 22, { w: 93, h: 10 }));
+    if (i === 0) {
+      // The straddler: outdented to cross the gutter, and 4.7pt below the
+      // callout but only 0.7pt above its own leader — so settling moves it off
+      // the callout's row and it ends up alone on its line.
+      boxes.push(box("Protective Casing", 290.3, 655.1, { w: 66, h: 8 }));
+      boxes.push(box("..............", 358, 654.4, { w: 33, h: 8 }));
+      boxes.push(box('6" x 6" x 5\' steel cover', 392, 654.4, { w: 82, h: 8 }));
+    } else {
+      boxes.push(box(`Specification ${i}`, 318, 655.1 - i * 22, { w: 200, h: 8 }));
+    }
+  }
+  return boxes;
+}
+
+test("a straddler keeps its column when its row-mate is a band away", () => {
+  const { regions, gutter } = columnRegions(twoStreamPage());
+  assert.ok(gutter !== null && Math.abs(gutter - 317) <= 4, `gutter ${gutter}`);
+  // Exactly two streams: the callout column and the specification column. A
+  // straddler read as furniture splits into a span plus the column fragments
+  // above and below it, and the page then emits in y-order.
+  const texts = regions.map((rg) => rg.map((b) => b.g.str));
+  assert.equal(
+    regions.length,
+    2,
+    `column blocks fragmented into ${regions.length} regions:\n` +
+      texts.map((t) => "  " + t.join(" / ")).join("\n")
+  );
+  assert.ok(texts[0].includes("Callout 7"), "left column lost a callout");
+  assert.ok(
+    texts[1].includes("Protective Casing") && texts[1].includes("Specification 7"),
+    "the straddler left its own column"
+  );
 });
 
 // Settling is for printed rows; the gutter is measured over baseline BANDS,

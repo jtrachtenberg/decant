@@ -475,8 +475,8 @@ on it fall back gracefully (in-browser conversion or passthrough).
     artwork and the 9pt margin notes pointing at it are the subject. Such text
     is now read back as its own band, one margin at a time. One of six corpus
     documents is byte-identical; residuals are characterised in the ADR.
-  - **A baseline band is not a printed row** *(in review — see the ADR's status
-    note)* ([ADR 0029](./docs/adr/0029-baseline-bands-and-printed-rows.md)).
+  - **A baseline band is not a printed row**
+    ([ADR 0029](./docs/adr/0029-baseline-bands-and-printed-rows.md)).
     Row grouping admitted a run when it fell within half the row's *tallest*
     box, so the largest type on a line set how far that line reached down the
     page, and the line claimed whatever it reached first rather than whatever
@@ -494,7 +494,17 @@ on it fall back gracefully (in-browser conversion or passthrough).
     settled onto nearest baselines) says which cells share a line. Grid binding,
     column blocks, the rail detector and column routing read rows; gutter
     detection reads bands, and is byte-identical across a sweep that moves the
-    corridor around.
+    corridor around. Measuring it turned up one more: ADR 0025's rule for
+    telling a full-width banner from one cell of a two-stream row was resting on
+    the very mis-grouping this fixes — its proof that a figure's outdented
+    specification label was *not* a banner was the callout printed level with
+    it, and settling takes that row-mate away. That test now reads bands too.
+    Across the corpus five of 275 pages change, all of them false joins coming
+    apart — two columns 2.2pt out of step gluing into fabricated sentences, a
+    number gluing to the word beside it at a different type size, formula
+    subscripts gluing to their neighbours. No page converges worse, none is
+    newly flagged, and the balance sheets ADR 0025 rejected this on are
+    byte-identical. Residuals in the ADR.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

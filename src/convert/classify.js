@@ -2738,7 +2738,11 @@ function toBox(g) {
 // found among narrow rows only, so a full-width heading bridging it doesn't
 // hide it. Returns an ordered list of box-arrays; falls back to [boxes] (single
 // region, unchanged behavior) whenever no confident column layout is found.
-function columnRegions(boxes, hint = null, exclude = []) {
+// Exported for the row-grouping tests, like groupRows: the straddler rules here
+// are calibrated against pages too large to synthesize whole, and the decision
+// they make is worth pinning at its own level rather than through whatever a
+// forty-line fixture happens to emit.
+export function columnRegions(boxes, hint = null, exclude = []) {
   // Two views of the same page, and they answer different questions (ADR
   // 0029). The GUTTER is a vertical corridor of whitespace, so it is measured
   // over baseline bands: on a page whose columns are typeset on independent
@@ -2846,6 +2850,39 @@ function columnRegions(boxes, hint = null, exclude = []) {
     if (span.length) regions.push(span);
     span = [];
   };
+  // Chain a unit's content boxes into horizontal clusters at the same gap that
+  // splits cells, so a heading typeset as several adjacent glyph runs stays one
+  // unit. Used for both views: the printed row (what routes) and the band (what
+  // the straddler tests below ask about).
+  const clusterize = (unitBoxes, h) => {
+    const content = unitBoxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
+    const out = [];
+    for (const b of content) {
+      const cur = out[out.length - 1];
+      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * h) {
+        cur.boxes.push(b);
+        if (b.x1 > cur.x1) cur.x1 = b.x1;
+        cur.x0 = Math.min(cur.x0, b.x0);
+      } else {
+        out.push({ x0: b.x0, x1: b.x1, boxes: [b] });
+      }
+    }
+    return out;
+  };
+  // "Is this straddler furniture, or one cell of a two-stream row?" is a
+  // question about WHAT IS PRINTED AT THIS HEIGHT — so it is asked of the band,
+  // not of the settled row (ADR 0029). ADR 0025's demotion depends on it: a
+  // figure's outdented specification label ("Protective Casing") is not a
+  // banner, and what proves it is the callout printed level with it across the
+  // gutter. Settling moves that callout onto its own baseline, so asking the
+  // settled row leaves the label alone on its line, reading as furniture, and
+  // the column blocks it spans flush apart.
+  const bandCtx = new Map();
+  for (const bd of bands) {
+    const cls = clusterize(bd.boxes, bd.h);
+    for (const cl of cls) for (const b of cl.boxes) bandCtx.set(b, { cls, cl });
+  }
+
   let prevBottom = null;
   for (const r of rows) {
     // A large vertical gap ends the current column block (e.g. a heading sitting
@@ -2854,20 +2891,9 @@ function columnRegions(boxes, hint = null, exclude = []) {
       flush();
       flushSpan();
     }
-    // Chain the row's content boxes into horizontal clusters; whitespace-only
-    // boxes ride with whichever cluster they sit in (nearest by center).
-    const content = r.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
-    const clusters = [];
-    for (const b of content) {
-      const cur = clusters[clusters.length - 1];
-      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * r.h) {
-        cur.boxes.push(b);
-        if (b.x1 > cur.x1) cur.x1 = b.x1;
-        cur.x0 = Math.min(cur.x0, b.x0);
-      } else {
-        clusters.push({ x0: b.x0, x1: b.x1, boxes: [b] });
-      }
-    }
+    // Whitespace-only boxes ride with whichever cluster they sit in (nearest by
+    // center); the chaining itself is clusterize above.
+    const clusters = clusterize(r.boxes, r.h);
     for (const b of r.boxes) {
       if (!b.ws || !clusters.length) continue;
       const c = (b.x0 + b.x1) / 2;
@@ -2899,12 +2925,17 @@ function columnRegions(boxes, hint = null, exclude = []) {
     // has row-mates, but they sit on its own side — it is one banner broken
     // into runs, not a row of two columns, and splitting it severs the banner.
     const clusterSide = (cl) => (cl.x0 + cl.x1) / 2 >= gx;
-    const hasOpposingRowMate = (cl) =>
-      clusters.some((o) => o !== cl && clusterSide(o) !== clusterSide(cl));
+    // Both tests read the band the straddler is printed in (see bandCtx above);
+    // a cluster with no band context falls back to its own row.
+    const ctxOf = (cl) => bandCtx.get(cl.boxes[0]) || { cls: clusters, cl };
+    const hasOpposingRowMate = (cl) => {
+      const { cls, cl: own } = ctxOf(cl);
+      return cls.some((o) => o !== own && clusterSide(o) !== clusterSide(cl));
+    };
     const spanning = clusters.filter(
       (cl) =>
         cl.boxes.some(crosses) &&
-        (isFurniture(cl, clusters.length) || !hasOpposingRowMate(cl))
+        (isFurniture(cl, ctxOf(cl).cls.length) || !hasOpposingRowMate(cl))
     );
     if (spanning.length) {
       flush();
