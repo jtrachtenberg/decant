@@ -113,11 +113,16 @@ run together, a worked example's two margins offer the column-pair upgrade a
 set of pairwise-aligned blocks and emerge as a table welding one margin's
 sentences to the other's.
 
-This does not settle whether the 4pt statement should be transcribed at all.
-The prop-layer test (ADR 0026) drops a page's smallest cohort only up to 3pt,
-while barring it from setting body height up to 4pt — the two thresholds differ
-deliberately, because a WHO statistics report sets **4pt chart labels that are
-the data**. p25's props sit in that gap, at exactly 4pt, and are transcribed.
+The 4pt statement itself **stays transcribed**, which was weighed and decided
+rather than left open. The prop-layer test (ADR 0026) drops a page's smallest
+cohort only up to 3pt while barring it from setting body height up to 4pt — the
+two thresholds differ deliberately, because a WHO statistics report sets **4pt
+chart labels that are the data**. p25's props sit in that gap at exactly 4pt,
+so dropping them would need a discriminator that size alone cannot supply. And
+the cost of keeping them is low here in a way it was not on p7: this statement
+is a worked example of a fictional company, so transcribing it asserts nothing
+the document does not print, where p7's props were dimensioned artwork whose
+figures a reader would have taken for a real balance sheet.
 
 ## Consequences
 
