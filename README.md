@@ -424,6 +424,36 @@ on it fall back gracefully (in-browser conversion or passthrough).
     per page — and deleting those would be far worse than the artwork this
     catches. Six of seven corpus documents, the WHO report included, are
     byte-identical.
+  - **A ruled line drawn as text no longer costs a table.** A heading rule is
+    sometimes painted not as a stroke but as a long run of one glyph from a
+    symbol font with no character map — the financial primer underscores its
+    "Preferred Stock Versus Common Stock" comparison with **45 and 37
+    repetitions of U+0002**. That cost the page its table twice over: the run
+    sits between the heading row and the first data row, so row grouping
+    bridged the two and swallowed *Voting Rights / Does not vote / May vote*
+    into the header; then its control characters condemned the whole table as
+    corrupt, replacing seven clean rows with the omitted-table note — which in
+    turn routed a 47-page, entirely textual document into the ambiguous prompt
+    and attached page 17 as a "chart page". Such runs are now recognised as
+    rules and dropped. The test is narrow on purpose: **C0 controls only**
+    (undecodable U+FFFD runs already have an owner in the garbled-text signal,
+    and claiming them here would silently withdraw its marker), and only when
+    the run is the item's *entire* content — a corrupted value has readable
+    characters among its junk, so the corruption signal stays intact. An
+    aspect-ratio clause was measured out rather than assumed: ordinary text
+    runs down to 0.165 advance-per-character over height, below the 0.33 of the
+    rule itself, so the populations overlap. Length carries the separation and
+    sits in an empty valley — no homogeneous control run anywhere in the corpus
+    is shorter than 12 characters. The document now converts; five of six
+    corpus documents are byte-identical.
+    - Still open, characterised on the same page: the table's **row-label
+      column is glued onto its first value** ("Callable May be callable"),
+      because a 3-column table inside a 2-column page is invisible to
+      page-level grid detection — full-width row grouping welds each of its
+      rows to whatever the facing column sets at the same baseline. Running
+      grid detection per page-column fixes that page but shatters a
+      sustainability report's 10-column emissions table into five
+      unbound fragments, so it is not the answer as it stands.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
