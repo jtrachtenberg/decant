@@ -446,14 +446,35 @@ on it fall back gracefully (in-browser conversion or passthrough).
     sits in an empty valley — no homogeneous control run anywhere in the corpus
     is shorter than 12 characters. The document now converts; five of six
     corpus documents are byte-identical.
-    - Still open, characterised on the same page: the table's **row-label
-      column is glued onto its first value** ("Callable May be callable"),
-      because a 3-column table inside a 2-column page is invisible to
-      page-level grid detection — full-width row grouping welds each of its
-      rows to whatever the facing column sets at the same baseline. Running
-      grid detection per page-column fixes that page but shatters a
-      sustainability report's 10-column emissions table into five
-      unbound fragments, so it is not the answer as it stands.
+  - **A table's rows no longer have to fill every column**
+    ([ADR 0027](./docs/adr/0027-ragged-grid-binding.md)). Grid detection asked
+    for consecutive rows all beginning content at the same x positions, and
+    every part of that was too strong. A sustainability report's emissions table
+    states `% Change` on its total rows only — sparse by design — so no three
+    consecutive rows ever shared a band set and no table formed at all: the
+    labels were stranded above as a flat list and each short row's figures
+    packed **left**, filing sixteen of twenty-three rows' years one column over.
+    Meanwhile a column of figures is set flush *right*, so its starts range over
+    17pt down one 10pt column, and its heading is set flush left 20pt out again
+    — one row's starts describe the columns only as that row sets them. Bands
+    are now intervals re-derived from the whole run, a row belongs when it fills
+    a majority of them, and a run steps over the rows that don't when they are
+    plainly not rows of the table. A cell that took two lines to set merges into
+    one; two figures stacked never do. The anti-prose guard is rebuilt on the
+    evidence absorbing those rows leaves intact — **vertical extent**: a table's
+    column is exactly as tall as the table, where a page column keeps setting
+    lines past any run of baselines that happens to align inside it. The
+    financial primer's comparison table gains its row-label column ("Callable |
+    May be callable"), both its balance sheets and its income statement bind
+    row-major, an asset manager's TCFD tables complete, and a partnership's
+    cash-flow statement stops arriving as one mega-cell. A table also stops
+    owning the text set *larger* than it: a grid drops the boxes that float
+    beside it, which is right for a chart's axis labels — furniture, set at or
+    below the size of what it annotates — and exactly backwards on a page
+    teaching how to read an income statement, where the statement is 4pt
+    artwork and the 9pt margin notes pointing at it are the subject. Such text
+    is now read back as its own band, one margin at a time. One of six corpus
+    documents is byte-identical; residuals are characterised in the ADR.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
