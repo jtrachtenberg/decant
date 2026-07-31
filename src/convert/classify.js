@@ -594,9 +594,7 @@ export function reconstructPage(items, columnHint = null) {
   // are really the page's column origins (three aligned prose columns pass
   // the aligned-starts test too) is rejected and falls through to column
   // reflow instead — formalizing it would emit prose as a fake pipe table.
-  let grid = detectGrid(glyphs);
-  if (grid && (gridIsPageColumns(grid, glyphs) || gridWrapsLikeProse(grid)))
-    grid = null;
+  const grid = validGrid(glyphs);
   if (grid) {
     // Exclude the grid's OWN glyphs by identity, then split the rest at the
     // grid's baseline span. The old code split on glyph *edges* (`y1` =
@@ -755,6 +753,40 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
 function regionProse(regionBoxes, depth) {
   const glyphs = regionBoxes.map((b) => b.g);
   const flat = linesFromGlyphs(glyphs);
+  // An aligned grid INSIDE one page column. The page-level pass cannot see
+  // one: it groups rows across the full page width, so every row of a table
+  // sitting in the right-hand column is welded to whatever the left-hand
+  // column happens to set at the same baseline, and no run of rows shares a
+  // band set any more. public-famous p17 is the case — a 3-column comparison
+  // table inside a 2-column page, where page-level detection finds nothing at
+  // all and the table falls through to the column-split path, which reads it
+  // as two columns and glues each row's label onto its first value.
+  //
+  // The region is the right scale to ask at, because reconstructPage's grid
+  // branch splits the bands above and below the grid and recurses — correct
+  // within a column, but across the full page it would strand the FACING
+  // column's text at those same baselines in neither band. Delegate to that
+  // branch rather than restating it, and only with a grid already in hand: the
+  // mutual recursion is finite because the branch it takes never returns here.
+  //
+  // Confirmed against what came back, not just what was asked: reconstructPage
+  // repairs the glyphs before it looks (drawn rules, undecodable runs, prop
+  // layers), so the grid this saw is not always the grid it finds. Taking the
+  // delegation on trust costs the region its leaf repairs — the symbol-rail and
+  // marginalia passes a multi-panel spread depends on — for a table that was
+  // never emitted.
+  //
+  // A leaf carrying a TAG RAIL keeps its own reading (ADR 0014). Both
+  // structures are real on a phased-disclosure spread — the chips and their
+  // items do line up in bands — but the rail reading is the specific one: it
+  // joins each item's wrapped label into one cell and binds the chips beside
+  // it, where the grid splits the label across rows at whatever baseline the
+  // text broke on.
+  if (validGrid(glyphs) && !railTable(flat, glyphs)) {
+    const { lines } = reconstructPage(glyphs);
+    if (lines.some((l) => l.geom))
+      return { lines, sawTable: true, parts: [lines] };
+  }
   if (depth >= COLUMN_SPLIT_MAX_DEPTH)
     return leafProse(flat, glyphs);
   // A region holding three streams offers several candidate gutters, and the
@@ -1133,88 +1165,544 @@ const GRID_MIN_ROWS = 3;
 const GRID_MIN_COLS = 3;
 const GRID_X_TOL = 6; // px tolerance for "same" column start
 
-// x positions where a row's content segments begin: the first glyph, plus any
-// glyph opening a gap wider than a few word-spaces after the previous.
-function segmentStarts(row) {
+// A row's content segments: runs of boxes separated by more than a few
+// word-spaces. Each carries its extent and its text, so the same pass serves
+// both the band geometry and the content tests that key off it.
+function rowSegments(row) {
   const bs = row.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
-  const starts = [];
-  let cover = -Infinity;
+  const segs = [];
+  let cur = null;
   for (const b of bs) {
-    if (b.x0 - cover > WORD_GAP * row.h * 3) starts.push(b.x0);
-    if (b.x1 > cover) cover = b.x1;
+    const h = b.y1 - b.y0;
+    if (!cur || b.x0 - cur.x1 > WORD_GAP * row.h * 3) {
+      cur = { x0: b.x0, x1: b.x1, h, text: b.g.str };
+      segs.push(cur);
+    } else {
+      cur.x1 = Math.max(cur.x1, b.x1);
+      cur.h = Math.max(cur.h, h);
+      cur.text += b.g.str;
+    }
   }
-  return starts;
+  return segs;
 }
 
-// 1-D cluster of x positions into bands (cluster means), ascending.
-function clusterBands(xs) {
+// Type set at a size the row doesn't otherwise use is not part of its grid: a
+// chart's axis label or a margin note sits on the table's baselines and would
+// otherwise propose a column of its own, which is exactly the fiction gridLines
+// then has to exclude text from (a legend at 6pt beside 10pt rows). Judged per
+// row against that row's own median, so a table set entirely small is untouched
+// and a heading a size or two up still helps place its columns.
+const GRID_BAND_MAX_HEIGHT_RATIO = 1.5;
+
+function gridSegments(row) {
+  const segs = rowSegments(row);
+  if (segs.length < 2) return segs;
+  const med = medianOf(segs.map((s) => s.h));
+  return segs.filter(
+    (s) => s.h > 0 && Math.max(med, s.h) / Math.min(med, s.h) <= GRID_BAND_MAX_HEIGHT_RATIO
+  );
+}
+
+// x positions where a row's content segments begin.
+function segmentStarts(row) {
+  return rowSegments(row).map((s) => s.x0);
+}
+
+// 1-D cluster of x positions into bands, ascending. A band is reported at its
+// LEFT EDGE, not its mean: it names where a column begins, and the column has
+// to contain every start that voted for it — a mean sits right of the widest
+// entry in a right-aligned column, which would push that entry into the column
+// before it.
+function clusterBands(xs, tol = GRID_X_TOL) {
   const bands = [];
   let group = [];
   for (const x of [...xs].sort((a, b) => a - b)) {
-    if (group.length && x - group[group.length - 1] > GRID_X_TOL) {
-      bands.push(group.reduce((s, v) => s + v, 0) / group.length);
+    if (group.length && x - group[group.length - 1] > tol) {
+      bands.push(group[0]);
       group = [];
     }
     group.push(x);
   }
-  if (group.length) bands.push(group.reduce((s, v) => s + v, 0) / group.length);
+  if (group.length) bands.push(group[0]);
   return bands;
 }
 
-// The longest run of consecutive rows that all begin content at the same
-// >= GRID_MIN_COLS bands. Returns { bands, rows } (rows top-to-bottom) or null.
+// How a row sits against a set of bands. A band is a column's LEFT EDGE and a
+// segment belongs to the band it falls in (bandOf), which is how gridLines
+// assigns cells — so a row's fit here and its rendering there cannot disagree.
+//
+// Matching a start to a band by proximity instead (|x - band| <= GRID_X_TOL,
+// as this did) only works for columns set flush left. A column of figures is
+// set flush RIGHT, so each row's start moves with the width of its own number:
+// down one 10pt column of a sustainability report's emissions table the starts
+// range over 17pt, three times the tolerance, and no two rows are ever
+// "aligned". The band interval absorbs that; what it costs is that everything
+// right of the first band lands somewhere, so occupancy — not alignment — is
+// what says a row belongs.
+//
+//   filled    the set of bands the row begins a segment in.
+//   occupied  how many, i.e. filled.size.
+//   left      segments beginning left of the first band, which are outside the
+//             table's column structure altogether.
+function bandFit(bands, starts) {
+  const filled = new Set();
+  let left = 0;
+  for (const x of starts) {
+    const i = bandOf(bands, x, -1);
+    if (i < 0) left++;
+    else filled.add(i);
+  }
+  return { filled, occupied: filled.size, left };
+}
+
+// A row is a WRAPPED CONTINUATION of the row above rather than a row of its
+// own when it sits at line spacing instead of row spacing. Both kinds of gap
+// are present in the same table, so the test is relative to the run's own
+// pitch rather than absolute: a table whose rows are uniformly tight has no
+// gap below this fraction of its median and merges nothing, while a table that
+// double-spaces its rows and single-spaces the wraps inside them separates
+// cleanly. public-famous p17 runs 18pt between rows and 10pt inside them.
+const GRID_WRAP_RATIO = 0.7;
+// ...and no taller, relative to the row it continues, than ordinary variation
+// within one cell's type (a cap-height line against one with descenders).
+const GRID_WRAP_MAX_HEIGHT_RATIO = 1.2;
+// A column-heading row sets no row label, so it is never complete and can
+// never be the seed — yet it is the row that names the table. Exactly one such
+// row is taken, immediately above the body, and only if it fills at least this
+// many bands. One row, because the absorption has to stay this stingy: rows
+// that merely *resemble* the table's column structure are also what N-column
+// prose is made of, and the only tell separating a page of three prose columns
+// from a three-column table is that a table's aligned run is a SLICE of the
+// page with unaligned rows around it (gridIsPageColumns). Swallow those rows
+// and the evidence goes with them. The band floor is what spares p17's own
+// title, which sets one line at the row-label band directly above the header.
+const GRID_HEADER_MIN_BANDS = 2;
+
+// A row belongs to the table when it begins content in this fraction of the
+// bands. Rows that don't fill every band are the normal case, not the
+// exception: a "% Change" column carrying a figure only on total rows leaves
+// two rows in three incomplete, and demanding complete rows means such a table
+// never forms a run at all. What raggedness must NOT do is let a stray line
+// through, so the bar is a majority of the columns — a run of prose beside a
+// diagram begins content in one or two of them, never in six of eleven.
+const GRID_MIN_FILL = 0.5;
+// Rows a run steps over to reach the next row that does belong. A wrapped cell
+// leaves one such row (sometimes two, for a three-line cell) and the run has to
+// cross it or the table ends at its first wrap. Bounded, and bounded tightly,
+// because the growth is what stops the run walking off into the page: prose
+// above a table has no belonging row after it, so two steps exhaust the credit
+// and growth halts.
+const GRID_RUN_BRIDGE = 2;
+// ...and only over rows that begin content in ONE band. A row a run steps over
+// has to be plainly NOT a row of the table — a cell's second line, a group
+// label on its own baseline — because a row that fills a middling share of the
+// bands is the one piece of evidence that says the bands aren't a table's at
+// all. Two of the reasons are both on the same report: three columns of prose
+// break into aligned runs exactly where a paragraph ends in one column, leaving
+// a row that fills the other two; and a page that sets a table beside a column
+// of body text alternates one row of each, so anything more generous swallows
+// the facing column line by line.
+const GRID_BRIDGE_MAX_BANDS = 1;
+
+// The longest run of consecutive rows built on one set of column bands.
+// Returns { bands, rows, wraps } (rows top-to-bottom, wraps a parallel array of
+// booleans marking rows that continue the row above) or null.
+//
+// A seed row's own segment starts propose the bands; the run then grows over
+// rows that fill a majority of them, and the bands are RE-DERIVED from every
+// row the run collected. That second step matters as much as the first. One
+// row's starts describe the columns only as that row happens to set them —
+// under a right-aligned column, a short number and a long one begin 17pt
+// apart, and a header label set flush left begins 20pt left of both. Clustering
+// the whole run's starts recovers each column's true left edge, so the header
+// lands over its own figures instead of one column across.
 function detectGrid(glyphs) {
-  const rows = groupRows(glyphs.map(toBox));
+  // Whitespace-only rows are transparent here. They begin no segment, so they
+  // are neither a row of the table nor anything else, but a run that stops at
+  // one loses whatever lies beyond it — and a table's heading row is routinely
+  // separated from its body by exactly such a row, the blank baseline left
+  // where a ruled line used to sit (isDrawnRule). Their gaps would also
+  // corrupt the wrap pitch, splitting one row spacing into two short ones.
+  const rows = groupRows(glyphs.map(toBox)).filter((r) =>
+    r.boxes.some((b) => !b.ws && b.g.str.trim())
+  );
   if (rows.length < GRID_MIN_ROWS) return null;
-  const starts = rows.map(segmentStarts);
+  const segs = rows.map(gridSegments);
+  const starts = segs.map((ss) => ss.map((s) => s.x0));
 
   let best = null;
   for (let i = 0; i < rows.length; i++) {
-    const bands = clusterBands(starts[i]);
-    if (bands.length < GRID_MIN_COLS) continue;
-    const hits = (s) => bands.every((b) => s.some((x) => Math.abs(x - b) <= GRID_X_TOL));
-    let j = i;
-    while (j < rows.length && hits(starts[j])) j++;
-    if (j - i >= GRID_MIN_ROWS && (!best || j - i > best.rows.length)) {
-      best = { bands, rows: rows.slice(i, j) };
-    }
+    const cand = gridFromSeed(rows, segs, starts, i);
+    if (!cand) continue;
+    if (
+      !best ||
+      cand.rows.length > best.rows.length ||
+      (cand.rows.length === best.rows.length &&
+        cand.bands.length > best.bands.length)
+    )
+      best = cand;
   }
   return best;
 }
 
+// The grid the row at `seed` proposes, or null.
+function gridFromSeed(rows, segs, starts, seed) {
+  const proposed = clusterBands(starts[seed]);
+  if (proposed.length < GRID_MIN_COLS) return null;
+  // `left` — content outside the columns altogether — disqualifies a row only
+  // while the bands are still one row's proposal, where it says the proposal
+  // has the wrong leftmost column. Against the derived bands it says nothing:
+  // gridLines drops such a box as the floating label it is, and the row is
+  // otherwise a row of the table.
+  const belongs = (bands, strict) => {
+    const floor = Math.max(GRID_MIN_COLS, Math.ceil(bands.length * GRID_MIN_FILL));
+    return (k) => {
+      const f = bandFit(bands, starts[k]);
+      return (!strict || f.left === 0) && f.occupied >= floor;
+    };
+  };
+  // Is the leftmost band a RAIL — a column of markers rather than of text? A
+  // balance sheet numbers its line items down the left edge, and the rows that
+  // carry a label but no figures ("10 Intangibles (goodwill, patents)—",
+  // answered on the line below) fill exactly that band and the label band. They
+  // have to be crossable or the statement breaks into fragments. What must not
+  // be crossable is the same shape made by a facing column of body text, and
+  // the two are told apart by what the leftmost band holds: numbers and short
+  // markers, or sentences.
+  const railFirstBand = (bands, from, to, owns) => {
+    const first = [];
+    for (let k = from; k <= to; k++) {
+      if (!owns(k)) continue;
+      for (const s of segs[k])
+        if (bandOf(bands, s.x0, -1) === 0) first.push(s.text.trim());
+    }
+    return first.every((t) => isTabularCell(t));
+  };
+
+  // A row a run may step over on its way to the next row that belongs, judged
+  // against `ref` — the bands the last belonging row filled.
+  const bridgeable = (bands, rail) => (k, ref) => {
+    const f = bandFit(bands, starts[k]);
+    if (f.occupied <= GRID_BRIDGE_MAX_BANDS) return true;
+    // Or it continues that row and starts nothing of its own: it fills only
+    // columns that row filled, and sets no row label. A cell that took three
+    // lines to set leaves such a row in the middle of a table, and refusing it
+    // ends the table there — an asset manager's TCFD risk table breaks after
+    // two rows, and the rest of its own rows then read as evidence that its
+    // columns are the page's (gridIsPageColumns).
+    //
+    // The row-label column is what keeps this from swallowing a facing page
+    // column: a report that sets body text beside a table alternates one row
+    // of each, and every prose line is "within" the table row above it — but
+    // it begins at the leftmost band, where a continuation never does. Waived
+    // when that band is a rail (railFirstBand), which is the one case where a
+    // row of the table itself legitimately begins there.
+    return (rail || !f.filled.has(0)) && [...f.filled].every((i) => ref.has(i));
+  };
+  const seedBelongs = belongs(proposed, true);
+  if (!seedBelongs(seed)) return null;
+
+  // Grow to the outermost belonging row in each direction, stepping over at
+  // most GRID_RUN_BRIDGE rows at a time. The stepped-over rows come along —
+  // they are a wrapped cell's second line, or a group label set on its own
+  // baseline beside the row it heads, and dropping them would lose text the
+  // page states. What bounds the growth is that the credit is spent unless a
+  // belonging row follows: prose above a table has none, so it stops there.
+  const reach = (bands, from, dir, owns, min, max) => {
+    const spare = bridgeable(bands, railFirstBand(bands, min, max, owns));
+    let last = from;
+    let ref = bandFit(bands, starts[from]).filled;
+    for (let k = from + dir; k >= min && k <= max; k += dir) {
+      if (owns(k)) {
+        last = k;
+        ref = bandFit(bands, starts[k]).filled;
+      } else if (!spare(k, ref) || Math.abs(k - last) > GRID_RUN_BRIDGE) break;
+    }
+    return last;
+  };
+  const lo = reach(proposed, seed, -1, seedBelongs, 0, rows.length - 1);
+  const hi = reach(proposed, seed, 1, seedBelongs, 0, rows.length - 1);
+  // A margin either side: reach() stops at the last row that BELONGS, and a
+  // table's heading row never does — it sets no row label, so on a narrow table
+  // it can never fill enough bands — while a table may equally end on a wrapped
+  // cell. Both live just outside that boundary.
+  const padLo = Math.max(0, lo - GRID_RUN_BRIDGE);
+  const padHi = Math.min(rows.length - 1, hi + GRID_RUN_BRIDGE);
+
+  // Derive the bands by clustering every start the run collected, at the
+  // spacing that separated segments in the first place — two starts closer
+  // than a segment gap are the same column. Rows the run stepped over are
+  // included: a section heading set on its own baseline inside a balance sheet
+  // ("DEPOSIT LIABILITY", flush left of the line items it covers) begins at an
+  // x no other row uses, and a band set that omits it drops its text as a
+  // floating box.
+  const derive = (from, to) => {
+    const runStarts = Array.from({ length: to - from + 1 }, (_, k) => starts[from + k]);
+    return mergeBands(
+      clusterBands(
+        runStarts.flat(),
+        WORD_GAP * medianOf(rows.slice(from, to + 1).map((r) => r.h)) * 3
+      ),
+      runStarts
+    );
+  };
+
+  // Bands and extent settle each other: the seed's starts were only a proposal,
+  // so a row it excluded — a total indented further left than any of its cells
+  // — belongs once the columns are known, and once that row is in the run its
+  // own indent is one of the columns. Two passes reach that fixed point on
+  // every corpus page; more would only re-derive the same set.
+  let bands = derive(lo, hi);
+  let a = seed;
+  let b = seed;
+  for (let pass = 0; pass < 2; pass++) {
+    if (bands.length < GRID_MIN_COLS) return null;
+    const runBelongs = belongs(bands, false);
+    if (!runBelongs(seed)) return null;
+    a = reach(bands, seed, -1, runBelongs, padLo, padHi);
+    b = reach(bands, seed, 1, runBelongs, padLo, padHi);
+    bands = derive(a, b);
+  }
+  if (bands.length < GRID_MIN_COLS) return null;
+  const run = rows.slice(padLo, padHi + 1);
+  const runSegs = segs.slice(padLo, padHi + 1);
+  const fits = run.map((_, k) => bandFit(bands, starts[padLo + k]));
+  a -= padLo;
+  b -= padLo;
+  // A table may END on a wrapped cell, which reach() cannot include — it stops
+  // at the last row that belongs. Extend over continuations at either edge.
+  const wraps = wrapFlags(run, runSegs, fits, bands);
+  while (b + 1 < run.length && wraps[b + 1]) b++;
+  while (a - 1 >= 0 && wraps[a - 1]) a--;
+  // Then the header, if there is one: one row above the body that fills too
+  // few bands to belong — a column-heading row sets no row label, so on a
+  // narrow table it never can — but enough of them to be a heading rather than
+  // stray text, and nothing outside the table's columns.
+  if (a - 1 >= 0) {
+    const f = fits[a - 1];
+    if (f.left === 0 && f.occupied >= GRID_HEADER_MIN_BANDS) a--;
+  }
+  const kept = run.slice(a, b + 1);
+  const keptWraps = wrapFlags(kept, runSegs.slice(a, b + 1), fits.slice(a, b + 1), bands);
+  // The floor counts rows the reader will see: one row and five continuations
+  // of it is not a grid.
+  if (keptWraps.filter((w) => !w).length < GRID_MIN_ROWS) return null;
+  return { bands, rows: kept, wraps: keptWraps };
+}
+
+// Fold adjacent bands that no row ever occupies together. Two columns are two
+// columns because a row can hold both; bands that are never both filled are one
+// column whose content is set at more than one x — a row-label column with an
+// indent level per nesting depth ("Total", indented less than "Total Scope 1
+// and 2", indented less than "Mobile combustion"), or a heading set flush left
+// over figures set flush right. Left as separate bands they become columns of
+// almost entirely empty cells, and the label a reader needs to identify the row
+// lands in a different one for every row.
+//
+// Only ever folds bands closer together than the run's typical column pitch, so
+// a genuinely sparse pair of columns — two alternatives, only one filled per
+// row — stays two columns.
+function mergeBands(bands, rowStarts) {
+  if (bands.length < 2) return bands;
+  const gaps = [];
+  for (let k = 1; k < bands.length; k++) gaps.push(bands[k] - bands[k - 1]);
+  const pitch = medianOf(gaps);
+  const filled = rowStarts.map((ss) => {
+    const f = new Set();
+    for (const x of ss) {
+      const i = bandOf(bands, x, -1);
+      if (i >= 0) f.add(i);
+    }
+    return f;
+  });
+  const out = [bands[0]];
+  const group = [0];
+  for (let k = 1; k < bands.length; k++) {
+    const together = filled.some((f) => group.some((j) => f.has(j) && f.has(k)));
+    if (!together && bands[k] - bands[k - 1] < pitch) {
+      group.push(k);
+      continue;
+    }
+    out.push(bands[k]);
+    group.length = 0;
+    group.push(k);
+  }
+  return out;
+}
+
+// Which rows of a run are wrapped continuations of the row above them. The
+// first row never is.
+//
+// Three things have to hold at once, and each rules out a case the others let
+// through:
+//
+//   Pitch. The row sits at line spacing rather than row spacing, measured
+//   against the run's own pitch (GRID_WRAP_RATIO) — an absolute gap means
+//   nothing, since both kinds are present in the same table. The pitch is taken
+//   between the run's BEST-FILLED rows: those are the table's own, and a run
+//   that stepped over wrapped rows would otherwise let them halve its idea of a
+//   row spacing.
+//
+//   Type size. A continuation is the rest of one cell's sentence, so it is set
+//   at the same size. Without this, a page that runs a large display heading
+//   down the side of its body text merges the two: a sustainability report's
+//   "Our climate change / response to / climate change" banner landed a
+//   fragment on each body baseline, close enough to read as tight spacing, and
+//   the merge spliced sentences that appear nowhere in the document.
+//
+//   Figures don't wrap. A number is complete where it ends; two numbers in one
+//   column on consecutive baselines are two values, never one that ran on. This
+//   is what keeps a densely set table of figures intact — its row spacing is
+//   barely wider than its leading, so pitch alone reads every third row as a
+//   continuation and glues "508" to "516".
+//
+//   Nothing new. A continuation carries on cells that are already there, so it
+//   can only fill columns the row above filled. A row that fills a column that
+//   one left empty is stating something the row above didn't — a section
+//   heading followed by its first entry ("Water (SA)", then "Water withdrawal –
+//   total | Kilolitre | 88 603 | …") sits at exactly a continuation's spacing,
+//   and merging them files three metrics' figures under one label.
+function wrapFlags(run, runSegs, fits, bands) {
+  const gaps = [];
+  for (let k = 1; k < run.length; k++) gaps.push(run[k - 1].y0 - run[k].y0);
+  const most = Math.max(...fits.map((f) => f.occupied));
+  const pitchGaps = [];
+  let prev = -1;
+  run.forEach((row, k) => {
+    if (fits[k].occupied < most) return;
+    if (prev >= 0) pitchGaps.push(run[prev].y0 - row.y0);
+    prev = k;
+  });
+  if (!pitchGaps.length) return run.map(() => false);
+  const pitch = medianOf(pitchGaps);
+  const sameSize = (a, b) => {
+    const hi = Math.max(a.h, b.h);
+    const lo = Math.min(a.h, b.h);
+    return lo > 0 && hi / lo <= GRID_WRAP_MAX_HEIGHT_RATIO;
+  };
+  // A band the two rows both fill where either side is a bare value: two
+  // figures stacked are two entries, and a figure under a heading is that
+  // heading's first row, never the rest of its words.
+  const sharesFigure = (k) => {
+    const above = new Map();
+    for (const s of runSegs[k - 1]) {
+      const i = bandOf(bands, s.x0, -1);
+      if (i >= 0) above.set(i, isBareValue(s.text) || above.get(i));
+    }
+    return runSegs[k].some((s) => {
+      const i = bandOf(bands, s.x0, -1);
+      return (
+        i >= 0 && above.has(i) && (isBareValue(s.text) || above.get(i) === true)
+      );
+    });
+  };
+  const within = (k) => [...fits[k].filled].every((i) => fits[k - 1].filled.has(i));
+  return run.map(
+    (row, k) =>
+      k > 0 &&
+      gaps[k - 1] <= GRID_WRAP_RATIO * pitch &&
+      sameSize(row, run[k - 1]) &&
+      within(k) &&
+      !sharesFigure(k)
+  );
+}
+
+// A cell that states a value and nothing else: a number, a percentage, a
+// dash or "n/a" standing in for one. Deliberately narrower than isTabularCell,
+// which also passes any short phrase.
+const BARE_VALUE_RE = /^[\d.,%+\-()/*\s–—−$£€¥¢₹]+$/;
+
+function isBareValue(text) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  return BARE_VALUE_RE.test(t) || /^n\/?a\*?$/i.test(t);
+}
+
+// A detected grid that survived both prose tells, or null. Shared by the two
+// scales that look for one — the whole page, and each page column in turn
+// (regionProse) — so a grid accepted at one can never be one the other would
+// have thrown out.
+function validGrid(glyphs) {
+  const grid = detectGrid(glyphs);
+  if (!grid) return null;
+  if (gridIsPageColumns(grid, glyphs) || gridWrapsLikeProse(grid)) return null;
+  if (gridHoldsRunningProse(grid)) return null;
+  return grid;
+}
+
+// The third prose tell, and the one the wrap merge makes necessary. Merging
+// continuations means a false grid no longer betrays itself by the shape of
+// its rows — the fragments it used to scatter now assemble into cells that
+// look deliberate. What they cannot disguise is size: a page of prose laid
+// beside a diagram yields cells holding whole paragraphs, several sentences
+// each, where a real table cell is a value or a short phrase. On a governance
+// spread this was the difference between a readable page and one rebuilt as a
+// six-column table whose cells ran to 700 characters of spliced commentary.
+const GRID_MAX_CELL_CHARS = 300;
+
+function gridHoldsRunningProse(grid) {
+  return gridLines(grid).some((l) =>
+    l.cells.some((c) => c.text.length > GRID_MAX_CELL_CHARS)
+  );
+}
+
 // Is a detected "grid" really the page's own column layout? Three (or more)
-// aligned prose columns satisfy detectGrid's aligned-starts test exactly as a
-// bordered table does — the geometry is identical inside the grid's rows. The
-// tell is OUTSIDE them: a real table's interior column positions are private
-// to the table (surrounding prose doesn't start text at a table's second
-// column), while a prose "grid"'s bands are the page's column origins, where
-// rows begin across most of the page height. So: reject the grid when every
-// interior band keeps recurring as a segment start beyond the grid's own rows
-// and its supporters span most of the page. Formalizing such a grid would
-// emit prose as a fake pipe table — and gridLines' floating-box exclusion
-// would silently drop the text that doesn't fit the fiction.
-const PAGE_COLUMN_MIN_SPAN = 0.6; // of the page's content height
+// aligned prose columns satisfy detectGrid's alignment test exactly as a
+// bordered table does — the geometry is identical inside the grid's rows.
+//
+// The tell is VERTICAL EXTENT. A table's column is exactly as tall as the
+// table: every value in it is a row of that table, and nothing at that x
+// position belongs to anything else. A page column is taller than any run of
+// rows that happens to line up inside it — the governance spread of a climate
+// report sets six committee descriptions side by side, and each keeps setting
+// lines at its own x for another ten baselines after the last one they all
+// share. So: measure how far each interior band's content reaches past the
+// grid's own top and bottom row, and reject when that is true of a majority of
+// them. Formalizing such a grid would emit prose as a fake pipe table — and
+// gridLines' floating-box exclusion would silently drop the text that doesn't
+// fit the fiction.
+//
+// Extent rather than the old "the band recurs, and its supporters span most of
+// the page": that test read the aligned run as a SLICE with unaligned rows
+// around it, which only holds while a run is made of complete rows. Once a run
+// absorbs the ragged rows of its own table (GRID_MIN_FILL), a table's remaining
+// rows would be exactly the outside support the old test took as proof of
+// prose, and every ragged table would be rejected as page columns.
 const PAGE_COLUMN_MIN_OUTSIDE_ROWS = 2;
+// How far past the grid a band's content has to reach, in body rows, before it
+// counts as continuing rather than as a footnote or caption that happens to
+// share an x position.
+const PAGE_COLUMN_OVERHANG_ROWS = 2;
+// ...and how many of the interior bands have to do it. Two. One band that keeps
+// going is a coincidence and costs a real table its structure — a conversion
+// table's "To obtain" column shares an x with the two centred formulae below
+// it, and nothing else on that page corroborates. Two independent columns both
+// continuing past the run is a layout, not a coincidence, and no proportion is
+// asked for on top: a table set beside a column of body text weds only the
+// bands the facing column reaches, which on a nine-column table is two of them.
+const PAGE_COLUMN_MIN_BANDS = 2;
 
 function gridIsPageColumns(grid, glyphs) {
-  const rows = groupRows(glyphs.map(toBox));
-  const gridTop = Math.max(...grid.rows.map((r) => r.y1));
+  const boxes = glyphs.map(toBox);
+  const rows = groupRows(boxes);
+  const gridTop = Math.max(...grid.rows.map((r) => r.y0));
   const gridBot = Math.min(...grid.rows.map((r) => r.y0));
-  const pageTop = Math.max(...rows.map((r) => r.y1));
-  const pageBot = Math.min(...rows.map((r) => r.y0));
-  const pageSpan = pageTop - pageBot;
-  if (!(pageSpan > 0)) return false;
-  const outsideGrid = (r) => r.y0 > gridTop || r.y1 < gridBot;
-  return grid.bands.slice(1).every((band) => {
+  const reach = PAGE_COLUMN_OVERHANG_ROWS * medianHeight(boxes);
+  const interior = grid.bands.slice(1);
+  if (!interior.length) return false;
+  let continuing = 0;
+  for (const band of interior) {
     const hits = rows.filter((r) =>
       segmentStarts(r).some((x) => Math.abs(x - band) <= GRID_X_TOL)
     );
-    if (hits.filter(outsideGrid).length < PAGE_COLUMN_MIN_OUTSIDE_ROWS)
-      return false;
-    const top = Math.max(...hits.map((r) => r.y1));
-    const bot = Math.min(...hits.map((r) => r.y0));
-    return top - bot >= PAGE_COLUMN_MIN_SPAN * pageSpan;
-  });
+    const outside = hits.filter((r) => r.y0 > gridTop || r.y0 < gridBot);
+    if (outside.length < PAGE_COLUMN_MIN_OUTSIDE_ROWS) continue;
+    if (
+      outside.some((r) => r.y0 > gridTop + reach || r.y0 < gridBot - reach)
+    )
+      continuing++;
+  }
+  return continuing >= PAGE_COLUMN_MIN_BANDS;
 }
 
 // The second prose tell, for column layouts too local for the page-columns
@@ -1251,8 +1739,10 @@ function gridWrapsLikeProse(grid) {
 }
 
 // Which band an x-position belongs to (largest band start at or left of x).
-function bandOf(bands, x) {
-  let bi = 0;
+// `below` is what an x left of the first band returns — 0 for callers that
+// have already excluded those, -1 for callers that need to know.
+function bandOf(bands, x, below = 0) {
+  let bi = below;
   for (let k = 0; k < bands.length; k++) if (x >= bands[k] - GRID_X_TOL) bi = k;
   return bi;
 }
@@ -1275,7 +1765,7 @@ function bandOf(bands, x) {
 // belong to the attached figure, and shredding them into rows is worse than
 // omitting them.
 function gridLines(grid) {
-  return grid.rows
+  const rowCells = grid.rows
     .map((row) => {
       const buckets = grid.bands.map(() => []);
       for (const b of row.boxes) {
@@ -1302,9 +1792,32 @@ function gridLines(grid) {
         }
         return { text: text.replace(/\s+/g, " ").trim(), x: grid.bands[i], endX: grid.bands[i] };
       });
-      return { y: row.y0, h: row.h, para: false, grid: true, cells };
-    })
-    .filter((l) => l.cells.some((c) => c.text));
+      // `geom` marks this as an ALIGNED-GRID row specifically, as opposed to
+      // the other structures that emit as pipe tables (rail tables, column
+      // pairs). regionProse checks it to confirm the grid it delegated for was
+      // the grid that came back.
+      return { y: row.y0, h: row.h, para: false, grid: true, geom: true, cells };
+    });
+
+  // Fold each wrapped continuation into the cell it continues, per band, so a
+  // cell that took two lines to set arrives as one value ("Seniority of" +
+  // "Dividend"). Done here rather than in detectGrid because the merge is
+  // per-band text, and the bands are only resolved into text at this point.
+  const merged = [];
+  rowCells.forEach((line, k) => {
+    const into = grid.wraps?.[k] ? merged[merged.length - 1] : null;
+    if (!into) {
+      merged.push(line);
+      return;
+    }
+    line.cells.forEach((c, i) => {
+      if (!c.text) return;
+      into.cells[i].text = into.cells[i].text
+        ? `${into.cells[i].text} ${c.text}`
+        : c.text;
+    });
+  });
+  return merged.filter((l) => l.cells.some((c) => c.text));
 }
 
 // Low-confidence signal (Deliverable 2): the caller has just column-split the
