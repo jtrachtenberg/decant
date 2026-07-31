@@ -1196,16 +1196,23 @@ function rowSegments(row) {
   const bs = row.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
   const segs = [];
   let cur = null;
+  let prev = null;
   for (const b of bs) {
-    const h = b.y1 - b.y0;
+    const h = b.h;
     if (!cur || b.x0 - cur.x1 > WORD_GAP * row.h * 3) {
       cur = { x0: b.x0, x1: b.x1, h, text: b.g.str };
       segs.push(cur);
     } else {
       cur.x1 = Math.max(cur.x1, b.x1);
       cur.h = Math.max(cur.h, h);
-      cur.text += b.g.str;
+      // Two ROTATED runs side by side are two LINES of one vertical label, not
+      // two words on one line — a rail reading bottom-to-top sets its second
+      // line alongside its first, an em to the right. Along the page's x they
+      // abut, so without this they arrive spelled together ("Out ofscopes").
+      const line = prev && prev.rot && b.rot && b.x0 >= prev.x1 - GRID_X_TOL;
+      cur.text += (line ? " " : "") + b.g.str;
     }
+    prev = b;
   }
   return segs;
 }
@@ -1446,12 +1453,24 @@ function gridFromSeed(rows, segs, starts, seed) {
   };
   const lo = reach(proposed, seed, -1, seedBelongs, 0, rows.length - 1);
   const hi = reach(proposed, seed, 1, seedBelongs, 0, rows.length - 1);
-  // A margin either side: reach() stops at the last row that BELONGS, and a
-  // table's heading row never does — it sets no row label, so on a narrow table
-  // it can never fill enough bands — while a table may equally end on a wrapped
-  // cell. Both live just outside that boundary.
-  const padLo = Math.max(0, lo - GRID_RUN_BRIDGE);
-  const padHi = Math.min(rows.length - 1, hi + GRID_RUN_BRIDGE);
+  // The window the run may settle inside. `lo`/`hi` above are where content
+  // OUTSIDE the proposal's columns stopped the reach, which is the right test
+  // for choosing a seed but far too strict for a boundary: a table's grand
+  // totals are outdented past every column the seed can see, so on a
+  // sustainability report's emissions table the strict reach halts three rows
+  // early and a fixed two-row margin cannot recover them — the last row ended
+  // up outside the table with its figures spilled into the footnotes. Take the
+  // window from the same reach with that one test dropped, so it is bounded by
+  // how many columns a row fills rather than by where the seed's leftmost is.
+  const windowed = belongs(proposed, false);
+  let padLo = Math.max(
+    0,
+    reach(proposed, seed, -1, windowed, 0, rows.length - 1) - GRID_RUN_BRIDGE
+  );
+  let padHi = Math.min(
+    rows.length - 1,
+    reach(proposed, seed, 1, windowed, 0, rows.length - 1) + GRID_RUN_BRIDGE
+  );
 
   // Derive the bands by clustering every start the run collected, at the
   // spacing that separated segments in the first place — two starts closer
@@ -1473,9 +1492,12 @@ function gridFromSeed(rows, segs, starts, seed) {
 
   // Bands and extent settle each other: the seed's starts were only a proposal,
   // so a row it excluded — a total indented further left than any of its cells
-  // — belongs once the columns are known, and once that row is in the run its
-  // own indent is one of the columns. Two passes reach that fixed point on
-  // every corpus page; more would only re-derive the same set.
+  // — belongs once the columns are known. The second pass is NOT held to the
+  // first pass's reach: the proposal's blind spot can be several rows deep (a
+  // sustainability report's emissions table ends three rows past where its
+  // seed could see, and clipping there left the last row outside the table with
+  // its figures spilled into the footnotes). What bounds it instead is
+  // `belongs` against real columns — a footnote fills one band of fourteen.
   let bands = derive(lo, hi);
   let a = seed;
   let b = seed;
@@ -1488,6 +1510,8 @@ function gridFromSeed(rows, segs, starts, seed) {
     bands = derive(a, b);
   }
   if (bands.length < GRID_MIN_COLS) return null;
+  padLo = Math.max(0, a - GRID_RUN_BRIDGE);
+  padHi = Math.min(rows.length - 1, b + GRID_RUN_BRIDGE);
   const run = rows.slice(padLo, padHi + 1);
   const runSegs = segs.slice(padLo, padHi + 1);
   const fits = run.map((_, k) => bandFit(bands, starts[padLo + k]));
@@ -1639,10 +1663,19 @@ function wrapFlags(run, runSegs, fits, bands) {
 // which also passes any short phrase.
 const BARE_VALUE_RE = /^[\d.,%+\-()/*\s–—−$£€¥¢₹]+$/;
 
+// ...and the placeholder a blank form stands a figure in with: one letter
+// repeated to the shape of the number it stands for, grouped like one
+// ("xx", "xxx,xxx", "(xx,xxx)"). A specimen financial statement is written
+// entirely in them, and to this test they have to count as figures or its rows
+// merge into each other.
+const PLACEHOLDER_RE = /^[\s()$\-–—]*([a-z])\1*(?:[,.\s]\1+)*[\s()%]*$/i;
+
 function isBareValue(text) {
   const t = text.replace(/\s+/g, " ").trim();
   if (!t) return false;
-  return BARE_VALUE_RE.test(t) || /^n\/?a\*?$/i.test(t);
+  return (
+    BARE_VALUE_RE.test(t) || /^n\/?a\*?$/i.test(t) || PLACEHOLDER_RE.test(t)
+  );
 }
 
 // A detected grid that survived both prose tells, or null. Shared by the two
@@ -1779,7 +1812,7 @@ function gridWrapsLikeProse(grid) {
 // reconstruction as their own band (reconstructPage's grid branch), the same
 // treatment the material above and below the grid gets.
 function isAside(grid, box) {
-  const h = box.y1 - box.y0;
+  const h = box.h;
   return h > 0 && h > GRID_BAND_MAX_HEIGHT_RATIO * grid.typeH;
 }
 
@@ -1855,18 +1888,25 @@ function gridLines(grid) {
         rs.sort((a, b) => a.x0 - b.x0);
         let text = "";
         let cover = -Infinity;
+        let prev = null;
         for (const b of rs) {
           const gap = b.x0 - cover;
           if (text && gap > COLUMN_GAP * row.h) break;
+          // Side-by-side ROTATED runs are consecutive LINES of one vertical
+          // label, so they are always word-separated however tightly they sit:
+          // along the page's x they abut, and the word-gap test reads that as
+          // mid-word ("Out ofscopes").
+          const wrapped = prev && prev.rot && b.rot;
           if (
             text &&
-            gap > WORD_GAP * row.h &&
+            (wrapped || gap > WORD_GAP * row.h) &&
             !/\s$/.test(text) &&
             !unspacedBoundary(text, b.g.str)
           )
             text += " ";
           text += b.g.str;
           if (b.x1 > cover) cover = b.x1;
+          prev = b;
         }
         return { text: text.replace(/\s+/g, " ").trim(), x: grid.bands[i], endX: grid.bands[i] };
       });
@@ -2608,17 +2648,44 @@ function linesFromGlyphs(glyphs) {
 
 // --- Column detection: partition glyphs into ordered reading regions -------
 
+// A run's box on the page, from its transform rather than from the assumption
+// that text runs left-to-right. `width` is the advance along the run's OWN
+// baseline and `height` its type size perpendicular to it; where the baseline
+// is the x axis those are the page's width and height, and this reduces
+// exactly to the old `x0 + width`, `y0 + height`.
+//
+// Where it is not, the old reading was wrong by ninety degrees. A sustainability
+// report rails its emissions table with rotated group labels — "Scope 1, 2 and
+// 3" painted bottom-to-top in an 8pt-wide strip down the left margin, spanning
+// the sixty-four points of table it heads. Read as horizontal, that strip
+// became sixty-four points of text sitting ON one baseline, so it welded to
+// whatever was printed there ("Scope 1, 2 and 3Scope 3", "Out ofscopesTotal")
+// and claimed a row of the table for itself.
+//
+// `h` is the TYPE size, kept apart from the box height because for a rotated
+// run they are different measurements: the box is as tall as the label is long.
 function toBox(g) {
-  const x0 = g.transform[4];
-  const y0 = g.transform[5];
+  const [a, b, c, d, e, f] = g.transform;
+  const w = g.width || 0;
+  const h = g.height || 10;
+  const along = Math.hypot(a, b) || 1;
+  const up = Math.hypot(c, d) || 1;
+  const xs = [];
+  const ys = [];
+  for (const [p, q] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+    xs.push(e + (a / along) * p + (c / up) * q);
+    ys.push(f + (b / along) * p + (d / up) * q);
+  }
   // ws: whitespace-only run. Some PDFs fill the column gutter with space
   // glyphs; those are ignored when measuring gaps so the gutter stays visible,
   // but they're still carried into line reconstruction for word spacing.
   return {
-    x0,
-    x1: x0 + (g.width || 0),
-    y0,
-    y1: y0 + (g.height || 10),
+    x0: Math.min(...xs),
+    x1: Math.max(...xs),
+    y0: Math.min(...ys),
+    y1: Math.max(...ys),
+    h,
+    rot: Math.abs(b) > Math.abs(a),
     ws: !g.str.trim().length,
     g,
   };
@@ -3081,7 +3148,7 @@ function groupRows(boxes) {
     });
   const rows = [];
   for (const b of sorted) {
-    const h = b.y1 - b.y0;
+    const h = b.h;
     const last = rows[rows.length - 1];
     if (last && Math.abs(b.y0 - last.y0) <= last.h * 0.5) {
       last.boxes.push(b);
@@ -3104,7 +3171,7 @@ function groupRows(boxes) {
 // the same principle as modeHeight: body runs are long, chart labels short.
 function medianHeight(boxes) {
   const entries = boxes
-    .map((b) => ({ h: b.y1 - b.y0, w: b.g?.str?.trim().length ?? 1 }))
+    .map((b) => ({ h: b.h, w: b.g?.str?.trim().length ?? 1 }))
     .sort((a, b) => a.h - b.h);
   const total = entries.reduce((s, e) => s + e.w, 0);
   if (!total) return 10;
