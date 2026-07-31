@@ -464,6 +464,73 @@ export function textLayerGarble(items) {
   };
 }
 
+// --- Typographic rules drawn as text (Tier 2, SPEC §3.9) ---
+// A ruled line under a column heading is sometimes painted not as a stroke but
+// as a long run of one repeated glyph from a symbol font with no usable
+// ToUnicode — public-famous p17 underscores each of its comparison table's two
+// column headings with 45 and 37 repetitions of U+0002. It is a drawn line
+// wearing a text costume, and leaving it in does damage out of all proportion
+// to its size:
+//   * It sits BETWEEN the heading row and the first data row, so row grouping
+//     bridges the two and the first row of data is swallowed by the header
+//     ("Preferred Stock <2>x45 Voting Rights Does not vote").
+//   * Its control characters then condemn the whole table as corrupt
+//     (tableHasCorruptCells), so a clean 7-row grid is replaced by the omitted-
+//     chart-table note and the page is attached as a figure it never was.
+//
+// Dropped rather than marked, unlike the garbled and prop-text strips above:
+// those delete text that was *meant* to be read and say so. A rule carries no
+// information at all, so removing it loses nothing to announce.
+//
+// Two conditions, both required, and both narrower than they first look:
+//
+//   * C0 controls only, never the undecodable set above. Both classes arrive
+//     by the same broken-ToUnicode route, but U+FFFD/PUA already has an owner
+//     — textLayerGarble measures it per page, marks the loss and strips it —
+//     while nothing owns a C0 run except tableHasCorruptCells, which reads it
+//     as evidence and condemns the table around it. Widening this to U+FFFD
+//     would reach straight into the garbled walls that machinery exists for:
+//     messy-scan sets 1,205 homogeneous U+FFFD runs across 31 pages, and
+//     deleting them here would compute that page's garble ratio as zero and
+//     silently withdraw the marker.
+//
+//   * The run must be the item's ENTIRE content — one control code repeated
+//     end to end. This is what keeps the corruption signal intact: a corrupted
+//     *value* has readable characters among its junk, so it can never qualify,
+//     and laundering one into a clean-looking wrong number would be far worse
+//     than the ruled line this removes.
+//
+// An aspect-ratio clause (a rule is a thin tile, so narrow for its height)
+// looked attractive and was measured out: across the six corpus PDFs ordinary
+// text items run down to 0.165 advance-per-character over height, well below
+// the 0.33 of p17's rule, so the two populations overlap and the test would
+// have deleted real words. Length carries the separation instead, and sits in
+// an empty valley — no homogeneous C0 run anywhere in the corpus is shorter
+// than 12 characters.
+const RULE_RUN_MIN = 8;
+
+// The C0 set tableHasCorruptCells keys on (C0_CONTROL_RE), as a code-point
+// test — this runs over raw items, before any text is assembled to match.
+function isC0Control(cp) {
+  return (
+    cp <= 0x08 ||
+    cp === 0x0b ||
+    cp === 0x0c ||
+    (cp >= 0x0e && cp <= 0x1f) ||
+    cp === 0x7f
+  );
+}
+
+// Is this text item a rule rather than text? See RULE_RUN_MIN above.
+export function isDrawnRule(item) {
+  const s = typeof item?.str === "string" ? item.str.trim() : "";
+  if (s.length < RULE_RUN_MIN) return false;
+  const cp = s.codePointAt(0);
+  if (!isC0Control(cp)) return false;
+  for (let i = 1; i < s.length; i++) if (s.codePointAt(i) !== cp) return false;
+  return true;
+}
+
 // Single-page reconstruction with cross-page column context. `columnHint` is
 // the gutter x the previous page used (or null). Returns { lines, gutter }:
 // callers converting multi-page documents thread `gutter` into the next
@@ -478,6 +545,10 @@ export function reconstructPage(items, columnHint = null) {
   // painted, so the box extent stays honest.
   let glyphs = items
     .filter((it) => typeof it.str === "string" && it.str.length)
+    // Rules drawn as repeated glyphs go first, before anything measures or
+    // groups: their damage (isDrawnRule) is done through row grouping and the
+    // corrupt-cell test, both downstream of here.
+    .filter((it) => !isDrawnRule(it))
     .map((it) => {
       const str = unspaceLetterspacedRun(normalizeCompatText(it.str));
       return str === it.str ? it : { ...it, str };
