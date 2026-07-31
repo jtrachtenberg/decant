@@ -607,7 +607,13 @@ export function reconstructPage(items, columnHint = null) {
     // bottom baselines — every remaining glyph is cleanly above yTop or below
     // yBot. Excluding grid glyphs by set keeps the recursion strictly smaller
     // (so it terminates) regardless of per-glyph baseline jitter.
-    const gridGlyphs = new Set(grid.rows.flatMap((r) => r.boxes.map((b) => b.g)));
+    // ...except the glyphs on those rows that are not the grid's own (isAside).
+    // They sit between yTop and yBot, so neither recursive band would reach
+    // them: without a band of their own they would vanish with no marker.
+    const aside = asideGlyphs(grid);
+    const gridGlyphs = new Set(
+      grid.rows.flatMap((r) => r.boxes.map((b) => b.g)).filter((g) => !aside.has(g))
+    );
     const yTop = Math.max(...grid.rows.map((r) => r.y0));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
     // The prose above/below the grid still deserves the full reconstruction —
@@ -622,11 +628,29 @@ export function reconstructPage(items, columnHint = null) {
       glyphs.filter((g) => !gridGlyphs.has(g) && g.transform[5] < yBot),
       above.gutter ?? columnHint
     );
+    // The band BESIDE the grid, reconstructed the same way. It follows the
+    // table because it is commentary on it — an annotation that points at a
+    // worked example reads as an aside wherever it is placed, while
+    // interleaving it row by row reads as neither.
+    //
+    // One margin at a time. A worked example is annotated from both sides, and
+    // the two notes are unrelated to each other: run together they offer the
+    // column-pair table upgrade a set of pairwise-aligned blocks and emerge as
+    // a two-column table welding one margin's sentences to the other's.
+    const beside = { lines: [] };
+    for (const margin of asideMargins([...aside])) {
+      const { lines: marginLines } = reconstructPage(margin);
+      // Each margin is its own note; a break keeps one from reading on into
+      // the next.
+      if (marginLines.length) marginLines[0].para = true;
+      beside.lines.push(...marginLines);
+    }
     return {
       lines: [
         ...markers,
         ...above.lines,
         ...gridLines(grid),
+        ...beside.lines,
         ...below.lines,
       ],
       gutter: below.lines.length ? below.gutter : above.gutter,
@@ -1487,7 +1511,10 @@ function gridFromSeed(rows, segs, starts, seed) {
   // The floor counts rows the reader will see: one row and five continuations
   // of it is not a grid.
   if (keptWraps.filter((w) => !w).length < GRID_MIN_ROWS) return null;
-  return { bands, rows: kept, wraps: keptWraps };
+  // The table's own type size, carried so the caller can tell the table's text
+  // from anything else sharing its baselines (asideGlyphs).
+  const typeH = medianOf(runSegs.slice(a, b + 1).flatMap((ss) => ss.map((s) => s.h)));
+  return { bands, rows: kept, wraps: keptWraps, typeH };
 }
 
 // Fold adjacent bands that no row ever occupies together. Two columns are two
@@ -1738,6 +1765,56 @@ function gridWrapsLikeProse(grid) {
   return pairs > 0 && wraps / pairs >= GRID_PROSE_MIN_WRAP_RATIO;
 }
 
+// Text sharing a grid's baselines but set LARGER than the grid is not the
+// grid's. gridLines excludes floating boxes and drops their text, which is
+// right for a chart's axis labels and legends — furniture belonging to the
+// figure, and shredding it into data rows is worse than omitting it (ADR 0009).
+// Furniture is set at or below the size of what it annotates. Text set a size
+// tier ABOVE the table is the other way round: the table is the subordinate
+// element, and on a page teaching how to read an income statement it is
+// deliberately too small to read — a prop for the 9pt annotations that are the
+// page's actual subject to point at. Dropping those inverts the page.
+//
+// So they are neither merged into cells nor dropped: they are handed back to
+// reconstruction as their own band (reconstructPage's grid branch), the same
+// treatment the material above and below the grid gets.
+function isAside(grid, box) {
+  const h = box.y1 - box.y0;
+  return h > 0 && h > GRID_BAND_MAX_HEIGHT_RATIO * grid.typeH;
+}
+
+// The glyphs on the grid's rows that aren't the grid's, by that test.
+function asideGlyphs(grid) {
+  const out = new Set();
+  for (const row of grid.rows)
+    for (const b of row.boxes)
+      if (!b.ws && b.g.str.trim() && isAside(grid, b)) out.add(b.g);
+  return out;
+}
+
+// Aside glyphs split into the margins they occupy: x-clusters separated by a
+// corridor wider than any gap inside a line of text. Each is read on its own,
+// top to bottom.
+const ASIDE_MARGIN_GAP = 4; // in body heights
+
+function asideMargins(glyphs) {
+  if (!glyphs.length) return [];
+  const boxes = glyphs.map(toBox).sort((a, b) => a.x0 - b.x0);
+  const gap = ASIDE_MARGIN_GAP * medianHeight(boxes);
+  const groups = [];
+  let cur = null;
+  let cover = -Infinity;
+  for (const b of boxes) {
+    if (!cur || b.x0 - cover > gap) {
+      cur = [];
+      groups.push(cur);
+    }
+    cur.push(b.g);
+    cover = Math.max(cover, b.x1);
+  }
+  return groups.map((g) => g.sort((p, q) => q.transform[5] - p.transform[5]));
+}
+
 // Which band an x-position belongs to (largest band start at or left of x).
 // `below` is what an x left of the first band returns — 0 for callers that
 // have already excluded those, -1 for callers that need to know.
@@ -1771,6 +1848,7 @@ function gridLines(grid) {
       for (const b of row.boxes) {
         if (!b.g.str.trim()) continue;
         if (b.x0 < grid.bands[0] - GRID_X_TOL) continue;
+        if (isAside(grid, b)) continue; // read back as its own band, not a cell
         buckets[bandOf(grid.bands, b.x0)].push(b);
       }
       const cells = buckets.map((rs, i) => {

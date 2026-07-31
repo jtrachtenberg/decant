@@ -467,7 +467,13 @@ on it fall back gracefully (in-browser conversion or passthrough).
     financial primer's comparison table gains its row-label column ("Callable |
     May be callable"), both its balance sheets and its income statement bind
     row-major, an asset manager's TCFD tables complete, and a partnership's
-    cash-flow statement stops arriving as one mega-cell. One of six corpus
+    cash-flow statement stops arriving as one mega-cell. A table also stops
+    owning the text set *larger* than it: a grid drops the boxes that float
+    beside it, which is right for a chart's axis labels — furniture, set at or
+    below the size of what it annotates — and exactly backwards on a page
+    teaching how to read an income statement, where the statement is 4pt
+    artwork and the 9pt margin notes pointing at it are the subject. Such text
+    is now read back as its own band, one margin at a time. One of six corpus
     documents is byte-identical; residuals are characterised in the ADR.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already

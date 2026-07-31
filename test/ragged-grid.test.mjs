@@ -188,6 +188,54 @@ test("a section heading inside a table is carried, not dropped", () => {
   assert.match(md, /\| Tenant deposits \| 31000 \| 32000 \|/, md);
 });
 
+test("an annotation set larger than the table it points at is kept, not dropped", () => {
+  // public-famous p25: a page teaching how to read an income statement sets the
+  // statement itself at 4pt — a prop, deliberately too small to read — and
+  // annotates it from both margins at 9pt. The annotations are the page's
+  // subject. gridLines drops boxes that float beside a grid, which is right for
+  // a chart's axis labels (furniture, set at or below the size of what it
+  // annotates) and exactly backwards here.
+  const items = [
+    item("Item", 200, 400, { h: 4 }),
+    item("2004", 275, 400, { h: 4, w: 20 }),
+    item("2003", 355, 400, { h: 4, w: 20 }),
+  ];
+  [
+    ["Net sales", "76505", "72500"],
+    ["Cost of sales", "53500", "51700"],
+    ["Gross margin", "23005", "20800"],
+    ["Operating income", "10519", "73500"],
+  ].forEach(([label, a, b], r) => {
+    const y = 392 - r * 8;
+    items.push(item(label, 200, y, { h: 4 }));
+    items.push(item(a, 275, y, { h: 4, w: 20 }));
+    items.push(item(b, 355, y, { h: 4, w: 20 }));
+  });
+  // A margin note down each side, on the table's own baselines.
+  ["Net Income", "The difference", "between revenues", "and outlays"].forEach(
+    (t, i) => items.push(item(t, 40, 392 - i * 8, { h: 9, w: 90 }))
+  );
+  ["Usually consists", "of cost of sales", "and selling,", "general expenses"].forEach(
+    (t, i) => items.push(item(t, 440, 392 - i * 8, { h: 9, w: 90 }))
+  );
+  const md = linesToMarkdown(reconstructLines(items));
+  assert.match(md, /\| Net sales \| 76505 \| 72500 \|/, `table lost:\n${md}`);
+  for (const t of [
+    "The difference",
+    "between revenues",
+    "and outlays",
+    "of cost of sales",
+    "general expenses",
+  ])
+    assert.ok(md.includes(t), `annotation dropped: "${t}"\n${md}`);
+  // ...and the two margins are separate notes, not each other's table columns.
+  assert.doesNotMatch(
+    md,
+    /\| The difference \| of cost of sales \|/,
+    `opposite margins welded into one table:\n${md}`
+  );
+});
+
 test("a column that keeps setting lines past the aligned run is a page column", () => {
   // table-heavy p11: side-by-side committee descriptions line up for the few
   // baselines they all happen to share, then each keeps going on its own for

@@ -91,6 +91,34 @@ comparison table inside a 2-column page is invisible to full-width row grouping
 over a leaf that carries a tag rail (ADR 0014), whose reading is the more
 specific one.
 
+### A table does not own the text set larger than it
+
+`gridLines` drops boxes that float beside a grid, which is right for a chart's
+axis label or legend: furniture belonging to the figure, and shredding it into
+data rows is worse than omitting it (ADR 0009, and two tests encode it).
+Furniture is set **at or below** the size of what it annotates.
+
+`public-famous` p25 is the other way round. The page teaches how to read an
+income statement: the statement is set at **4pt** — a prop, deliberately too
+small to read, because the page's subject is the document's format and not its
+figures — and it is annotated from both margins at 9pt. The annotations *are*
+the content. This change makes the page form a grid where it previously did
+not, so the drop policy reached them and deleted twelve words of the only text
+on the page that says anything.
+
+Text set a size tier above the grid is therefore neither merged into cells nor
+dropped. It is handed back to reconstruction as its own band, the same
+treatment the material above and below the grid gets, one margin at a time —
+run together, a worked example's two margins offer the column-pair upgrade a
+set of pairwise-aligned blocks and emerge as a table welding one margin's
+sentences to the other's.
+
+This does not settle whether the 4pt statement should be transcribed at all.
+The prop-layer test (ADR 0026) drops a page's smallest cohort only up to 3pt,
+while barring it from setting body height up to 4pt — the two thresholds differ
+deliberately, because a WHO statistics report sets **4pt chart labels that are
+the data**. p25's props sit in that gap, at exactly 4pt, and are transcribed.
+
 ## Consequences
 
 Across the six-document decantCC corpus, whole-document Markdown:
@@ -106,14 +134,6 @@ Across the six-document decantCC corpus, whole-document Markdown:
 
 Known residuals, all characterised:
 
-- A **margin annotation** running down a table's edge is dropped rather than
-  emitted beside it (`public-famous` p25, 12 words). `gridLines` deliberately
-  drops floating boxes — shredding a chart's axis labels into data rows is worse
-  than omitting them (ADR 0009, and two tests encode it) — and this page now
-  forms a grid where it previously did not. The type-size test that keeps such
-  text out of the band geometry could equally hand it to the recursion as a
-  third band beside *above* and *below*; that is a change to the drop policy,
-  not to this one.
 - Two **section headings** inside a table are absorbed into the label cell of
   the row above (`table-heavy` p31: "on-site (renewable via direct line) Water
   (SA)"). They sit at continuation spacing and continue no figure, so nothing
