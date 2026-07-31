@@ -1874,6 +1874,44 @@ function bandOf(bands, x, below = 0) {
 // a floating box, not a continuation. Their text is dropped: these labels
 // belong to the attached figure, and shredding them into rows is worse than
 // omitting them.
+// A ROTATED label in a table's label area heads a BLOCK of rows, not the one
+// row its baseline happens to fall in — a sustainability report rails its
+// emissions table with "Scope 1 and 2" and "Out of scopes" set bottom-to-top
+// beside the rows they cover. Written into the one row, the label reads as that
+// row's own, and every other row of its block reads as belonging to whatever
+// rail is printed nearest it.
+//
+// It is stated ONCE, on the first row it covers — where a heading goes.
+//
+// Not repeated down the block, because how far the block runs is not knowable
+// from the label. A rail is set centred in its block and is usually much
+// shorter than it: measured against this table, the rail covering eleven rows
+// physically reaches three. Repeating it over just those three claims the group
+// for them and, by the blank cells either side, denies it of the other eight —
+// which reads as a grouping the page never printed. Extending instead (the
+// column partitioned at the midpoints between rails, or each rail grown
+// symmetrically about its centre) was measured too, and over-claims: on this
+// page it files the grand totals under "Out of scopes". A label stated once
+// says less than the page does. A label spread over the wrong rows says
+// something else.
+function railCells(grid, lines) {
+  for (const row of grid.rows) {
+    for (const b of row.boxes) {
+      if (!b.rot || b.ws || !b.g.str.trim()) continue;
+      if (b.x0 < grid.bands[0] - GRID_X_TOL) continue;
+      const i = bandOf(grid.bands, b.x0);
+      const head = lines.find(
+        (l) => l.y >= b.y0 - GRID_X_TOL && l.y <= b.y1 + GRID_X_TOL
+      );
+      if (!head) continue;
+      const text = b.g.str.trim();
+      head.cells[i].text = head.cells[i].text
+        ? `${head.cells[i].text} ${text}`
+        : text;
+    }
+  }
+}
+
 function gridLines(grid) {
   const rowCells = grid.rows
     .map((row) => {
@@ -1882,6 +1920,7 @@ function gridLines(grid) {
         if (!b.g.str.trim()) continue;
         if (b.x0 < grid.bands[0] - GRID_X_TOL) continue;
         if (isAside(grid, b)) continue; // read back as its own band, not a cell
+        if (b.rot) continue; // a rail heads a BLOCK of rows — see railCells below
         buckets[bandOf(grid.bands, b.x0)].push(b);
       }
       const cells = buckets.map((rs, i) => {
@@ -1916,6 +1955,8 @@ function gridLines(grid) {
       // the grid that came back.
       return { y: row.y0, h: row.h, para: false, grid: true, geom: true, cells };
     });
+
+  railCells(grid, rowCells);
 
   // Fold each wrapped continuation into the cell it continues, per band, so a
   // cell that took two lines to set arrives as one value ("Seniority of" +
