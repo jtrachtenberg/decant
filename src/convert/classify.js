@@ -263,6 +263,46 @@ const HEADING_LEVELS = [
 ];
 const HEADING_MAX_LEN = 90; // headings are short; longer lines stay paragraphs
 
+// A prop text layer: type set so far below a page's readable content that it
+// was never meant to be read. An explainer graphic about financial statements
+// (public-famous p7) draws miniature statements at 1.6pt purely as visual
+// structure for the 9pt commentary around them — 6,971 of the page's 9,431
+// characters. That wins modeHeight's character vote outright, making "body"
+// 1.6pt, so every readable line measures 4.5x body and emits as an `# ` H1.
+// Three clauses, applied at two strictnesses (below). A page's smallest type is
+// a prop layer only when ALL of them hold:
+//   *_MAX_PT      the winning cohort must be implausible as body type at all.
+//                 A ratio test alone cannot tell "the winner is artwork" from
+//                 "the page has a big display heading" — ordinary 9pt body under
+//                 a 34pt heading is also a 3.8x spread, and demoting THAT reads
+//                 a legend as a table.
+//   *_RATIO       the readable cohort must be a clear tier taller, not the same
+//                 type at a rounding boundary.
+//   MIN_SHARE     ...and must hold this share of the page's characters, so a
+//                 page that genuinely is almost all fine print, or all props
+//                 with no commentary at all, is left alone.
+//
+// Calibrated against a real false positive rather than in the abstract. WHO
+// statistics pages set 4pt chart labels that ARE the data ("1. Diabetes
+// mellitus", "AFR" — 1,500+ characters of leading-cause names per page) beside
+// 10pt commentary. A 4pt cap with a 2x ratio deleted them, which is far worse
+// than the artwork the test was written to drop.
+//
+// Hence two strictnesses, because the two consumers carry different risk. The
+// DROP path (tinyPropCutoff) discards runs, so it demands 3pt and 3x — which
+// excludes those WHO pages twice over: 4pt exceeds the cap, and at 3x their
+// 10pt commentary stops counting as "clearly taller", taking the share to 0.4%.
+// The VOTE path (modeHeight) only re-measures body height, so it can afford 4pt
+// and 2x — enough to stop the 4pt miniature statements on public-famous p25/p35
+// turning their own commentary into a wall of `# ` H1s, while not touching one
+// character of the WHO labels at that same size. A wrong heading level is
+// visible and recoverable; a deleted sentence is neither.
+const TINY_BODY_MAX_PT = 3;
+const TINY_BODY_RATIO = 3;
+const TINY_BODY_VOTE_MAX_PT = 4;
+const TINY_BODY_VOTE_RATIO = 2;
+const TINY_BODY_MIN_SHARE = 0.15;
+
 // Column-detection thresholds:
 //   V_GUTTER        a column gutter must be at least this many median heights
 //                   wide (measured among narrow rows only, so a full-width
@@ -448,9 +488,9 @@ export function reconstructPage(items, columnHint = null) {
   // for the real text that survives alongside it (a map's captions, a table's
   // page number). The grid-band recursion below re-enters with already
   // stripped glyphs, so this runs once per page and never double-marks.
-  let marker = null;
+  const markers = [];
   if (textLayerGarble(glyphs).garbled) {
-    marker = garbledTextMarker();
+    markers.push(garbledTextMarker());
     glyphs = glyphs
       .map((g) => {
         const str = g.str.replace(UNDECODABLE_GLYPH_RE, "");
@@ -463,7 +503,18 @@ export function reconstructPage(items, columnHint = null) {
       })
       .filter((g) => g.str.trim().length);
   }
-  if (!glyphs.length) return { lines: marker ? [marker] : [], gutter: null };
+  // A prop text layer, same treatment for the same reason: type set below any
+  // readable size is artwork, and leaving it in does double damage — it glues
+  // onto the readable commentary it sits among ("what the company owns and
+  // whatit owes at the report date. Thebalance sheet is always divided into
+  // Investment securities, at cost…") and it presents miniature figures as
+  // pipe tables, which reads as data the page never claimed to state.
+  const propCut = tinyPropCutoff(glyphs);
+  if (propCut != null) {
+    markers.push(tinyPropTextMarker());
+    glyphs = glyphs.filter((g) => Math.round(g.height || 10) > propCut);
+  }
+  if (!glyphs.length) return { lines: markers, gutter: null };
 
   // An aligned grid (a bordered/columnar table) must be read row-major and
   // rebuilt cell-by-cell at its column bands — column-splitting it (below)
@@ -504,7 +555,7 @@ export function reconstructPage(items, columnHint = null) {
     );
     return {
       lines: [
-        ...(marker ? [marker] : []),
+        ...markers,
         ...above.lines,
         ...gridLines(grid),
         ...below.lines,
@@ -532,7 +583,7 @@ export function reconstructPage(items, columnHint = null) {
   }
   // Sorts above the confidence markers: "this text is unreadable" is the
   // stronger claim, and it explains why what follows looks so thin.
-  if (marker) lines.unshift(marker);
+  if (markers.length) lines.unshift(...markers);
   return { lines, gutter };
 }
 
@@ -1339,6 +1390,17 @@ function markerLine(text) {
 // notice that anything was there. It PROMISES an attached figure, so callers
 // must route the page into the figures flow (perPage[i].garbled — the same
 // invariant as hasOmittedChartTable and the vector-chart note).
+// What stands in for a page's prop text layer (tinyPropCutoff). Deliberately
+// makes no promise about an attachment, unlike garbledTextMarker — routing a
+// page into the figures flow is the caller's invariant, and this marker does
+// not earn it. It only records that something unreadable was there, so a thin
+// page doesn't look like a conversion that quietly lost content.
+function tinyPropTextMarker() {
+  return markerLine(
+    "[miniature text omitted — this page sets unreadably small type as diagram artwork rather than content; only the readable text is transcribed]"
+  );
+}
+
 function garbledTextMarker() {
   return markerLine(
     "[this page's text could not be decoded — its fonts carry no readable character map, so the unreadable runs were dropped; the page's content is in the attached figure]"
@@ -2477,6 +2539,48 @@ export function linesToMarkdown(lines, pageLabel = null) {
   return blocks.join("\n\n");
 }
 
+// The rounded height at or below which a page's glyphs are a PROP LAYER —
+// artwork drawn in type, not content — or null when the page has none. Works on
+// glyphs rather than assembled lines because it runs before reconstruction.
+//
+// Uses the STRICTER of the two TINY_BODY_* thresholds, and is meant to disagree
+// with modeHeight's vote gate below: this one deletes text, that one only
+// re-measures. A page may therefore have its 4pt runs barred from defining
+// "body" while those same runs are still transcribed, which is the intended
+// asymmetry — a wrong heading level is visible and recoverable, a deleted
+// sentence is neither.
+function tinyPropCutoff(glyphs) {
+  const counts = new Map();
+  for (const g of glyphs) {
+    const n = g.str.trim().length;
+    if (!n) continue;
+    const k = Math.round(g.height || 10);
+    counts.set(k, (counts.get(k) || 0) + n);
+  }
+  let winner = 0;
+  let bestN = 0;
+  for (const [k, n] of counts) {
+    if (n > bestN) {
+      winner = k;
+      bestN = n;
+    }
+  }
+  if (!winner || winner > TINY_BODY_MAX_PT) return null;
+  let total = 0;
+  let tall = 0;
+  for (const [k, n] of counts) {
+    total += n;
+    if (k >= TINY_BODY_RATIO * winner) tall += n;
+  }
+  if (!total || tall < TINY_BODY_MIN_SHARE * total) return null;
+  // The readability floor, not the winning cohort: once a page is known to draw
+  // type as artwork, every sub-4pt run on it is part of that artwork. This page
+  // also sets its miniature statements' TITLES at 2.9pt, one tier above the
+  // 1.6pt figures, and leaving those in interleaves them through the commentary
+  // ("…or to the [CONSOLIDATED INCOME STATEMENTS] right of Assets").
+  return TINY_BODY_MAX_PT;
+}
+
 // The document's body-text height: the mode of line heights, weighted by
 // text length. Counting lines alone breaks on pages where a figure's label
 // soup outnumbers the prose (WHO-doc chart pages: 40+ tiny 5.5pt fragments vs
@@ -2494,15 +2598,42 @@ function modeHeight(lines) {
       counts.set(k, (counts.get(k) || 0) + c.text.length);
     }
   }
-  let best = 10;
-  let bestN = 0;
-  for (const [k, n] of counts) {
-    if (n > bestN) {
-      best = k;
-      bestN = n;
+  // Character-weighted mode, optionally ignoring everything at or below a
+  // height already judged to be a prop layer.
+  const mode = (above = 0) => {
+    let best = 0;
+    let bestN = 0;
+    for (const [k, n] of counts) {
+      if (k <= above) continue;
+      if (n > bestN) {
+        best = k;
+        bestN = n;
+      }
+    }
+    return best;
+  };
+
+  const winner = mode();
+  // Character weighting fixed the case where tiny labels merely OUTNUMBER body
+  // lines (see above). It cannot fix the inverse: a prop layer that is both
+  // numerous and long, and so wins on characters too. Then the winner is far
+  // smaller than the page's real content rather than the other way round, and
+  // that content still accounts for a substantial share of the text — the
+  // fingerprint of miniature type used as artwork (TINY_BODY_*). Re-take the
+  // vote above the prop layer so body height is the readable text's.
+  if (winner && winner <= TINY_BODY_VOTE_MAX_PT) {
+    let total = 0;
+    let tall = 0;
+    for (const [k, n] of counts) {
+      total += n;
+      if (k >= TINY_BODY_VOTE_RATIO * winner) tall += n;
+    }
+    if (total && tall >= TINY_BODY_MIN_SHARE * total) {
+      const readable = mode(TINY_BODY_VOTE_MAX_PT);
+      if (readable) return readable;
     }
   }
-  return best || 10;
+  return winner || 10;
 }
 
 // Runs of >=2 consecutive lines that each have >=2 cells AND look tabular →

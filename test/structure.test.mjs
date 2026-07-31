@@ -350,3 +350,80 @@ test("empty input yields empty output", () => {
   assert.equal(linesToMarkdown(reconstructLines([])), "");
   assert.equal(linesToText(reconstructLines([])), "");
 });
+
+// --- Prop text layers: type set as artwork, not content (ADR 0026) ----------
+// An explainer graphic draws miniature financial statements at 1.6pt purely as
+// visual structure for the 9pt commentary around them (public-famous p7:
+// 6,971 of the page's 9,431 characters). Those props out-vote the real text on
+// character count, so "body height" became 1.6pt and every readable line
+// measured 4.5x body and emitted as an `# ` H1 — while the prop runs also glued
+// themselves onto the commentary and shipped miniature figures as pipe tables.
+
+// A page of readable commentary beside a block of miniature prop type.
+function propPage({ propH, bodyH = 9, propChars = 40 }) {
+  const items = [];
+  items.push(item("The Balance Sheet: Key Components", 42, 700, { w: 310, h: 20 }));
+  const prose = [
+    "Gives a “snapshot” of the",
+    "company’s financial position at a",
+    "specific point in time—showing",
+    "what the company owns and what",
+    "it owes at the report date. The",
+    "balance sheet is always divided",
+  ];
+  prose.forEach((s, k) =>
+    items.push(item(s, 42, 660 - k * 12, { w: 150, h: bodyH }))
+  );
+  // The prop block: many long runs of unreadable type in a central band.
+  for (let k = 0; k < 22; k++) {
+    items.push(
+      item("x".repeat(propChars), 202, 665 - k * propH * 1.4, {
+        w: 150,
+        h: propH,
+      })
+    );
+  }
+  return items;
+}
+
+test("1.6pt prop type neither sets body height nor reaches the output", () => {
+  const md = linesToMarkdown(reconstructPage(propPage({ propH: 1.6 })).lines);
+  assert.match(md, /miniature text omitted/, `no omission marker:\n${md}`);
+  assert.doesNotMatch(md, /xxxx/, `prop runs survived into the output:\n${md}`);
+  // Body height came from the 9pt commentary, so the prose is NOT a heading…
+  assert.match(
+    md,
+    /^Gives a “snapshot” of the$/m,
+    `readable commentary emitted as a heading:\n${md}`
+  );
+  // …while the genuine 20pt title still is one.
+  assert.match(md, /^# The Balance Sheet: Key Components/m, md);
+});
+
+test("4pt figure labels are kept as content, only barred from the body vote", () => {
+  // The WHO-statistics shape and the reason the drop and vote thresholds
+  // differ: 4pt chart labels naming causes of death ARE the page's data. They
+  // must survive verbatim, while still not defining body height.
+  const md = linesToMarkdown(reconstructPage(propPage({ propH: 4 })).lines);
+  assert.doesNotMatch(md, /miniature text omitted/, `4pt data was dropped:\n${md}`);
+  assert.match(md, /xxxx/, `4pt data vanished from the output:\n${md}`);
+  assert.match(
+    md,
+    /^Gives a “snapshot” of the$/m,
+    `commentary emitted as a heading despite 4pt props:\n${md}`
+  );
+});
+
+test("an ordinary page with a big heading is not treated as props", () => {
+  // The guard the absolute cap exists for: 9pt body under a 34pt display
+  // heading is a 3.8x spread too, and demoting the body would misread the page.
+  const items = [item("A Very Large Display Heading", 42, 700, { w: 300, h: 34 })];
+  for (let k = 0; k < 8; k++)
+    items.push(
+      item(`ordinary body line ${k} of running prose here`, 42, 660 - k * 12, { w: 220, h: 9 })
+    );
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /miniature text omitted/, `ordinary page flagged:\n${md}`);
+  assert.match(md, /^# A Very Large Display Heading/m, md);
+  assert.match(md, /^ordinary body line 0 of running prose here$/m, md);
+});

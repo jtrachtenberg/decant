@@ -408,6 +408,22 @@ on it fall back gracefully (in-browser conversion or passthrough).
     seven documents no page became newly low-confidence, one became clean, and a
     financial primer gained a second repaired page whose prose had been glued to
     a facing table column.
+  - **Type set as artwork is no longer read as body text**
+    ([ADR 0026](./docs/adr/0026-prop-text-layers.md)). An explainer spread about
+    financial statements draws three miniature statements at **1.6pt** — visual
+    structure for the 9pt commentary around them, and 7,163 of the page's 9,431
+    characters. Because body height is a character-weighted vote, those props
+    *became* the body: every readable line then measured 4.5× "body" and the page
+    emitted 32 headings, its own prose among them. The props also glued onto the
+    commentary mid-sentence and shipped the miniature figures as pipe tables —
+    asserting a balance sheet the document never stated. Type this small is now
+    recognised as artwork: barred from setting body height, and dropped from the
+    transcription with a marker in its place. The test is deliberately stricter
+    for dropping than for measuring, because a WHO statistics report sets **4pt
+    chart labels that are the data** — 1,500 characters of leading-cause names
+    per page — and deleting those would be far worse than the artwork this
+    catches. Six of seven corpus documents, the WHO report included, are
+    byte-identical.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
