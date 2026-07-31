@@ -353,6 +353,10 @@ entirely. decantCC's own environment decides which it needs.
   build split) lets `convertFile()` run under Node over all five engines;
   `bench-pdf.mjs` is retargeted onto the shared path (proves parity, kills the
   drift risk). `--mode auto`, Markdown to stdout, `--json`, `--config`, exit codes.
+  `inspect-pdf.mjs` followed later, via `analyzePdf`'s read-only `onPage` seam —
+  it had kept a hand-mirrored copy of the per-page loop and drifted exactly as
+  predicted, printing CONVERT for a document the extension routed *ambiguous*.
+  No dev tool re-implements the analysis now.
 - **C1 — Forced modes. ✅ `markdown` + `figures`.** `--mode markdown` forces
   text-only; `--mode figures` writes the Markdown plus render-free figure files
   to `--out-dir` (zip media / cropped mini-PDF). `passthrough` is intentionally

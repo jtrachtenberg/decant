@@ -68,6 +68,42 @@ test("the worker asset resolves to a file:// URL, dir assets to plain paths", as
   assert.doesNotMatch(getAssetUrl("standard_fonts/"), /^file:/);
 });
 
+test("analyzePdf's onPage seam observes the signals classification used", async () => {
+  // scripts/inspect-pdf.mjs reports the routing decision off this seam instead
+  // of re-deriving the analysis (which is how it once printed CONVERT for a
+  // document the extension routed ambiguous). The contract it depends on: one
+  // call per page, in page order, carrying the same per-page signals that
+  // reached classifyDocument — plus the emitted Markdown for the drill-down.
+  const { installNodeAssets } = await import("../src/cli/node-assets.js");
+  installNodeAssets();
+  const { analyzePdf } = await import("../src/convert/inbrowser.js");
+
+  const seen = [];
+  const { summary, markdown } = await analyzePdf(
+    await fileOf("tables/two_col_table.pdf", "application/pdf"),
+    { onPage: (p) => seen.push(p) }
+  );
+  assert.equal(seen.length, summary.pageCount);
+  assert.deepEqual(
+    seen.map((p) => p.page),
+    seen.map((_, i) => i + 1)
+  );
+  assert.equal(
+    seen.reduce((n, p) => n + p.signals.chars, 0),
+    summary.totalChars
+  );
+  assert.equal(
+    seen.reduce((n, p) => n + p.signals.images, 0),
+    summary.totalImages
+  );
+  // The observed Markdown is the page text that ends up in the document.
+  assert.ok(markdown.includes(seen[0].markdown.trim().split("\n")[0]));
+  // And the intermediates the readout formats rather than recomputes.
+  assert.ok(Array.isArray(seen[0].lines));
+  assert.ok(seen[0].census.repeatedDims instanceof Set);
+  assert.ok(seen[0].census.repeatedFills instanceof Set);
+});
+
 test("convertFile passes an empty document through", async () => {
   const { installNodeAssets } = await import("../src/cli/node-assets.js");
   installNodeAssets();
