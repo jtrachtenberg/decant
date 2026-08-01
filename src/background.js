@@ -16,7 +16,7 @@ import { t } from "./i18n.js";
 import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
-import { capturePage, captureFileName } from "./capture/capture.js";
+import { capturePage, captureFileName, CAPTURE_ERROR_KEYS } from "./capture/capture.js";
 import { menuItems, hostFromMenuId, displayName, FIGURES_MENU_ID } from "./capture/menus.js";
 import { resolveTarget } from "./capture/target.js";
 import { deliverCapture, focusTab, copyToTab, showPageNotice } from "./capture/deliver.js";
@@ -216,8 +216,15 @@ async function runCaptureInner(tab, forcedHost) {
   const result = await capturePage(tab.id, url, { figures: cfg.capture.figures });
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
+    // Named failures arrive as catalogue keys and localize here; anything
+    // else is a raw browser error message, shown as-is — the deliver.js
+    // "no-input" pattern. captureNothingToConvert substitutes the engine's
+    // reason code; the extra argument is ignored by the other keys.
+    const reason = CAPTURE_ERROR_KEYS.includes(result.error)
+      ? t(result.error, result.reason ?? "")
+      : result.error;
     flashBadge("!", "#b3261e");
-    showPageNotice(tab.id, t("noticeCaptureFailed", result.error), "error");
+    showPageNotice(tab.id, t("noticeCaptureFailed", reason), "error");
     return;
   }
 

@@ -17,9 +17,21 @@ export const CAPTURE_SCRIPT = "capture/inject.js";
 const BLOCKED_SCHEMES = /^(chrome|edge|about|moz-extension|chrome-extension|view-source|devtools):/i;
 const BLOCKED_HOSTS = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore|addons\.mozilla\.org)/i;
 
+// Every named capture failure travels as a catalogue key, not prose — the
+// deliver.js "no-input" pattern: the display side (background.js) matches
+// these before substituting anything localized, and an error string that is
+// not one of them is a raw browser message, passed through untranslated.
+export const CAPTURE_ERROR_KEYS = Object.freeze([
+  "captureBlockedInternal",
+  "captureBlockedGallery",
+  "captureScriptMissing",
+  "captureNoResult",
+  "captureNothingToConvert",
+]);
+
 export function captureBlockedReason(url = "") {
-  if (BLOCKED_SCHEMES.test(url)) return "browser-internal pages can't be captured";
-  if (BLOCKED_HOSTS.test(url)) return "the extension gallery can't be captured";
+  if (BLOCKED_SCHEMES.test(url)) return "captureBlockedInternal";
+  if (BLOCKED_HOSTS.test(url)) return "captureBlockedGallery";
   return null;
 }
 
@@ -63,16 +75,17 @@ export async function capturePage(tabId, url = "", opts = {}) {
       func: (o) =>
         globalThis.__decantCapture?.(o) ?? {
           ok: false,
-          error: "capture script did not load",
+          error: "captureScriptMissing",
         },
       args: [{ figures: opts.figures === true }],
     });
     const payload = res?.result;
-    if (!payload) return { ok: false, error: "capture returned no result" };
+    if (!payload) return { ok: false, error: "captureNoResult" };
     if (payload.ok && !payload.markdown) {
       // The engine's own passthrough verdict — a gallery/app page with no
-      // prose. Surfaced as a reason, not an error.
-      return { ...payload, ok: false, error: `nothing to convert (${payload.reason})` };
+      // prose. Surfaced as a reason, not an error; the engine's reason code
+      // rides along in payload.reason for the message's placeholder.
+      return { ...payload, ok: false, error: "captureNothingToConvert" };
     }
     return payload;
   } catch (err) {

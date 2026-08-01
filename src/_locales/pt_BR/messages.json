@@ -277,6 +277,15 @@
     "placeholders": { "host": { "content": "$1" }, "reason": { "content": "$2" } }
   },
 
+  "captureBlockedInternal": { "message": "páginas internas do navegador não podem ser capturadas" },
+  "captureBlockedGallery": { "message": "a galeria de extensões não pode ser capturada" },
+  "captureScriptMissing": { "message": "o script de captura não carregou" },
+  "captureNoResult": { "message": "a captura não retornou nenhum resultado" },
+  "captureNothingToConvert": {
+    "message": "nada para converter ($reason$)",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+
   "deliverCouldNotOpen": {
     "message": "não foi possível abrir $host$: $error$",
     "placeholders": { "host": { "content": "$1" }, "error": { "content": "$2" } }

@@ -277,6 +277,15 @@
     "placeholders": { "host": { "content": "$1" }, "reason": { "content": "$2" } }
   },
 
+  "captureBlockedInternal": { "message": "ブラウザー内部のページはキャプチャできません" },
+  "captureBlockedGallery": { "message": "拡張機能ギャラリーはキャプチャできません" },
+  "captureScriptMissing": { "message": "キャプチャスクリプトが読み込まれませんでした" },
+  "captureNoResult": { "message": "キャプチャが結果を返しませんでした" },
+  "captureNothingToConvert": {
+    "message": "変換できる内容がありません（$reason$）",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+
   "deliverCouldNotOpen": {
     "message": "$host$ を開けませんでした: $error$",
     "placeholders": { "host": { "content": "$1" }, "error": { "content": "$2" } }
