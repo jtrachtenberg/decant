@@ -125,12 +125,86 @@ test("the sentence-with-inline-markup slot marker is present where used", () => 
   }
 });
 
-test("store names and descriptions fit both stores' limits", () => {
+// --- every locale, not just the reference one -------------------------------
+//
+// A translation is data, and these are the ways it can be wrong without
+// anything throwing. Missing keys are deliberately NOT an error: the browser
+// falls back per key, so a partial translation is a supported state and
+// treating it as a failure would make starting one impossible.
+
+const LIMITS = { extName: 75, extNameShort: 45, extDescription: 132 };
+
+// The placeholders a message actually substitutes, as positions rather than
+// names — a translator may rename $host$, but it must still be argument 1.
+const positionsOf = (entry) =>
+  [...entry.message.matchAll(/\$([A-Za-z0-9_@]+)\$/g)]
+    .map((m) => entry.placeholders?.[m[1].toLowerCase()]?.content)
+    .filter(Boolean)
+    .sort();
+
+const locales = readdirSync(join(ROOT, "src/_locales")).map((locale) => ({
+  locale,
+  messages: JSON.parse(
+    readFileSync(join(ROOT, "src/_locales", locale, "messages.json"), "utf8")
+  ),
+}));
+
+test("every locale is a directory the browser will look in", () => {
+  for (const { locale } of locales) {
+    // Chrome matches _locales dirs case-sensitively against BCP-47 with an
+    // underscore before the region: "pt_BR", never "pt-BR" or "PT".
+    assert.match(locale, /^[a-z]{2,3}(_[A-Z]{2})?$/, `unusable locale dir: ${locale}`);
+  }
+  assert.ok(locales.some((l) => l.locale === "en"), "the default_locale must exist");
+});
+
+test("no locale carries a key the catalogue has retired", () => {
+  for (const { locale, messages } of locales) {
+    const stale = Object.keys(messages).filter((key) => !en[key]);
+    assert.deepEqual(stale, [], `${locale} has keys English no longer defines: ${stale.join(", ")}`);
+  }
+});
+
+test("every translated message substitutes what its English original does", () => {
+  // Collected rather than asserted one at a time: a translator wants the whole
+  // list of what to fix, not the first line of it on each re-run.
+  const problems = [];
+  for (const { locale, messages } of locales) {
+    for (const [key, entry] of Object.entries(messages)) {
+      if (!en[key]) continue; // reported by the retired-key test
+      const [got, want] = [positionsOf(entry), positionsOf(en[key])];
+      if (got.join() !== want.join()) {
+        problems.push(
+          `${locale}/${key} substitutes ${got.join(",") || "nothing"} where English ` +
+            `substitutes ${want.join(",") || "nothing"} — a dropped placeholder ` +
+            `silently loses the host, file name or count it carried`
+        );
+      }
+      // The %s slot is how a message keeps an inline element inside its own
+      // sentence (i18n.js). Lose it and the element lands at the end.
+      if (entry.message.includes("%s") !== en[key].message.includes("%s")) {
+        problems.push(`${locale}/${key} must keep its %s slot`);
+      }
+    }
+  }
+  assert.deepEqual(problems, [], "\n" + problems.join("\n"));
+});
+
+test("store names and descriptions fit both stores' limits, in every locale", () => {
   // Chrome Web Store: 75 for the name, 132 for the description. AMO rejects a
-  // name over 45, which is why extNameShort exists (see build.mjs).
-  assert.ok(en.extName.message.length <= 75, "extName exceeds the Chrome Web Store limit");
-  assert.ok(en.extNameShort.message.length <= 45, "extNameShort exceeds the AMO limit");
-  assert.ok(en.extDescription.message.length <= 132, "extDescription is too long");
+  // name over 45, which is why extNameShort exists (see build.mjs). The stores
+  // measure the localized string, so this is a per-translation constraint —
+  // German and Finnish are where it will bite.
+  for (const { locale, messages } of locales) {
+    for (const [key, limit] of Object.entries(LIMITS)) {
+      const message = messages[key]?.message;
+      if (message === undefined) continue; // falls back to English, already checked
+      assert.ok(
+        message.length <= limit,
+        `${locale}/${key} is ${message.length} characters; the store limit is ${limit}`
+      );
+    }
+  }
 });
 
 test("the manifest points at the catalogue and declares a fallback locale", () => {
