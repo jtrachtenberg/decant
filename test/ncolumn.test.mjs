@@ -291,3 +291,60 @@ test("a letterspaced running footer is not split at the gutter", () => {
     `letterspaced footer split at the gutter:\n${lines.join("\n")}`
   );
 });
+
+// --- Centred narrow headings (SF-93) -----------------------------------------
+// A heading centred over the whole measure spans the columns even when its
+// text is too narrow to cross either corridor — SF-93's "10. PAST/CURRENT
+// MEDICAL HISTORY" prints entirely inside the middle column's x-range of a
+// three-column checklist. Left in a column it emits mid-stream, after all of
+// column 1, and everything printed above the columns scrambles with it.
+test("a centred larger-type heading spans columns it never crosses", () => {
+  const items = [];
+  const COLS = [0, 200, 400];
+  // The heading: larger type, alone on its band, centred on the measure
+  // (0–550), inside the middle column's x-range, and too close above the
+  // columns for the gap flush to separate it (12pt < GAP_FLUSH * med).
+  items.push(item("10. SECTION TITLE", 225, 312, { w: 100, h: 13 }));
+  for (let k = 0; k < 12; k++) {
+    const y = 300 - k * 14;
+    items.push(item(`first column running text ${k} and`, COLS[0], y, { w: 150, h: 10 }));
+    items.push(item(`second column running text ${k} and`, COLS[1], y, { w: 150, h: 10 }));
+    items.push(item(`third column running text ${k} and`, COLS[2], y, { w: 150, h: 10 }));
+  }
+  const text = linesToText(reconstructLines(items));
+  const heading = text.indexOf("10. SECTION TITLE");
+  const firstFirst = text.indexOf("first column running text 0");
+  const firstSecond = text.indexOf("second column running text 0");
+  assert.ok(heading !== -1 && firstFirst !== -1);
+  assert.ok(
+    heading < firstFirst,
+    `heading emitted mid-stream instead of before the columns:\n${text}`
+  );
+  // ...and the columns themselves still read column-major.
+  assert.ok(text.lastIndexOf("first column running text 11") < firstSecond);
+});
+
+test("a wrapped column heading's last line is not promoted", () => {
+  // The same centred narrow line with a same-size line one leading above it,
+  // overlapping its x-range: that is the LAST LINE OF A WRAP (chart-heavy
+  // p50's "STAGE TO MEMBERSHIP" under "ASSOCIATE MEMBER STATES IN THE PRE-"),
+  // and promoting it to a spanning region tears the wrap from its opening.
+  const items = [];
+  const COLS = [0, 200, 400];
+  items.push(item("ASSOCIATED MEMBER STATES", 210, 326, { w: 130, h: 13 }));
+  items.push(item("10. SECTION TITLE", 225, 312, { w: 100, h: 13 }));
+  for (let k = 0; k < 12; k++) {
+    const y = 300 - k * 14;
+    items.push(item(`first column running text ${k} and`, COLS[0], y, { w: 150, h: 10 }));
+    items.push(item(`second column running text ${k} and`, COLS[1], y, { w: 150, h: 10 }));
+    items.push(item(`third column running text ${k} and`, COLS[2], y, { w: 150, h: 10 }));
+  }
+  const text = linesToText(reconstructLines(items));
+  const heading = text.indexOf("10. SECTION TITLE");
+  const firstFirst = text.indexOf("first column running text 0");
+  assert.ok(heading !== -1 && firstFirst !== -1);
+  assert.ok(
+    heading > firstFirst,
+    `a wrap's last line was promoted over the columns:\n${text}`
+  );
+});

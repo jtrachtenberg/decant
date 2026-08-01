@@ -614,6 +614,24 @@ on it fall back gracefully (in-browser conversion or passthrough).
     (see [Contributing](#contributing)). The store listing's product name is
     deliberately *not* translated, so the title reads the same in every market;
     the description is.
+  - **A form's band headings sit between the columns' rules, not on them**
+    ([ADR 0034](./docs/adr/0034-centred-headings-and-straddled-stacks.md)).
+    A government medical-history form (SF-93) read its three-column checklist
+    out of order: the block's centred title — 9pt over a 7pt body, but 170pt
+    of text printed entirely *inside* the middle column's x-range — crossed no
+    corridor, so the promotion that starts from crossing could never see it,
+    and it rode the middle column along with the form items above it. A
+    centred narrow heading now spans on what it *is* — alone on its band,
+    larger than the body, centred on the measure, not flush-left, not a
+    wrap's last line, not mid-sentence — the same shape as a "Chapter" line
+    narrower than the gutter gap. And the checklist header's `DON'T KNOW`
+    cell, set as two stacked lines vertically centred on the row (baselines a
+    half-leading either side — no baseline assignment can bind that), merged
+    as three interleaved lines; a line-level repair now splices a terse,
+    width-matched, midpoint-anchored stack into the row it annotates, so the
+    header reads `CHECK EACH ITEM YES NO DON'T KNOW`. A glyph-level version
+    was measured first and the corpus refused it (bullet dingbats pair down
+    every list); at the line level the corpus is **byte-identical**.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
