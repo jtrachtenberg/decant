@@ -629,7 +629,7 @@ export function reconstructPage(items, columnHint = null, pageModel = null) {
     // table whose six cell gaps outnumbered anything the prose around it had.
     const model =
       pageModel ??
-      pageColumnModel(
+      pageCorridors(
         glyphs.filter((g) => !gridGlyphs.has(g)).map(toBox)
       );
     // The prose above/below the grid still deserves the full reconstruction —
@@ -677,7 +677,7 @@ export function reconstructPage(items, columnHint = null, pageModel = null) {
 
   // No grid claimed the page, so the model is decided over all of it — once,
   // here, and handed down every recursion below so no band re-answers it.
-  const model = pageModel ?? pageColumnModel(glyphs.map(toBox));
+  const model = pageModel ?? pageCorridors(glyphs.map(toBox));
   const { lines, gutter, sawTable, split } = reconstructColumns(
     glyphs,
     columnHint,
@@ -814,7 +814,7 @@ function reconstructColumns(glyphs, hint, depth, exclude = [], model = null) {
 
 // Was this split made at one of the page's own column corridors?
 function splitAtPageCorridor(gutter, model) {
-  return !!model && model.some((c) => Math.abs(c.gx - gutter) <= 1);
+  return columnCorridors(model).some((c) => Math.abs(c.gx - gutter) <= 1);
 }
 
 // One prose region's lines, with (at most COLUMN_SPLIT_MAX_DEPTH) recursive
@@ -1368,6 +1368,18 @@ function bandFit(bands, starts) {
 // double-spaces its rows and single-spaces the wraps inside them separates
 // cleanly. public-famous p17 runs 18pt between rows and 10pt inside them.
 const GRID_WRAP_RATIO = 0.7;
+// The most a continuation may sit below the line it continues, as a multiple
+// of its own type size (mergeWrappedCells). Ordinary leading runs ~1.2x the
+// size; a table's next ROW adds space on top of that and lands at 1.5x or
+// more, so this sits between them. Scale-free by construction — the same
+// number decides a 6pt block whose rows are 9pt apart and one whose rows are
+// 12pt apart, and this document has both.
+const WRAP_MAX_LEADING = 1.35;
+// How far a wrapped remainder's start may drift from the cell it continues
+// (mergeWrappedCells). A wrap resumes at its column's own left edge, so this
+// only has to absorb the point or two a justified line's first glyph shifts —
+// tight enough that a genuinely indented line under a table is not swallowed.
+const WRAP_CELL_X_TOL = 3;
 // ...and no taller, relative to the row it continues, than ordinary variation
 // within one cell's type (a cap-height line against one with descenders).
 const GRID_WRAP_MAX_HEIGHT_RATIO = 1.2;
@@ -2793,7 +2805,71 @@ function linesFromGlyphs(glyphs) {
       .map((c) => ({ ...c, text: c.text.replace(/[ \t]+/g, " ").trim() }))
       .filter((c) => c.text.length);
   }
-  return lines.filter((line) => line.cells.length);
+  return mergeWrappedCells(lines.filter((line) => line.cells.length));
+}
+
+// Fold a wrapped value back into the cell it belongs to (ADR 0032).
+//
+// A row whose value runs past the column's measure sets its remainder on the
+// next line, under the value and with no label beside it. That line is not a
+// row: emitted as one it ends the table it sits inside, and the two halves
+// then read as separate tables with an orphaned sentence between them. A
+// project's "Description:" wrapping onto a second line split an eleven-row
+// details block into a four-row table, a loose line, and a seven-row table.
+//
+// What identifies a continuation, and separates it from the next ROW of the
+// same table:
+//   - the line before it states a value (two cells or more) and this one
+//     states only the remainder (exactly one),
+//   - that one cell starts under the previous row's LAST cell, so it is that
+//     column's text and not a new row label, and
+//   - it is set closer than the rows AROUND IT are spaced. Row pitch is the
+//     measurement that matters and leading is always tighter than it, which is
+//     how wrapFlags tells the same two apart inside a detected grid. The pitch
+//     has to be read locally, though: a page whose details block sets 12pt
+//     rows above an issue list setting 9pt ones has no single pitch, and a
+//     median over the page called the 12pt block's 7pt wrap a row.
+function mergeWrappedCells(lines) {
+  if (lines.length < 3) return lines;
+  const gapAbove = (i) => (i >= 1 ? lines[i - 1].y - lines[i].y : null);
+  const merged = new Set();
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.cells.length !== 1) continue;
+    // The row this would continue: the nearest line above that is still
+    // standing, so a value wrapping over three lines folds into one cell.
+    let p = i - 1;
+    while (p >= 0 && merged.has(p)) p--;
+    if (p < 0) continue;
+    const prev = lines[p];
+    if (prev.cells.length < 2) continue;
+
+    // Two readings of "set closer than a row", and a continuation is both.
+    // Against the TYPE, it sits at ordinary leading — a little over the size
+    // it is set in, and scale-free, so a block of 6pt rows 9pt apart and one
+    // 12pt apart are judged the same way. Against the ROWS, it is tighter than
+    // the gap above the row it continues (or below it, when that row opens its
+    // block). Neither alone is enough: leading is what a wrap looks like, but
+    // a table whose rows are themselves set at leading would fold row into row
+    // without the second test.
+    const pitch = gapAbove(p) ?? gapAbove(i + 1);
+    const drop = lines[i - 1].y - line.y;
+    if (!(pitch > 0) || !(drop > 0)) continue;
+    if (drop >= pitch || drop > WRAP_MAX_LEADING * line.h) continue;
+
+    const cell = line.cells[0];
+    const target = prev.cells[prev.cells.length - 1];
+    if (Math.abs(cell.x - target.x) > WRAP_CELL_X_TOL) continue;
+    const hi = Math.max(line.h, prev.h);
+    const lo = Math.min(line.h, prev.h);
+    if (!(lo > 0) || hi / lo > GRID_WRAP_MAX_HEIGHT_RATIO) continue;
+
+    target.text = `${target.text} ${cell.text}`;
+    target.endX = Math.max(target.endX, cell.endX);
+    merged.add(i);
+  }
+  return merged.size ? lines.filter((_, i) => !merged.has(i)) : lines;
 }
 
 // --- Column detection: partition glyphs into ordered reading regions -------
@@ -2938,12 +3014,22 @@ const MODEL_MIN_OPEN = 2 * MIN_COL_ROWS;
 // them, and nothing above this line could have told them apart.
 const MODEL_MAX_CELLY = 0.3;
 
+// A label rail (detectGutter's labelRail): how long a field label may run, and
+// how much of the rail must look like one. The cap is generous — "Client
+// Telephone:", "Auditor Company:" are real field names — because the trailing
+// colon, not the length, is what carries the claim. The fraction leaves room
+// for the odd rail band that is a sub-heading or a continuation without a
+// colon, while a two-column page of prose (where a stray line ends in a colon
+// now and then) stays far below it.
+const LABEL_RAIL_MAXLEN = 24;
+const LABEL_RAIL_FRACTION = 0.75;
+
 // The page's column corridors, left to right. Each is { a, b, gx }: the x-range
 // over which the corridor is open, and the gutter x derived from it in
 // findGutter's convention (just left of where the next column starts), so every
 // consumer downstream — the straddler tests, rail adoption, side routing —
 // reads the same kind of number it always did.
-export function pageColumnModel(boxes) {
+function pageCorridors(boxes) {
   const content = boxes.filter((b) => !b.ws);
   if (!content.length) return [];
   const { rows: bands } = bandRows(boxes);
@@ -3083,6 +3169,20 @@ export function pageColumnModel(boxes) {
     const gx = clusterGutterEdges(edges, med);
     if (gx == null) continue;
     if (gx < lo + r.a - 1) continue;
+    // What the corridor is MADE of, asked before what it is big enough to be
+    // (ADR 0032). The guards below decide whether a corridor is one of the
+    // page's COLUMNS — is it tall enough, wide enough, open over enough of the
+    // sheet — and none of them bears on whether the text either side reads as
+    // a table's cells. Deciding the kind first means the verdict survives a
+    // corridor that fails to be a column: a generated report's label rail is
+    // 40% of the page's span, well under MODEL_MIN_VSPAN, and dropping out
+    // there used to discard the finding entirely, leaving the band-local
+    // gutter vote free to split the rail from its values with nothing left to
+    // contradict it.
+    if (readsAsCells(bandCls, coreX)) {
+      model.push({ a: lo + r.a, b: lo + r.b, gx, cells: true });
+      continue;
+    }
     // A corridor must stand over real height, or a wide gap inside a few
     // stacked rows reads as a column boundary (the guard detectGutter has
     // always applied to its own verdict).
@@ -3090,11 +3190,23 @@ export function pageColumnModel(boxes) {
     if (r.b - r.a < MODEL_MIN_WIDTH * med) continue;
     if (top - bot < MODEL_MIN_VSPAN * (pageTop - pageBot)) continue;
     if (open[Math.round((r.a + r.b) / 2)] < MODEL_MIN_OPEN) continue;
-    if (readsAsCells(bandCls, coreX)) continue;
-    model.push({ a: lo + r.a, b: lo + r.b, gx });
+    model.push({ a: lo + r.a, b: lo + r.b, gx, cells: false });
   }
   return model.sort((p, q) => p.gx - q.gx);
 }
+
+// The page's columns: what pageCorridors found, minus the corridors it read as
+// a table's cells. This is the model every column consumer wants — the cell
+// corridors travel with it only so a band-local gutter vote can be checked
+// against them (detectGutter).
+export function pageColumnModel(boxes) {
+  return pageCorridors(boxes).filter((c) => !c.cells);
+}
+
+// Corridors the page census judged to be a table's cell boundaries rather than
+// its columns.
+const cellCorridors = (model) => (model ?? []).filter((c) => c.cells);
+const columnCorridors = (model) => (model ?? []).filter((c) => !c.cells);
 
 // Does what abuts this corridor read as a table's cells rather than as two
 // blocks of prose? Measured on the cluster immediately either side of it in
@@ -3132,9 +3244,10 @@ function readsAsCells(bandCls, x) {
 // holding only the first column contains no corridor, which is exactly how the
 // guarded sub-split still gets its turn inside it.
 function modelCandidates(rows, model, med, exclude) {
-  if (!model || !model.length) return [];
+  const columns = columnCorridors(model);
+  if (!columns.length) return [];
   const out = [];
-  for (const c of model) {
+  for (const c of columns) {
     if (exclude.some((x) => Math.abs(c.gx - x) <= med)) continue;
     // Rows WHOLLY on each side, not merely content on each side. The stronger
     // test is what makes the model stand aside inside a table, and that is not
@@ -3243,7 +3356,9 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
   //     shattered that heading into three regions and dragged column 3's
   //     heading and the term labels of its goal panels in with them.
   const spanMargin = med * 0.5;
-  const corridor = model?.find((c) => Math.abs(c.gx - gx) <= 1);
+  const corridor = columnCorridors(model).find(
+    (c) => Math.abs(c.gx - gx) <= 1
+  );
   const crossLo = corridor ? corridor.a : gx - spanMargin;
   const crossHi = corridor ? corridor.b : gx + spanMargin;
   const crosses = (b) => !b.ws && b.x0 < crossLo && b.x1 > crossHi;
@@ -3307,8 +3422,9 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
   // MODEL_MAX_CELLY): cutting all of a statement's corridors at once would
   // slice its rows with no recursion left to re-test them, and that is what a
   // first attempt at this did to clean-text p16 and table-heavy p10.
-  const cuts = model?.length
-    ? [...new Set([gx, ...model.map((c) => c.gx)])].sort((p, q) => p - q)
+  const modelCuts = columnCorridors(model);
+  const cuts = modelCuts.length
+    ? [...new Set([gx, ...modelCuts.map((c) => c.gx)])].sort((p, q) => p - q)
     : [gx];
   // Rail adoption is a claim about the gutter this unit cut at, so it moves a
   // box across THAT cut, not to an end of the page.
@@ -3472,7 +3588,50 @@ function detectGutter(rows, med, exclude = [], model = null) {
     const ok = confident(gx);
     if (ok != null) return ok;
   }
+  // ...but a gutter with a LABEL RAIL down its left side is not a column
+  // boundary at all, whoever proposed it (ADR 0032). "Name:", "Description:",
+  // "Due Date:", "Priority:" is a form, and a form's label belongs to the value
+  // beside it — a ROW relation. Split there and the block reads column-major:
+  // every label, then every value, with nothing left to say which goes with
+  // which. Left unsplit it reaches the table binders, which pair them back up.
+  //
+  // Deliberately narrower than the census's readsAsCells (ADR 0031), which
+  // measures cell-ness by length alone and is only ever consulted alongside
+  // the page-column guards. Applying that here instead was tried and the
+  // corpus refused it: short prose lines in a genuine two-column page measure
+  // as cells too, and the split those pages need went with it. A trailing
+  // colon on most of one side is the narrower claim, and it is the one that
+  // actually names the relation.
+  if (own != null && labelRail(rows, own)) return null;
   return confident(own);
+}
+
+// Is the cluster immediately left of `gx` a rail of field labels? Measured
+// over the bands that HAVE one, so the comment blocks and continuation lines
+// that print only on the value side neither support nor contradict it.
+function labelRail(rows, gx) {
+  let n = 0;
+  let labels = 0;
+  for (const bd of rows) {
+    const cls = clusterRow(bd.boxes, bd.h);
+    let left = null;
+    for (let i = cls.length - 1; i >= 0; i--) {
+      if (cls[i].x1 <= gx) {
+        left = cls[i];
+        break;
+      }
+    }
+    // A band with nothing on the right of the gap is not a row of the form.
+    if (!left || !cls.some((cl) => cl.x0 >= gx)) continue;
+    n++;
+    const text = left.boxes
+      .map((b) => b.g.str)
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text.length <= LABEL_RAIL_MAXLEN && text.endsWith(":")) labels++;
+  }
+  return n >= MIN_COL_ROWS && labels / n >= LABEL_RAIL_FRACTION;
 }
 
 // Fallback gutter detection for columns whose baselines don't line up. Two

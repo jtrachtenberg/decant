@@ -561,6 +561,33 @@ on it fall back gracefully (in-browser conversion or passthrough).
     looked obviously right — scoring each column separately, using machinery
     that already exists for it — was measured and is worse, and the ADR records
     why.
+  - **A generated report is laid out by a program, and it shows**
+    ([ADR 0032](./docs/adr/0032-generated-reports.md)).
+    A four-page site-report export — a project header, then issues as
+    field/value pairs with a photograph beside each — prompted for images and
+    put **all four pages** in the charts PDF, for a document that is almost
+    entirely text. Three failures met on it, and each is a case six *authored*
+    corpus documents had no example of. The image census fingerprints a picture
+    by its pixel dimensions and demotes any size seen on two pages as
+    decoration; a generator normalizes every attached photo to one thumbnail
+    size, so six distinct site photographs read as six counts of furniture,
+    nothing on any page qualified as a figure, and the attachment logic fell
+    through to its "then attach everything" branch — where a footer logo is
+    enough to make a page a candidate. Furniture is the same thing in the same
+    **place**, page after page, which is what the *text* furniture detector has
+    always keyed on; the image census now asks the same question, so a logo
+    stays furniture even when the cover prints it larger and elsewhere, while a
+    size some page lays out as a **set** is content. The page-area floor moved
+    off the figure and onto the page, measured as a union rather than a sum: a
+    row of three 3.2% diagrams is 9.6% of figure and used to read as nothing,
+    while a page painting one logo twice at the same spot used to report double
+    its footprint. And a form's label rail — `Name:`, `Due Date:`, `Priority:`
+    down one side of a wide gap — is no longer split from its values, which had
+    been emitting six labels and then six values with nothing to say which went
+    with which; a wrapped value now folds back into the cell it continues
+    instead of ending the table it sits in. Three of 308 corpus pages change,
+    two of them repairs — a caption's wrapped tail and a split heading, both
+    rejoined. The third gets worse and the ADR says so.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

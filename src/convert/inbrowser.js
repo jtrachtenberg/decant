@@ -47,8 +47,8 @@ import {
   hasVectorChartFills,
   textPointsFromItems,
   imageDimsKey,
+  classifyDimsFamilies,
   fillSignature,
-  REPEATED_DIMS_MIN_PAGES,
   REPEATED_FILL_MIN_PAGES,
 } from "./raster-gate.js";
 import { symbolKeyPlan, symbolLabelItems } from "./symbol-key.js";
@@ -134,7 +134,11 @@ export async function analyzePdf(file, { onPage } = {}) {
   // fingerprints seen on REPEATED_DIMS_MIN_PAGES+ pages. Filled by the first
   // pass, consumed by every page's significance judgment, and carried on the
   // summary so the figure paths (pdf-figures.js) frame crops the same way.
-  const repeatedDims = new Set();
+  let repeatedDims = new Set();
+  // The other half of that census (ADR 0032): dims that recur across pages at
+  // SCATTERED positions — a generator's normalized photo thumbnails, not the
+  // template's furniture. Never demoted, and exempt from the page-area floor.
+  let contentDims = new Set();
   // The same census for vector fills (raster-gate.js fillSignature): colored
   // fill geometry recurring across REPEATED_FILL_MIN_PAGES+ pages is page
   // furniture, not chart data, and must not count toward the vector-chart
@@ -156,7 +160,7 @@ export async function analyzePdf(file, { onPage } = {}) {
     const furniture = createFurnitureDetector();
     const cache = pageCount <= MAX_ANALYZE_PAGES ? [] : null;
     const scans = new Map(); // page number → { scan, images }, sampled pages
-    const dimsPages = new Map(); // imageDimsKey → Set of page numbers
+    const dimsPages = new Map(); // imageDimsKey → [{ page, box }] paints
     const fillPages = new Map(); // fillSignature → Set of page numbers
     for (let n = 1; n <= pageCount; n++) {
       const page = await pdf.getPage(n);
@@ -170,8 +174,8 @@ export async function analyzePdf(file, { onPage } = {}) {
       for (const x of scanned.scan.xobjects) {
         if (x.w == null || x.h == null) continue;
         const key = imageDimsKey(x.w, x.h);
-        if (!dimsPages.has(key)) dimsPages.set(key, new Set());
-        dimsPages.get(key).add(n);
+        if (!dimsPages.has(key)) dimsPages.set(key, []);
+        dimsPages.get(key).push({ page: n, box: x.box });
       }
       for (const { hue, box } of scanned.scan.coloredFillBoxes ?? []) {
         const key = fillSignature(hue, box);
@@ -180,9 +184,7 @@ export async function analyzePdf(file, { onPage } = {}) {
       }
     }
     const furnitureKeys = furniture.keys();
-    for (const [key, pages] of dimsPages) {
-      if (pages.size >= REPEATED_DIMS_MIN_PAGES) repeatedDims.add(key);
-    }
+    ({ repeatedDims, contentDims } = classifyDimsFamilies(dimsPages));
     for (const [key, pages] of fillPages) {
       if (pages.size >= REPEATED_FILL_MIN_PAGES) repeatedFills.add(key);
     }
@@ -214,7 +216,14 @@ export async function analyzePdf(file, { onPage } = {}) {
       // judgment uses the UNINJECTED items — pseudo labels must not move the
       // text-density demotions.
       const scan = shouldScanImages(n, pageCount)
-        ? judgePageImages(page, scans.get(n), items, repeatedDims, repeatedFills)
+        ? judgePageImages(
+            page,
+            scans.get(n),
+            items,
+            repeatedDims,
+            contentDims,
+            repeatedFills
+          )
         : null;
       const images = scan ? scan.images : null;
       // The decoded key may stand down the vector-chart escalation — but only
@@ -286,7 +295,7 @@ export async function analyzePdf(file, { onPage } = {}) {
         scan: scan?.scan ?? null,
         pageArea: scan?.pageArea ?? null,
         imageOpts: scan?.opts ?? null,
-        census: { repeatedDims, repeatedFills },
+        census: { repeatedDims, contentDims, repeatedFills },
       });
     }
   } finally {
@@ -305,6 +314,9 @@ export async function analyzePdf(file, { onPage } = {}) {
   // significant components for crop framing / decode gating, and must demote
   // the same decoration classification did or the crop frames the wrong thing.
   if (repeatedDims.size) summary.repeatedImageDims = [...repeatedDims];
+  // ...and its content half, for the same reason: a crop framed without it
+  // would drop the very photographs that qualified the page (ADR 0032).
+  if (contentDims.size) summary.contentImageDims = [...contentDims];
   const markdown =
     decision === "convert" || decision === "ambiguous"
       ? pageMarkdown.join("\n\n---\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"
@@ -347,7 +359,14 @@ async function scanPage(page) {
 // alongside the counts so the onPage observer can report the same inputs the
 // judgment used (raster-gate's other gates — decode eligibility, crop bands —
 // take exactly these three).
-function judgePageImages(page, scanned, textItems, repeatedDims, repeatedFills) {
+function judgePageImages(
+  page,
+  scanned,
+  textItems,
+  repeatedDims,
+  contentDims,
+  repeatedFills
+) {
   if (!scanned) {
     return {
       images: 0,
@@ -364,6 +383,7 @@ function judgePageImages(page, scanned, textItems, repeatedDims, repeatedFills) 
     view: page.view,
     textPoints: textPointsFromItems(textItems),
     repeatedDims,
+    contentDims,
   };
   const figureImages = countSignificantImages(scanned.scan, pageArea, opts);
   return {

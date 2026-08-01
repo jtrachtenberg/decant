@@ -53,12 +53,20 @@ export function pdfFiguresAvailable(meta) {
   return (meta?.chartPageNumbers?.length ?? 0) > 0;
 }
 
-// The repeated-image census analyzePdf rode on the summary, as the Set the
-// raster-gate opts take — so crop framing and decode gating demote the same
-// cross-page decoration classification did. Null when the summary carries
-// none (old metas, image-free docs).
-const repeatedDimsFromMeta = (meta) =>
-  meta?.repeatedImageDims?.length ? new Set(meta.repeatedImageDims) : null;
+// The image census analyzePdf rode on the summary, as the Sets the raster-gate
+// opts take — so crop framing and decode gating demote the same cross-page
+// decoration classification did, and exempt the same content families from the
+// page-area floor (ADR 0032). A crop framed without the content half frames a
+// page's photo rail without the rail. Either side is null when the summary
+// carries none (old metas, image-free docs).
+const censusFromMeta = (meta) => ({
+  repeatedDims: meta?.repeatedImageDims?.length
+    ? new Set(meta.repeatedImageDims)
+    : null,
+  contentDims: meta?.contentImageDims?.length
+    ? new Set(meta.contentImageDims)
+    : null,
+});
 
 // Render one page to an OffscreenCanvas at a capped scale.
 async function renderPage(page) {
@@ -136,13 +144,14 @@ const VECTOR_CHART_PAD_PT = 48;
 // Union of the page's significant figure components in user space, or null
 // when none qualify. The components are already view-clamped; the union is
 // what the page attached FOR, so it's what the crop should frame.
-async function figureBoxUserSpace(page, scan, repeatedDims = null) {
+async function figureBoxUserSpace(page, scan, census = null) {
   const [vx0, vy0, vx1, vy1] = page.view;
   const content = await page.getTextContent();
   const comps = significantFigureComponents(scan, (vx1 - vx0) * (vy1 - vy0), {
     view: page.view,
     textPoints: textPointsFromItems(content.items),
-    repeatedDims,
+    repeatedDims: census?.repeatedDims ?? null,
+    contentDims: census?.contentDims ?? null,
   });
   if (!comps.length) return null;
   return {
@@ -160,11 +169,11 @@ async function figureBoxUserSpace(page, scan, repeatedDims = null) {
 // that paint no raster at all, previously always whole-page copies). Shared by
 // the raster crop (Chrome) and the vector box crop (Firefox) so both agree on
 // what and when to crop. Render-free — getOperatorList geometry only.
-async function paddedFigureBox(page, repeatedDims = null) {
+async function paddedFigureBox(page, census = null) {
   const [vx0, vy0, vx1, vy1] = page.view;
   const ops = await page.getOperatorList();
   const scan = scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS);
-  const box = await figureBoxUserSpace(page, scan, repeatedDims);
+  const box = await figureBoxUserSpace(page, scan, census);
   let padded = null;
   if (box) {
     // Pad for surrounding labels, clamp to the page box.
@@ -227,11 +236,11 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
     // Open inside the try so a failed open (corrupt/locked PDF) still tears
     // the worker down via the finally below.
     const pdf = await loadingTask.promise;
-    const repeatedDims = repeatedDimsFromMeta(meta);
+    const census = censusFromMeta(meta);
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const page = await pdf.getPage(n);
-      const padded = await paddedFigureBox(page, repeatedDims);
+      const padded = await paddedFigureBox(page, census);
       if (!padded) continue;
 
       const { canvas, viewport } = await renderPage(page);
@@ -279,10 +288,10 @@ export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
     // Open inside the try so a failed open (corrupt/locked PDF) still tears
     // the worker down via the finally below.
     const pdf = await loadingTask.promise;
-    const repeatedDims = repeatedDimsFromMeta(meta);
+    const census = censusFromMeta(meta);
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
-      const padded = await paddedFigureBox(await pdf.getPage(n), repeatedDims);
+      const padded = await paddedFigureBox(await pdf.getPage(n), census);
       if (padded) boxes.set(n, padded);
     }
   } finally {
@@ -396,7 +405,7 @@ export async function extractPdfRasterFigures(file, meta) {
     // Open inside the try so a failed open (corrupt/locked PDF) still tears
     // the worker down via the finally below.
     const pdf = await loadingTask.promise;
-    const repeatedDims = repeatedDimsFromMeta(meta);
+    const census = censusFromMeta(meta);
     // First pass: gate each page, resolve + intrinsic-check its candidate.
     const found = [];
     const dimsPages = new Map(); // "WxH" → Set of page numbers (fingerprint)
@@ -414,7 +423,8 @@ export async function extractPdfRasterFigures(file, meta) {
         {
           view: page.view,
           textPoints: textPointsFromItems(content.items),
-          repeatedDims,
+          repeatedDims: census?.repeatedDims ?? null,
+          contentDims: census?.contentDims ?? null,
         }
       );
       if (!cand) continue;
