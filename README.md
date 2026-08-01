@@ -505,6 +505,45 @@ on it fall back gracefully (in-browser conversion or passthrough).
     subscripts gluing to their neighbours. No page converges worse, none is
     newly flagged, and the balance sheets ADR 0025 rejected this on are
     byte-identical. Residuals in the ADR.
+  - **A page's columns are the page's, not each band's**
+    ([ADR 0030](./docs/adr/0030-page-level-column-model.md)).
+    Reconstruction chops a page into horizontal bands — above and below every
+    grid, and again inside every region — and each band then decided where the
+    columns were from scratch, over its own few rows. On a designed four-column
+    spread the bands disagreed and the page came apart: six numbered objectives
+    were emitted in order but with two other columns' text spliced between
+    them. The bands were not failing to *find* the page's corridors; they were
+    finding them and being outvoted, because the widest column held three
+    infographics standing side by side and the corridors between *those* were
+    locally the densest evidence on the page. So the page's columns are now
+    decided once, over the whole page, by a census that counts
+    **contradictions rather than proposals** — a corridor of the page is one
+    nothing is printed across, which every band can be asked about directly and
+    which local density cannot sway. Then the harder question, which no
+    geometry answers: is a corridor a boundary between the page's **columns**
+    or between a data table's **cells**? A statement's money columns open
+    corridors the same width, standing the same height, as a designed spread's.
+    What separates them is what abuts them — values lining up under a heading
+    are short and numeric, while a layout's columns are blocks of prose — and
+    over the corpus that reading splits the two populations with nothing
+    between them (layouts 0.07–0.21, data tables 0.92–1.00). So the model
+    claims prose columns only, and every column of a page it claims is routed
+    in **one pass** rather than one binary cut and a recursion that the block
+    flush kept fragmenting. A heading hung into the gutter is judged against
+    the corridor the model measured rather than a line through the middle of
+    it, so it stays in its own column instead of being promoted to full-width
+    furniture and dragging the next column in with it. Twelve of 308 corpus
+    pages change, **all of them in the one designed report** — the other five
+    documents, balance sheets and partners'-capital statements included, are
+    byte-identical. **No page loses a word and no page reads worse.** The one
+    page that loses a table turns out to be a correction: it had been pairing
+    two independent colour legends into "Short term = Very high", a
+    relationship the page never states. The open residual is the confidence
+    metric, which now moves the wrong way in both directions — two pages read
+    better than they ever have *and* are newly flagged, because convergence
+    rewards uniform line starts and a layout read as a layout has none. That
+    needs a kind-aware flag, which this ADR finally supplies the distinction
+    for.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

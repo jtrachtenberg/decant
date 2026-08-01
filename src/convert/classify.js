@@ -536,7 +536,10 @@ export function isDrawnRule(item) {
 // callers converting multi-page documents thread `gutter` into the next
 // page's call, which is what lets a short page-break remainder keep reading
 // column-first (see columnRegions).
-export function reconstructPage(items, columnHint = null) {
+// `pageModel` is the page's column corridors (ADR 0030), decided once over the
+// whole page and passed down every recursion so a band never re-answers it.
+// Callers leave it null; the outermost call computes it.
+export function reconstructPage(items, columnHint = null, pageModel = null) {
   // Both repairs land before anything measures the text, so column detection,
   // grid banding and the char counts all see it as written. Normalization runs
   // first: it turns compatibility lookalikes into the real characters, which is
@@ -616,17 +619,32 @@ export function reconstructPage(items, columnHint = null) {
     );
     const yTop = Math.max(...grid.rows.map((r) => r.y0));
     const yBot = Math.min(...grid.rows.map((r) => r.y0));
+    // The page's columns are decided over what the page's TABLES have not
+    // already claimed (ADR 0030). A table's cell gaps are corridors by every
+    // measure the census takes — vertical, open the table's whole height,
+    // crossed by nothing — and they are not the page's columns: the grid
+    // branch is about to read them row-major, and imposing them on the bands
+    // above and below would split a heading at a column boundary that only
+    // exists inside the table. table-heavy p32 is the case, a wide rotated-rail
+    // table whose six cell gaps outnumbered anything the prose around it had.
+    const model =
+      pageModel ??
+      pageColumnModel(
+        glyphs.filter((g) => !gridGlyphs.has(g)).map(toBox)
+      );
     // The prose above/below the grid still deserves the full reconstruction —
     // WHO-doc p17 is two-column body text above a figure's label grid, and
     // assembling those bands as plain y-order lines interleaves the columns.
     // Each band is just a smaller page, so recurse.
     const above = reconstructPage(
       glyphs.filter((g) => !gridGlyphs.has(g) && g.transform[5] > yTop),
-      columnHint
+      columnHint,
+      model
     );
     const below = reconstructPage(
       glyphs.filter((g) => !gridGlyphs.has(g) && g.transform[5] < yBot),
-      above.gutter ?? columnHint
+      above.gutter ?? columnHint,
+      model
     );
     // The band BESIDE the grid, reconstructed the same way. It follows the
     // table because it is commentary on it — an annotation that points at a
@@ -639,7 +657,7 @@ export function reconstructPage(items, columnHint = null) {
     // a two-column table welding one margin's sentences to the other's.
     const beside = { lines: [] };
     for (const margin of asideMargins([...aside])) {
-      const { lines: marginLines } = reconstructPage(margin);
+      const { lines: marginLines } = reconstructPage(margin, null, model);
       // Each margin is its own note; a break keeps one from reading on into
       // the next.
       if (marginLines.length) marginLines[0].para = true;
@@ -657,10 +675,15 @@ export function reconstructPage(items, columnHint = null) {
     };
   }
 
+  // No grid claimed the page, so the model is decided over all of it — once,
+  // here, and handed down every recursion below so no band re-answers it.
+  const model = pageModel ?? pageColumnModel(glyphs.map(toBox));
   const { lines, gutter, sawTable, split } = reconstructColumns(
     glyphs,
     columnHint,
-    0
+    0,
+    [],
+    model
   );
 
   // Markers only when nothing upgraded to a clean table. A recognized table is
@@ -690,9 +713,9 @@ export function reconstructPage(items, columnHint = null) {
 // one separator), which is what the split guard scores: each column must be
 // judged against its own line population, or a legitimate short sidebar
 // drowns in the page-wide support threshold.
-function reconstructColumns(glyphs, hint, depth, exclude = []) {
+function reconstructColumns(glyphs, hint, depth, exclude = [], model = null) {
   const boxes = glyphs.map(toBox);
-  const { regions, gutter } = columnRegions(boxes, hint, exclude);
+  const { regions, gutter } = columnRegions(boxes, hint, exclude, model);
   const med = medianHeight(boxes);
   if (gutter == null) {
     // A gutterless page is one leaf prose stream — give it the same
@@ -741,7 +764,26 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
       j += 2;
     }
     if (j > i) {
-      const table = tableFromColumns(left, right, med);
+      // Row correspondence upgrades an ambiguous pair — independent prose
+      // columns, or a table whose cells are long free text — to a row-major
+      // table. The ambiguity is real, and until the page model nothing could
+      // resolve it: two prose columns whose paragraphs happen to start level
+      // pass the same test a two-cell table row does.
+      //
+      // A page corridor resolves it, because it answers the question the pair
+      // is ambiguous ABOUT. A corridor that stands open the page's height is
+      // where the page's columns are; the two streams beside it are columns,
+      // and columns are read column-major whatever their paragraphs line up
+      // with. A table's own gutter is not such a corridor — it opens where the
+      // table starts and closes where it ends (ADR 0030).
+      //
+      // table-heavy p28 is the case that forced it: columns 2 and 3 of a
+      // three-column spread paired into a six-row "table" whose cells carried
+      // the page's U+001F bullet glyphs, and tableHasCorruptCells then dropped
+      // all 423 words of it as an unreliable chart table.
+      const table = splitAtPageCorridor(gutter, model)
+        ? null
+        : tableFromColumns(left, right, med);
       if (table) {
         const rowLines = columnTableLines(table);
         if (lines.length && rowLines.length) rowLines[0].para = true;
@@ -755,7 +797,7 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
     // Not a table: emit this one region column-major (its right partner, if any,
     // follows on the next iteration), preserving the existing prose reflow —
     // after offering it one guarded nested split of its own.
-    const sub = regionProse(regions[i], depth);
+    const sub = regionProse(regions[i], depth, model);
     const regionLines = sub.lines;
     if (sub.sawTable) sawTable = true;
     // A region boundary (column or block break) is itself a paragraph break.
@@ -767,6 +809,11 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
   return { lines, gutter, sawTable, split: true, parts };
 }
 
+// Was this split made at one of the page's own column corridors?
+function splitAtPageCorridor(gutter, model) {
+  return !!model && model.some((c) => Math.abs(c.gx - gutter) <= 1);
+}
+
 // One prose region's lines, with (at most COLUMN_SPLIT_MAX_DEPTH) recursive
 // column-split attempts. The nested split is accepted only when acceptSubSplit
 // finds it measurably better than reading the region whole — a candidate
@@ -774,7 +821,7 @@ function reconstructColumns(glyphs, hint, depth, exclude = []) {
 // those reads them column-major and scrambles them. A nested tableFromColumns
 // upgrade is trusted as-is: row correspondence is stronger evidence than any
 // after-the-fact score.
-function regionProse(regionBoxes, depth) {
+function regionProse(regionBoxes, depth, model = null) {
   const glyphs = regionBoxes.map((b) => b.g);
   const flat = linesFromGlyphs(glyphs);
   // An aligned grid INSIDE one page column. The page-level pass cannot see
@@ -807,9 +854,33 @@ function regionProse(regionBoxes, depth) {
   // it, where the grid splits the label across rows at whatever baseline the
   // text broke on.
   if (validGrid(glyphs) && !railTable(flat, glyphs)) {
-    const { lines } = reconstructPage(glyphs);
+    const { lines } = reconstructPage(glyphs, null, model);
     if (lines.some((l) => l.geom))
       return { lines, sawTable: true, parts: [lines] };
+  }
+  // A corridor the PAGE established is not this region's speculation, so it is
+  // not charged to the guarded sub-split budget and is not put to the
+  // after-the-fact score (ADR 0030). A four-column page arrives here as one
+  // split already made, with two of the page's corridors still to consume;
+  // spending the budget on them leaves nothing for the sub-columns INSIDE a
+  // column, which is the level the budget exists to buy — page 8's third
+  // column holds three infographics that need a split of their own.
+  //
+  // Confirmed against what came back, not just what was asked: the recursion
+  // falls back to the region's own vote when a corridor fails the confidence
+  // guards, and a split at that gutter is speculation like any other. It is
+  // taken here only when it landed on a page corridor; otherwise the guarded
+  // path below gets its ordinary turn.
+  const corridors = modelCandidates(
+    bandRows(regionBoxes).rows,
+    model,
+    medianHeight(regionBoxes),
+    []
+  );
+  if (corridors.length) {
+    const sub = reconstructColumns(glyphs, null, depth, [], model);
+    if (sub.split && corridors.includes(sub.gutter))
+      return { lines: sub.lines, sawTable: sub.sawTable, parts: sub.parts };
   }
   if (depth >= COLUMN_SPLIT_MAX_DEPTH)
     return leafProse(flat, glyphs);
@@ -819,7 +890,7 @@ function regionProse(regionBoxes, depth) {
   // referents). A rejected candidate is excluded and the next corridor tried.
   const excluded = [];
   for (let attempt = 0; attempt < SUBSPLIT_GUTTER_ATTEMPTS; attempt++) {
-    const sub = reconstructColumns(glyphs, null, depth + 1, excluded);
+    const sub = reconstructColumns(glyphs, null, depth + 1, excluded, model);
     if (!sub.split) break;
     if (sub.sawTable || acceptSubSplit(flat, sub)) {
       return { lines: sub.lines, sawTable: sub.sawTable, parts: sub.parts };
@@ -2732,6 +2803,343 @@ function toBox(g) {
   };
 }
 
+// --- The page's own columns (ADR 0030) --------------------------------------
+// Where a page's columns are is a property of the PAGE, and until this census
+// nothing asked it at that scale. reconstructPage chops a page into horizontal
+// bands — above and below every grid it finds, and again inside every region —
+// and each band ran detectGutter from scratch over its own few rows. On a
+// designed four-column spread (table-heavy PDF page 8, printed page 7) that
+// produced a different gutter in almost every band and shattered the page: the
+// header came out in four fragments emitted twice, and the three infographics
+// filling the widest column glued to each other line by line.
+//
+// The bands were not failing to find the page's corridors. They were finding
+// them and being outvoted: the corridors between the columns were proposed by
+// three bands each, while eighteen bands proposed a corridor INSIDE the third
+// column, where its three infographics stand side by side. Those are real
+// corridors — they are simply not the page's. A census over what the bands
+// PROPOSE cannot separate the two, because locally the infographics are the
+// denser evidence; measured over the corpus, that vote picks the wrong level.
+//
+// So the census does not count proposals. It counts CONTRADICTIONS. A corridor
+// of the page is one that runs the page's full height without anything printed
+// across it, and that is a cheap page-wide predicate every band can be asked
+// about directly:
+//
+//   open(x)   bands with content on both sides of x and nothing crossing it
+//   cross(x)  bands with a cluster printed straight through x
+//
+// On page 8 that separates the levels cleanly. The two corridors between the
+// columns have cross = 0 over a 48pt and a 55pt span; the infographic corridors
+// carry 7 and 11 crossings apiece, because column 3's own heading and its three
+// header rows are printed across them. A corridor is believed when enough bands
+// hold it open, few enough contradict it, and it stands over enough of the
+// page's height — the same three questions detectGutter already asks of a band,
+// asked of the page.
+//
+// The result is a set of corridors, not a gutter: the page's columns are
+// imposed at every level of the reconstruction, and each level takes the
+// leftmost corridor still interior to what it holds. A column that has genuine
+// sub-columns inside it (page 8's third) contains no page corridor, so the
+// existing guarded sub-split still runs there and finds them. That is the level
+// distinction the vote could not make.
+
+// A corridor may be crossed by this fraction of the bands that see it and still
+// count as the page's: a full-width banner or a heading set across the columns
+// is printed across a real corridor, and one heading must not delete a column
+// boundary that forty bands hold open. Page 8's infographic corridors sit at
+// 0.27 and 0.37 and are rejected; table-heavy p15's third corridor sits at 0.15
+// and is kept. Calibrated on the 6-document corpus.
+const MODEL_CROSS_TOL = 0.2;
+
+// What a corridor must be before the PAGE is held to it. These are all
+// deliberately stricter than the per-band gutter guards, because the claim is
+// stronger: detectGutter says "these few rows read as two streams", the model
+// says "this is where the page's columns are, and no band may disagree". The
+// corpus separates the two populations cleanly.
+//
+//   MODEL_MIN_WIDTH  a design gutter is generous — the corpus's real ones run
+//                    6.1 to 10.8 median heights. Ragged prose throws up
+//                    corridors too (private-novel p7 and p11 offered four,
+//                    which split a novel's paragraphs into columns and took
+//                    the page from 1.00 convergence to 0.56), and those run
+//                    2.3 to 4.3. Nothing real sits between.
+//   MODEL_MIN_VSPAN  ...and it stands over the page, not over part of it: the
+//                    real ones reach 0.59–0.90 of the page's content height,
+//                    while a corridor beside one figure (chart-heavy p9) or
+//                    below one heading (clean-text p2) reaches 0.15–0.51.
+//   MODEL_MIN_OPEN   ...held open by twice the bands a single band's gutter
+//                    needs. private-novel p2 is a chapter opening of seven
+//                    bands: six of them agreed on a corridor, and six bands
+//                    are not a page.
+const MODEL_MIN_WIDTH = 5;
+const MODEL_MIN_VSPAN = 0.55;
+const MODEL_MIN_OPEN = 2 * MIN_COL_ROWS;
+
+// ...and one more question, which none of the geometric guards can answer:
+// is this a boundary between the page's COLUMNS, or between a data table's
+// CELLS? Geometry cannot tell them apart, and measuring says so plainly — the
+// money columns of clean-text p16's partners'-capital statement open corridors
+// 5.7 to 9.0 median heights wide standing over the page's whole height, which
+// is indistinguishable from table-heavy p8's 9.3 and 10.8.
+//
+// What separates them is what is printed beside them. A data table's columns
+// are values lining up under a heading, so what abuts the corridor is short or
+// numeric; a layout's columns are blocks of prose standing side by side, so
+// what abuts it is running text. Counting the fraction of abutting clusters
+// that read as table cells over the corpus separates the two populations with
+// nothing in between:
+//
+//   layout columns   table-heavy p8/p15/p21/p23/p26/p28/p34   0.07 – 0.21
+//   a tag rail       table-heavy p10 (chip | item | status)   0.44 – 0.48
+//   data tables      clean-text p16/p37, messy-scan p32/p35   0.92 – 1.00
+//
+// So the model claims prose columns only. A statement, a worksheet and a
+// chart's tick columns are left exactly as they were, which is right twice
+// over: those pages are read row-major by machinery that already understands
+// them, and nothing above this line could have told them apart.
+const MODEL_MAX_CELLY = 0.3;
+
+// The page's column corridors, left to right. Each is { a, b, gx }: the x-range
+// over which the corridor is open, and the gutter x derived from it in
+// findGutter's convention (just left of where the next column starts), so every
+// consumer downstream — the straddler tests, rail adoption, side routing —
+// reads the same kind of number it always did.
+export function pageColumnModel(boxes) {
+  const content = boxes.filter((b) => !b.ws);
+  if (!content.length) return [];
+  const { rows: bands } = bandRows(boxes);
+  if (bands.length < MIN_COL_ROWS) return [];
+  const med = medianHeight(boxes);
+  const lo = Math.floor(Math.min(...content.map((b) => b.x0)));
+  const hi = Math.ceil(Math.max(...content.map((b) => b.x1)));
+  const pageTop = Math.max(...content.map((b) => b.y1));
+  const pageBot = Math.min(...content.map((b) => b.y0));
+  const n = hi - lo + 1;
+  if (n < 3) return [];
+
+  // Three difference arrays over 1pt buckets, so the whole census costs one
+  // pass over the bands' clusters rather than one pass per candidate x.
+  //   elig    the band has content both left of and right of x
+  //   block   some cluster of the band is printed across x
+  //   both    ...and the band was eligible there, which is what open() must
+  //           subtract (a band whose only right-hand content is the crossing
+  //           cluster itself was never eligible, so subtracting block outright
+  //           would go negative)
+  const elig = new Int32Array(n + 2);
+  const block = new Int32Array(n + 2);
+  const both = new Int32Array(n + 2);
+  // Bucket ranges, clipped to the page. Eligibility is inclusive (x may sit
+  // exactly on a column's edge); crossing is strict, matching the "x0 < x AND
+  // x1 > x" the straddler tests elsewhere ask.
+  const range = (a, b) => [
+    Math.max(0, Math.ceil(a) - lo),
+    Math.min(n - 1, Math.floor(b) - lo),
+  ];
+  const strict = (a, b) => [
+    Math.max(0, Math.floor(a) + 1 - lo),
+    Math.min(n - 1, Math.ceil(b) - 1 - lo),
+  ];
+  const mark = (arr, [i, j]) => {
+    if (j >= i) {
+      arr[i]++;
+      arr[j + 1]--;
+    }
+  };
+  const m = med * 0.5;
+  const bandCls = [];
+  for (const bd of bands) {
+    const cls = clusterRow(bd.boxes, bd.h);
+    bandCls.push({ bd, cls });
+    if (cls.length < 2) continue;
+    // Clusters are disjoint and x-sorted, so the first one's right edge and the
+    // last one's left edge bound the band's interior.
+    const [ei, ej] = range(cls[0].x1, cls[cls.length - 1].x0);
+    if (ej < ei) continue;
+    mark(elig, [ei, ej]);
+    for (const cl of cls) {
+      // "Crossing" uses the same half-median margin columnRegions' own
+      // full-width test does, so a line overshooting a corridor by a point or
+      // two is a long line, not a contradiction.
+      const [bi, bj] = strict(cl.x0 + m, cl.x1 - m);
+      if (bj < bi) continue;
+      mark(block, [bi, bj]);
+      mark(both, [Math.max(bi, ei), Math.min(bj, ej)]);
+    }
+  }
+
+  const open = new Int32Array(n);
+  const cross = new Int32Array(n);
+  let e = 0;
+  let bl = 0;
+  let bo = 0;
+  for (let i = 0; i < n; i++) {
+    e += elig[i];
+    bl += block[i];
+    bo += both[i];
+    open[i] = e - bo;
+    cross[i] = bl;
+  }
+
+  // Maximal runs the census believes. The tolerance is what keeps a full-width
+  // banner from deleting a corridor forty bands hold open — but it also lets a
+  // run bleed sideways into the columns it separates, where the crossings that
+  // ARE the column's text stay under the same fraction. So each run keeps its
+  // CORE: the stretch where the fewest bands contradict it. The run says the
+  // corridor is real; the core says where it is.
+  const runs = [];
+  let cur = null;
+  for (let i = 0; i < n; i++) {
+    if (open[i] >= MIN_COL_ROWS && cross[i] <= MODEL_CROSS_TOL * (open[i] + cross[i])) {
+      if (!cur) cur = { a: i, b: i };
+      else cur.b = i;
+    } else if (cur) {
+      runs.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) runs.push(cur);
+
+  const model = [];
+  for (const r of runs) {
+    let min = Infinity;
+    for (let i = r.a; i <= r.b; i++) if (cross[i] < min) min = cross[i];
+    // The longest stretch at that minimum — a corridor interrupted by one
+    // crossing near its edge keeps the side that isn't interrupted.
+    let core = null;
+    let run = null;
+    for (let i = r.a; i <= r.b + 1; i++) {
+      if (i <= r.b && cross[i] === min) run = run ? { a: run.a, b: i } : { a: i, b: i };
+      else if (run) {
+        if (!core || run.b - run.a > core.b - core.a) core = run;
+        run = null;
+      }
+    }
+    if (!core) continue;
+    const coreX = lo + core.a;
+    // Where the next column starts: the first cluster each band sets at or
+    // right of the core, over the bands that also set something wholly left of
+    // it, clustered the way findGutter clusters its own per-row edges — so the
+    // same convention comes out (mean start minus one) and everything
+    // downstream reads the kind of number it always did.
+    // Only starts in the corridor's own neighbourhood vote. Bands whose next
+    // cluster after this corridor belongs to a column further right (the band
+    // simply prints nothing in the column this corridor opens) would otherwise
+    // carry the vote to that column's edge, and the corridor would come out
+    // holding another corridor's gutter — table-heavy p15's middle corridor
+    // derived the RIGHT-hand one's x that way. A corridor may reach one of its
+    // own widths past where it closes: that is how far the crossings the
+    // tolerance already allowed can push the next column's start.
+    const reach = lo + r.b + (r.b - r.a) + med;
+    const edges = [];
+    let top = -Infinity;
+    let bot = Infinity;
+    for (const { bd, cls } of bandCls) {
+      if (!cls.some((cl) => cl.x1 <= coreX)) continue;
+      const first = cls.find((cl) => cl.x0 >= coreX);
+      if (!first || first.x0 > reach) continue;
+      edges.push(first.x0);
+      top = Math.max(top, bd.y1);
+      bot = Math.min(bot, bd.y0);
+    }
+    const gx = clusterGutterEdges(edges, med);
+    if (gx == null) continue;
+    if (gx < lo + r.a - 1) continue;
+    // A corridor must stand over real height, or a wide gap inside a few
+    // stacked rows reads as a column boundary (the guard detectGutter has
+    // always applied to its own verdict).
+    if (top - bot < MIN_COL_HEIGHT * med) continue;
+    if (r.b - r.a < MODEL_MIN_WIDTH * med) continue;
+    if (top - bot < MODEL_MIN_VSPAN * (pageTop - pageBot)) continue;
+    if (open[Math.round((r.a + r.b) / 2)] < MODEL_MIN_OPEN) continue;
+    if (readsAsCells(bandCls, coreX)) continue;
+    model.push({ a: lo + r.a, b: lo + r.b, gx });
+  }
+  return model.sort((p, q) => p.gx - q.gx);
+}
+
+// Does what abuts this corridor read as a table's cells rather than as two
+// blocks of prose? Measured on the cluster immediately either side of it in
+// every band that has one — see MODEL_MAX_CELLY for the populations this
+// separates. Either side being celly is enough: a rail of tags down one edge
+// and a status column down the other are each one column of a table whose
+// middle cell happens to be long.
+function readsAsCells(bandCls, x) {
+  const cellFrac = (pick) => {
+    let n = 0;
+    let celly = 0;
+    for (const { cls } of bandCls) {
+      const cl = pick(cls);
+      if (!cl) continue;
+      n++;
+      const text = cl.boxes
+        .map((b) => b.g.str)
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (isTabularCell(text)) celly++;
+    }
+    return n ? celly / n : 0;
+  };
+  const left = cellFrac((cls) => {
+    for (let i = cls.length - 1; i >= 0; i--) if (cls[i].x1 <= x) return cls[i];
+    return null;
+  });
+  const right = cellFrac((cls) => cls.find((cl) => cl.x0 >= x));
+  return Math.max(left, right) >= MODEL_MAX_CELLY;
+}
+
+// The page corridors that are interior to one box set, leftmost first. A
+// corridor the set does not straddle is not this unit's business: a region
+// holding only the first column contains no corridor, which is exactly how the
+// guarded sub-split still gets its turn inside it.
+function modelCandidates(rows, model, med, exclude) {
+  if (!model || !model.length) return [];
+  const out = [];
+  for (const c of model) {
+    if (exclude.some((x) => Math.abs(c.gx - x) <= med)) continue;
+    // Rows WHOLLY on each side, not merely content on each side. The stronger
+    // test is what makes the model stand aside inside a table, and that is not
+    // incidental — it is the guard. A table's rows straddle every one of its
+    // cell boundaries, because a row is what a table is made of; independent
+    // columns produce rows confined to one column, because that is what a
+    // column is. Relaxing this to "content on both sides" was tried and the
+    // corpus refused it: table-heavy p10's tag-rail disclosure table (ADR
+    // 0014, G/RM/S/MT chips bound to their items and status) came apart into
+    // loose lines, 35 table rows down to 8, while the page's convergence ROSE
+    // from 0.92 to 0.57 — the metric reads unbound text as well-aligned.
+    let left = 0;
+    let right = 0;
+    for (const r of rows) {
+      const boxes = r.boxes.filter((b) => !b.ws);
+      if (!boxes.length) continue;
+      if (boxes.every((b) => b.x1 <= c.gx)) left++;
+      else if (boxes.every((b) => b.x0 >= c.gx)) right++;
+    }
+    if (left >= 2 && right >= 2) out.push(c.gx);
+  }
+  return out;
+}
+
+// Chain one unit's content boxes into horizontal clusters at the gap that
+// splits cells. Clusters come out sorted by x and pairwise disjoint, which is
+// what lets the corridor census below accumulate their extents as intervals.
+function clusterRow(unitBoxes, h) {
+  const content = unitBoxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
+  const out = [];
+  for (const b of content) {
+    const cur = out[out.length - 1];
+    if (cur && b.x0 - cur.x1 <= COLUMN_GAP * h) {
+      cur.boxes.push(b);
+      if (b.x1 > cur.x1) cur.x1 = b.x1;
+      cur.x0 = Math.min(cur.x0, b.x0);
+    } else {
+      out.push({ x0: b.x0, x1: b.x1, boxes: [b] });
+    }
+  }
+  return out;
+}
+
 // Partition boxes into reading-order regions for a (possibly) two-column page.
 // Full-width rows (titles/headings) act as separators between column blocks;
 // within a block, narrow rows are split left/right at the gutter. The gutter is
@@ -2742,7 +3150,7 @@ function toBox(g) {
 // are calibrated against pages too large to synthesize whole, and the decision
 // they make is worth pinning at its own level rather than through whatever a
 // forty-line fixture happens to emit.
-export function columnRegions(boxes, hint = null, exclude = []) {
+export function columnRegions(boxes, hint = null, exclude = [], model = null) {
   // Two views of the same page, and they answer different questions (ADR
   // 0029). The GUTTER is a vertical corridor of whitespace, so it is measured
   // over baseline bands: on a page whose columns are typeset on independent
@@ -2755,7 +3163,7 @@ export function columnRegions(boxes, hint = null, exclude = []) {
   const rows = groupRows(boxes);
   const med = medianHeight(boxes);
 
-  let gx = detectGutter(bands, med, exclude);
+  let gx = detectGutter(bands, med, exclude, model);
 
   // Page-break remainder: too short for confident detection, but the previous
   // page established a gutter. Accept it when this page's rows agree — at
@@ -2787,9 +3195,20 @@ export function columnRegions(boxes, hint = null, exclude = []) {
   //   - A box must cross by half a median height on each side to count: a
   //     column line overshooting the gutter by a couple of points is a long
   //     line, not a full-width element.
+  //   - ...and when the page's model supplied this gutter, a box must cross the
+  //     whole CORRIDOR, not a line drawn through the middle of it (ADR 0030).
+  //     Half a median height is a guess at how wide the gutter is; the model
+  //     measured it. Column 2 of table-heavy p8 hangs its headings 14pt left of
+  //     its own text edge, so they begin inside the whitespace and reach only
+  //     their own column — they cross the centre line and nothing else. Judged
+  //     against the centre they were promoted to full-width furniture, which
+  //     shattered that heading into three regions and dragged column 3's
+  //     heading and the term labels of its goal panels in with them.
   const spanMargin = med * 0.5;
-  const crosses = (b) =>
-    !b.ws && b.x0 < gx - spanMargin && b.x1 > gx + spanMargin;
+  const corridor = model?.find((c) => Math.abs(c.gx - gx) <= 1);
+  const crossLo = corridor ? corridor.a : gx - spanMargin;
+  const crossHi = corridor ? corridor.b : gx + spanMargin;
+  const crosses = (b) => !b.ws && b.x0 < crossLo && b.x1 > crossHi;
   // Straddling the gutter is not by itself full-width furniture. A figure's
   // specification label outdented a few points past the gutter ("Protective
   // Casing", 66pt of a 495pt measure) was promoted to a spanning region and so
@@ -2834,17 +3253,43 @@ export function columnRegions(boxes, hint = null, exclude = []) {
       (b) => b.g.symbolLabel && b.x0 >= gx && b.x0 - gx <= RAIL_REACH * med
     )
   );
-  const sideOf = (b) =>
-    !adoptLeft.has(b) && (adopted.has(b) || (b.x0 + b.x1) / 2 >= gx);
+  // Every column of the page at once, not one cut and a recursion (ADR 0030).
+  // The split used to be binary, so a four-column page put three streams on one
+  // side of the first cut and relied on coming back for them — but the block
+  // flush runs between cuts, and it fragments that side into blocks too small
+  // to split again. table-heavy p8 lost its goals band exactly there: the
+  // band's term labels ("SHORT-TERM GOAL | MEDIUM-TERM GOAL | LONG-TERM GOAL")
+  // flushed into a different region from the two lines under them, which
+  // dropped that panel below detectGrid's row floor and left the three goals
+  // interleaved word by word across every line — "Annual reduction against
+  // Carbon-neutral Achieve net zero by".
+  //
+  // Routing every column in one pass removes the question. It is only safe
+  // because the model now claims prose columns and nothing else (see
+  // MODEL_MAX_CELLY): cutting all of a statement's corridors at once would
+  // slice its rows with no recursion left to re-test them, and that is what a
+  // first attempt at this did to clean-text p16 and table-heavy p10.
+  const cuts = model?.length
+    ? [...new Set([gx, ...model.map((c) => c.gx)])].sort((p, q) => p - q)
+    : [gx];
+  // Rail adoption is a claim about the gutter this unit cut at, so it moves a
+  // box across THAT cut, not to an end of the page.
+  const gxCut = cuts.indexOf(gx);
+  const columnOf = (b) => {
+    if (adoptLeft.has(b)) return gxCut;
+    if (adopted.has(b)) return gxCut + 1;
+    const c = (b.x0 + b.x1) / 2;
+    let i = 0;
+    while (i < cuts.length && c >= cuts[i]) i++;
+    return i;
+  };
   const regions = [];
-  let left = [];
-  let right = [];
+  const emptyCols = () => cuts.map(() => []).concat([[]]);
+  let cols = emptyCols();
   let span = [];
   const flush = () => {
-    if (left.length) regions.push(left);
-    if (right.length) regions.push(right);
-    left = [];
-    right = [];
+    for (const col of cols) if (col.length) regions.push(col);
+    cols = emptyCols();
   };
   const flushSpan = () => {
     if (span.length) regions.push(span);
@@ -2853,22 +3298,9 @@ export function columnRegions(boxes, hint = null, exclude = []) {
   // Chain a unit's content boxes into horizontal clusters at the same gap that
   // splits cells, so a heading typeset as several adjacent glyph runs stays one
   // unit. Used for both views: the printed row (what routes) and the band (what
-  // the straddler tests below ask about).
-  const clusterize = (unitBoxes, h) => {
-    const content = unitBoxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
-    const out = [];
-    for (const b of content) {
-      const cur = out[out.length - 1];
-      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * h) {
-        cur.boxes.push(b);
-        if (b.x1 > cur.x1) cur.x1 = b.x1;
-        cur.x0 = Math.min(cur.x0, b.x0);
-      } else {
-        out.push({ x0: b.x0, x1: b.x1, boxes: [b] });
-      }
-    }
-    return out;
-  };
+  // the straddler tests below ask about) — and by the page column model, which
+  // has to read the same occupancy these tests do.
+  const clusterize = clusterRow;
   // "Is this straddler furniture, or one cell of a two-stream row?" is a
   // question about WHAT IS PRINTED AT THIS HEIGHT — so it is asked of the band,
   // not of the settled row (ADR 0029). ADR 0025's demotion depends on it: a
@@ -2943,12 +3375,12 @@ export function columnRegions(boxes, hint = null, exclude = []) {
         if (spanning.includes(cl) || isTabularCell(clusterText(cl))) {
           span.push(...cl.boxes);
         } else {
-          for (const b of cl.boxes) (sideOf(b) ? right : left).push(b);
+          for (const b of cl.boxes) cols[columnOf(b)].push(b);
         }
       }
     } else {
       flushSpan();
-      for (const b of r.boxes) (sideOf(b) ? right : left).push(b);
+      for (const b of r.boxes) cols[columnOf(b)].push(b);
     }
     prevBottom = r.y0;
   }
@@ -2965,22 +3397,44 @@ export function columnRegions(boxes, hint = null, exclude = []) {
 // by the nested-split guard, so a retry can surface the next-best corridor (a
 // region holding three streams offers several gutters, and the densest vote
 // isn't always the right first cut).
-function detectGutter(rows, med, exclude = []) {
+function detectGutter(rows, med, exclude = [], model = null) {
   if (rows.length < MIN_COL_ROWS) return null;
+  // The same confidence guards, whoever proposed the gutter: enough rows that
+  // don't straddle it, spanning enough height that a short table isn't read as
+  // tall body columns. A page corridor is stronger evidence than a band's own
+  // vote, but it is not a licence to split a band that has no columns in it.
+  const confident = (gx) => {
+    if (gx == null) return null;
+    const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
+    if (colRows.length < MIN_COL_ROWS) return null;
+    const top = Math.max(...colRows.map((r) => r.y1));
+    const bottom = Math.min(...colRows.map((r) => r.y0));
+    if (top - bottom < MIN_COL_HEIGHT * med) return null;
+    return gx;
+  };
   // findGutter reads each row's interior gutter gap, so it needs rows that hold
   // both columns (shared baselines). When the columns are typeset on independent
   // baselines — no row holds both — it sees nothing; findGutterByColumnStarts
   // recovers the gutter from the two left-edge bands instead.
-  const gx =
+  const own =
     findGutter(rows, med, exclude) ??
     findGutterByColumnStarts(rows, med, exclude);
-  if (gx == null) return null;
-  const colRows = rows.filter((r) => !rowSpansGutter(r, gx));
-  if (colRows.length < MIN_COL_ROWS) return null;
-  const top = Math.max(...colRows.map((r) => r.y1));
-  const bottom = Math.min(...colRows.map((r) => r.y0));
-  if (top - bottom < MIN_COL_HEIGHT * med) return null;
-  return gx;
+  // ...and the page's own corridors are tried first, leftmost in reading order
+  // (ADR 0030). The split is binary, so a four-column unit still leaves three
+  // streams on one side of the first cut; taking the LEFTMOST corridor peels
+  // exactly one column off per cut, and the remainder that recurses is one
+  // column smaller each time. Cutting in the middle instead — which is what
+  // the densest vote does, and what this page did before the model — leaves
+  // two multi-column halves, and the block-flush that runs between cuts then
+  // fragments both. table-heavy p8's six numbered objectives were interleaved
+  // with two other columns' text for exactly that reason: the middle cut left
+  // columns 1 and 2 sharing a side, and only a 23-box scrap of them ever
+  // reached the second cut.
+  for (const gx of modelCandidates(rows, model, med, exclude)) {
+    const ok = confident(gx);
+    if (ok != null) return ok;
+  }
+  return confident(own);
 }
 
 // Fallback gutter detection for columns whose baselines don't line up. Two
