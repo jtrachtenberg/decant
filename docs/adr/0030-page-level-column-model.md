@@ -1,6 +1,6 @@
 # ADR 0030 — A page's columns are the page's, not each band's
 
-- **Status:** Proposed
+- **Status:** Accepted (merged as #92, with the corpus measurement below)
 - **Date:** 2026-07-31
 - **Builds on:** [ADR 0012](./0012-n-column-guarded-recursion.md) (guarded
   recursive column splits) and [ADR 0013](./0013-display-band-reconstruction.md)
@@ -203,10 +203,13 @@ So **no page in the corpus reads worse.**
 ### Residuals
 
 - **`columnConvergence` cannot referee this change.** p26 falls 0.53 → 0.22 and
-  gains a "labels may be scrambled" marker on a page whose labels have just been
-  unscrambled; p8 falls 0.59 → 0.26 while reading correctly for the first time,
-  which pulls it into the attached-figures PDF (9 → 10 — arguably right for a
-  designed infographic spread, but arrived at by accident). The metric pools
+  gains a "labels may be scrambled" marker on the page where its three
+  commitments have just been un-scrambled — and that marker is what pulls it
+  into the attached-figures PDF (9 → 10). p8 falls 0.59 → 0.26 while reading
+  correctly for the first time, though it carries no marker (a table was
+  recognised on it, so that branch never runs) and its attachment is unchanged.
+  *Corrected in [ADR 0031](./0031-kind-aware-confidence-flag.md), which
+  attributed this attachment to p8 on first writing.* The metric pools
   every cell start on the page and rewards them clustering on a few x positions.
   That is a sound proxy for a data table, whose cells *should* align, and an
   unsound one for a layout, whose blocks should not. `partsCharScore` already
