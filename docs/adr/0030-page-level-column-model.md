@@ -184,24 +184,42 @@ together: `withour` → `with our`, `withTCFD` → `with TCFD`, `transparencyand
 | p14, p22 | a sentence stranded at the top of the page returns to its place in the stream |
 | p21 | five welded table rows become seven headings and their blocks |
 | p7, p15, p17, p34 | headings join; block boundaries move |
-| p20 | **the one regression** — see below |
+| p20 | a false pairing removed — see below |
+
+**p20 is a correction, not a regression, and the page settles it.** It read as
+`| Short term | Medium term | Long term |  |` over
+`| Very high | High | Medium | Low |` and now reads as
+`Risk rating:` / `Time frame` / `Very high High Medium Low Short term Medium
+term Long term`. The page shows two *independent* legends side by side — four
+coloured dots keyed to risk ratings, and a colour-gradient bar keyed to time
+frames. The old table asserted "Short term = Very high", a pairing that does not
+exist; four rating columns against three time frames was the tell. Both legend
+labels survive and the values keep their printed order. Neither reading carries
+the meaning, because the meaning is the colour: without the image layer this
+area is a key to symbols that the text layer does not contain.
+
+So **no page in the corpus reads worse.**
 
 ### Residuals
 
-- **p20's risk legend loses its pairing.** It read as
-  `| Short term | Medium term | Long term |  |` over
-  `| Very high | High | Medium | Low |` and now reads as one line,
-  `Very high High Medium Low Short term Medium term Long term`. Seven words, no
-  loss. The old pairing was itself suspect — four rating columns against three
-  time frames, i.e. two independent legends asserted as one table — but the new
-  reading is unstructured rather than correct.
-- **`columnConvergence` cannot referee this change.** p8 and p26 are *newly
-  flagged low-confidence* while reading better than they ever have — p26 falls
-  0.53 → 0.22 and gains a "labels may be scrambled" marker on a page whose
-  labels have just been unscrambled. The metric rewards uniform line starts, and
-  a designed spread read as the layout it is has many. ADR 0012 already knows
-  this (`SUBSPLIT_DEGRADE_MAX` exists for it); this ADR is the strongest case
-  yet, and the flag costs p8 a slot in the attached-figures PDF (9 → 10).
+- **`columnConvergence` cannot referee this change.** p26 falls 0.53 → 0.22 and
+  gains a "labels may be scrambled" marker on a page whose labels have just been
+  unscrambled; p8 falls 0.59 → 0.26 while reading correctly for the first time,
+  which pulls it into the attached-figures PDF (9 → 10 — arguably right for a
+  designed infographic spread, but arrived at by accident). The metric pools
+  every cell start on the page and rewards them clustering on a few x positions.
+  That is a sound proxy for a data table, whose cells *should* align, and an
+  unsound one for a layout, whose blocks should not. `partsCharScore` already
+  exists for precisely this reason and says so in its own comment — "judging the
+  concatenation systematically punishes honest splits" — but it is used only
+  inside `acceptSubSplit`, not for the page-level flag.
+  Swapping the page flag to it naively was measured and is *worse*: six
+  `clean-text` pages become newly flagged. The right shape is a kind-aware flag
+  — convergence where the page reads as data, direct interleaving evidence
+  (`multiCellFraction`, `gluedFraction`, which measure the actual failure rather
+  than a proxy) where it reads as layout — and that is its own change with its
+  own measurement, now that this ADR supplies the layout/data distinction it
+  needs.
 - **The page header on p8 is still in two pieces**, `# Our strategic response
   to` and `# climate change`, and the same header is emitted a second time
   mid-page. Improved from four fragments; not solved.

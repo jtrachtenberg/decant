@@ -535,11 +535,15 @@ on it fall back gracefully (in-browser conversion or passthrough).
     furniture and dragging the next column in with it. Twelve of 308 corpus
     pages change, **all of them in the one designed report** — the other five
     documents, balance sheets and partners'-capital statements included, are
-    byte-identical. **No page loses a word**; one gains three by un-gluing
-    streams. Two pages read better than they ever have *and* are newly flagged
-    low-confidence, because the convergence metric rewards uniform line starts
-    and a layout read as a layout has none; that, and one risk legend that
-    loses its pairing, are characterised in the ADR.
+    byte-identical. **No page loses a word and no page reads worse.** The one
+    page that loses a table turns out to be a correction: it had been pairing
+    two independent colour legends into "Short term = Very high", a
+    relationship the page never states. The open residual is the confidence
+    metric, which now moves the wrong way in both directions — two pages read
+    better than they ever have *and* are newly flagged, because convergence
+    rewards uniform line starts and a layout read as a layout has none. That
+    needs a kind-aware flag, which this ADR finally supplies the distinction
+    for.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
