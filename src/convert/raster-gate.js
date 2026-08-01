@@ -63,12 +63,20 @@ export const MIN_IMAGE_EDGE_PT = 30;
 export const MIN_INTRINSIC_PX = 128;
 export const MAX_INTRINSIC_ASPECT = 8;
 
-// A significant figure must also occupy a real fraction of the page. This is
-// the gate intrinsic pixels can't provide: modern logo assets ship at retina
+// A page's figure content must occupy a real fraction of the page. This is the
+// gate intrinsic pixels can't provide: modern logo assets ship at retina
 // resolution (a 1601×609px logo painted 118×41pt — 1% of the page — passes
 // every pixel test), but decoration never claims real page area. Field data:
 // logos land at ~1–2% of the page, genuine chart/photo figures at 8%+, so 5%
 // splits them with margin on both sides. Tune against the graded corpus.
+//
+// Asked of the page's candidates TOGETHER, not of each one alone (ADR 0032).
+// Per-figure was the wrong unit in both directions: it admitted nothing from a
+// page whose figures are several small ones (chart-heavy p3 is a row of three
+// 3.2% diagrams — 9.6% of figure, none of it individually big enough) while
+// the crop path went on framing their union anyway. The populations the
+// constant was measured on are unaffected: a page carrying one 8% chart still
+// passes, a page carrying one 1% letterhead still fails.
 export const MIN_FIGURE_PAGE_FRACTION = 0.05;
 
 // Raster dominance: a true photo page paints at most a handful of vector ops
@@ -254,11 +262,27 @@ export const DEBRIS_OVERLAP_RATIO = 4;
 // analyzePdf / inspect-pdf over the scanned pages, carried on the summary as
 // repeatedImageDims) catches the FIRST page such an image paints on, where
 // the id is still page-local. Judged per member BEFORE component merging, so
-// a decoration tile can't glue itself to a real figure. Accepted risk: a
-// genuine figure deliberately repeated on two pages demotes too — across the
-// graded corpus every exact-dims cross-page repeat was decoration, and the
-// photos this could cost grade as marginal attachments anyway.
+// a decoration tile can't glue itself to a real figure.
+//
+// The dims census asks WHERE as well as how often (ADR 0032). Size alone was
+// the accepted risk here — "across the graded corpus every exact-dims
+// cross-page repeat was decoration" — and a report generator breaks it: an
+// issue tracker that normalizes every attached photo to one thumbnail size
+// paints six distinct site photographs at 382×382 across three pages, and the
+// size-only census called all six furniture. What furniture actually is, is
+// the same thing in the same PLACE on page after page — which is what the
+// TEXT furniture detector has always keyed on (createFurnitureDetector). So a
+// dims family is furniture only when one of its boxes recurs across pages;
+// a family whose instances land wherever the content puts them is a content
+// family (contentImageDims), and those are figures the layout repeats, not
+// decoration the template repeats.
 export const REPEATED_DIMS_MIN_PAGES = 2;
+
+// How close two paints must be to count as "the same place". Furniture is
+// positioned by a template, so its coordinates repeat exactly; 2pt absorbs
+// rounding without reaching the next line of a stacked photo rail (the issue
+// photos this separates sit 119pt apart, the closest same-size pair 3pt).
+export const FURNITURE_POSITION_TOL_PT = 2;
 
 // The same idea for vector fills (fillSignature / hasVectorChartFills), but a
 // page less eager than the raster census. Two pages is right for an image —
@@ -286,6 +310,58 @@ export const REPEATED_IMAGE_KEEP_PAGE_FRACTION = 0.4;
 
 // One fingerprint definition for census builders and the membership check.
 export const imageDimsKey = (w, h) => `${w}x${h}`;
+
+// Does some page paint SEVERAL of this family, in different places? That is
+// what a gallery looks like and what furniture never does: a letterhead is one
+// paint per page, a photo rail is five down the margin. Boxes are compared
+// pairwise rather than bucketed — a quantized grid puts a boundary somewhere,
+// and the paints this must tell apart (a rail's 70,400 against another page's
+// 70,397) would land either side of it or together depending only on where the
+// grid happened to fall.
+function paintsAsSet(instances) {
+  const byPage = new Map();
+  for (const i of instances) {
+    if (!byPage.has(i.page)) byPage.set(i.page, []);
+    byPage.get(i.page).push(i.box);
+  }
+  const apart = (a, b) =>
+    Math.abs(a.x0 - b.x0) > FURNITURE_POSITION_TOL_PT ||
+    Math.abs(a.y0 - b.y0) > FURNITURE_POSITION_TOL_PT;
+  for (const boxes of byPage.values()) {
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        if (apart(boxes[i], boxes[j])) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Split the document's intrinsic-dims census into the two families the gates
+// need (ADR 0032). `instances` is Map<dimsKey, [{ page, box }]> over every
+// scanned page's xobject paints.
+//   repeatedDims — furniture: one paint per page, page after page. Demoted
+//                  before component merging (isRepeatedImage), as before. A
+//                  logo counts here even when the cover prints it larger and
+//                  elsewhere than the running header does — same asset, one
+//                  instance a page, which is what a template does.
+//   contentDims  — the same size laid out as a SET: some page paints two or
+//                  more of them in different places. A generator that
+//                  normalizes every attached photo to one thumbnail size
+//                  produces exactly this, and the size-only census used to
+//                  call all of them decoration. Not demoted, and exempt from
+//                  the page-area floor (significantFigureComponents).
+// A family confined to one page is neither — it has no cross-page evidence
+// either way, and the per-page gates judge it on its own.
+export function classifyDimsFamilies(instances) {
+  const repeatedDims = new Set();
+  const contentDims = new Set();
+  for (const [key, list] of instances) {
+    if (new Set(list.map((i) => i.page)).size < REPEATED_DIMS_MIN_PAGES) continue;
+    (paintsAsSet(list) ? contentDims : repeatedDims).add(key);
+  }
+  return { repeatedDims, contentDims };
+}
 
 // Is this scan xobject a cross-page repeated image (page furniture)?
 // `repeatedDims` is the document census (Set of imageDimsKey strings) or
@@ -713,10 +789,27 @@ export function vectorChartBox(scan) {
 
 const boxArea = (box) => (box.x1 - box.x0) * (box.y1 - box.y0);
 
-// Does a box claim enough of the page to be a figure rather than decoration?
-// pageArea null/absent skips the check (callers without page geometry).
-const claimsPageArea = (box, pageArea) =>
-  pageArea == null || boxArea(box) >= MIN_FIGURE_PAGE_FRACTION * pageArea;
+// Area of the UNION of some boxes — how much of the page they cover between
+// them, counting doubly-painted region once. Summing areas instead would let a
+// page that paints one image twice at the same spot report twice its footprint
+// (table-heavy p1 does exactly that, and summing floated its 3% logo over a 5%
+// bar). Coordinate compression: a page's figure components number in the tens,
+// so the compressed grid is small and the exactness is free.
+function unionArea(boxes) {
+  if (!boxes.length) return 0;
+  const xs = [...new Set(boxes.flatMap((b) => [b.x0, b.x1]))].sort((a, b) => a - b);
+  const ys = [...new Set(boxes.flatMap((b) => [b.y0, b.y1]))].sort((a, b) => a - b);
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i++) {
+    for (let j = 0; j < ys.length - 1; j++) {
+      const covered = boxes.some(
+        (b) => b.x0 <= xs[i] && b.x1 >= xs[i + 1] && b.y0 <= ys[j] && b.y1 >= ys[j + 1]
+      );
+      if (covered) area += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+    }
+  }
+  return area;
+}
 
 // How many page edges the box bleeds (reaches within BLEED_EDGE_TOL_PT of).
 // `view` is the page's [x0, y0, x1, y1] box (pdf.js page.view).
@@ -798,13 +891,12 @@ export function isBackgroundImage(box, { view = null, textPoints = null } = {}) 
 // stock photos passed every size gate). Callers without the geometry omit it
 // — no clamping, and only the size gates apply.
 export function significantFigureComponents(scan, pageArea = null, opts = {}) {
-  return figureComponents(
+  const candidates = figureComponents(
     scan,
     opts.view ?? null,
     opts.repeatedDims ?? null
   ).filter((c) => {
     if (!figureSized(c)) return false;
-    if (!claimsPageArea(c, pageArea)) return false;
     if (isBackgroundImage(c, opts)) return false;
     // Flattening debris: many members re-painting the same region
     // (DEBRIS_OVERLAP_RATIO above). Legit compositions partition (~1×).
@@ -820,6 +912,37 @@ export function significantFigureComponents(scan, pageArea = null, opts = {}) {
         return false;
     }
     return true;
+  });
+  if (pageArea == null) return candidates;
+
+  // The page-area floor, asked of the PAGE rather than of each figure in turn
+  // (ADR 0032). "Decoration never claims real page area" is true of a page's
+  // figure content in aggregate, and that is the honest unit: the crop path
+  // frames the UNION of these components, so what the reader gets is decided
+  // by their total footprint, not by whether any one of them clears the bar
+  // alone. A page painting four 1.8% site photographs down a rail paints 8%
+  // of figure and reads as a gallery; a page painting one 1% letterhead
+  // paints decoration, and still fails — which is the case the floor exists
+  // for and the only one it was ever measured on.
+  if (unionArea(candidates) >= MIN_FIGURE_PAGE_FRACTION * pageArea) {
+    return candidates;
+  }
+
+  // Under the bar as a page, one thing still redeems a lone figure: belonging
+  // to a content family the census identified (dims that recur across the
+  // document at scattered positions — see REPEATED_DIMS_MIN_PAGES). A cover
+  // logo is never such a family; the last of a document's site photographs,
+  // alone on the final page, always is.
+  const family = opts.contentDims ?? null;
+  if (!family) return [];
+  return candidates.filter((c) => {
+    const only = c.members.length === 1 ? c.members[0].xobject : null;
+    return !!(
+      only &&
+      only.w != null &&
+      only.h != null &&
+      family.has(imageDimsKey(only.w, only.h))
+    );
   });
 }
 

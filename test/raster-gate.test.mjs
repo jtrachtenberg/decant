@@ -46,6 +46,7 @@ import {
   BACKGROUND_TEXT_DENSITY_MIN_CHARS,
   imageDimsKey,
   isRepeatedImage,
+  classifyDimsFamilies,
   fillSignature,
 } from "../src/convert/raster-gate.js";
 import { IMAGE_OP_NAMES } from "../src/convert/classify.js";
@@ -267,6 +268,54 @@ test("inline images respect the page-area gate too", () => {
   ]);
   assert.equal(countSignificantImages(smallInline, LETTER), 0);
   assert.ok(pageHasSignificantImage(smallInline)); // area check skipped
+});
+
+// --- The page-area floor asked of the page, not the figure (ADR 0032) -------
+
+test("a row of small figures qualifies on their combined footprint", () => {
+  const LETTER = 612 * 792;
+  // chart-heavy p3: three 118×136pt diagrams side by side. None reaches 5% of
+  // the page alone (3.2% each); together they are 9.6% and plainly a figure
+  // row — which is also what the crop path frames.
+  const row = scanOf([
+    ...placeImage("img_p2_1", 49, 385, 118, 136, 493, 565),
+    ...placeImage("img_p2_2", 178, 386, 118, 136, 492, 566),
+    ...placeImage("img_p2_3", 309, 384, 118, 136, 493, 568),
+  ]);
+  assert.equal(countSignificantImages(row, LETTER), 3);
+  // One of them alone stays under the bar — the floor still guards the case
+  // it was measured on.
+  const lone = scanOf(placeImage("img_p2_1", 49, 385, 118, 136, 493, 565));
+  assert.equal(countSignificantImages(lone, LETTER), 0);
+});
+
+test("the page's footprint is the union: a doubly-painted logo stays out", () => {
+  const LETTER = 612 * 792;
+  // table-heavy p1 paints one 3.1% logo twice at the same spot. Summing the
+  // two areas would float it over the 5% bar; the union is still 3.1%.
+  const twice = scanOf([
+    ...placeImage("img_p0_97", 164, 115, 177, 109, 354, 218),
+    ...placeImage("img_p0_98", 164, 115, 177, 109, 354, 218),
+  ]);
+  assert.equal(countSignificantImages(twice, LETTER), 0);
+});
+
+test("a lone figure is redeemed by belonging to a content family", () => {
+  const LETTER = 612 * 792;
+  // The last site photograph, alone on a report's final page: 1.8% of the
+  // page, so the page's own footprint can't carry it. The census says its
+  // dimensions recur across the document as a laid-out set.
+  const last = scanOf(placeImage("img_p3_2", 70, 640, 95, 95, 288, 287));
+  assert.equal(countSignificantImages(last, LETTER), 0);
+  assert.equal(
+    countSignificantImages(last, LETTER, { contentDims: new Set(["288x287"]) }),
+    1
+  );
+  // A cover logo is never such a family, so the escape can't reach it.
+  assert.equal(
+    countSignificantImages(last, LETTER, { contentDims: new Set(["926x226"]) }),
+    0
+  );
 });
 
 test("significance is broader than decodability: a two-photo collage counts", () => {
@@ -697,6 +746,71 @@ test("the census discounts furniture without costing a real chart its gate", () 
   assert.ok(hasVectorChartFills(scan, repeated), "chart survives the census");
   // And the discount is real: drop the chart and the same census silences it.
   assert.ok(!hasVectorChartFills(scanOf(furniture()), repeated));
+});
+
+// --- Furniture vs content in the dims census (ADR 0032) ---------------------
+
+test("a logo is furniture even when the cover prints it larger, elsewhere", () => {
+  // clean-text: one 926×226 asset, once on p1 at 326×80pt and once on p35 at
+  // 249×61pt. Different place, different scale — but one paint per page, which
+  // is what a template does.
+  const { repeatedDims, contentDims } = classifyDimsFamilies(
+    new Map([
+      [
+        "926x226",
+        [
+          { page: 1, box: { x0: 143, y0: 594, x1: 469, y1: 674 } },
+          { page: 35, box: { x0: 181, y0: 659, x1: 431, y1: 720 } },
+        ],
+      ],
+    ])
+  );
+  assert.deepEqual([...repeatedDims], ["926x226"]);
+  assert.equal(contentDims.size, 0);
+});
+
+test("normalized photo thumbnails laid out as a set are content, not furniture", () => {
+  // The issue tracker's case: one thumbnail size, five distinct photographs
+  // down page 2's margin and a sixth on page 3. Size-only, this was six counts
+  // of decoration.
+  const { repeatedDims, contentDims } = classifyDimsFamilies(
+    new Map([
+      [
+        "382x382",
+        [
+          { page: 2, box: { x0: 70, y0: 400, x1: 165, y1: 495 } },
+          { page: 2, box: { x0: 173, y0: 475, x1: 193, y1: 495 } },
+          { page: 2, box: { x0: 173, y0: 450, x1: 193, y1: 470 } },
+          { page: 3, box: { x0: 70, y0: 397, x1: 165, y1: 492 } },
+        ],
+      ],
+    ])
+  );
+  assert.deepEqual([...contentDims], ["382x382"]);
+  assert.equal(repeatedDims.size, 0);
+});
+
+test("one paint per page is furniture however many pages it spans", () => {
+  // A running footer logo: three pages, same box every time.
+  const box = { x0: 71, y0: 43, x1: 169, y1: 64 };
+  const { repeatedDims, contentDims } = classifyDimsFamilies(
+    new Map([["754x162", [2, 3, 4].map((page) => ({ page, box }))]])
+  );
+  assert.deepEqual([...repeatedDims], ["754x162"]);
+  assert.equal(contentDims.size, 0);
+});
+
+test("a family confined to one page is neither — the page gates judge it", () => {
+  const { repeatedDims, contentDims } = classifyDimsFamilies(
+    new Map([
+      [
+        "506x506",
+        [{ page: 2, box: { x0: 400, y0: 599, x1: 525, y1: 724 } }],
+      ],
+    ])
+  );
+  assert.equal(repeatedDims.size, 0);
+  assert.equal(contentDims.size, 0);
 });
 
 test("fillSignature separates a moved or recoloured fill from its neighbour", () => {
