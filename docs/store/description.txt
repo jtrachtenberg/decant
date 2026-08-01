@@ -130,6 +130,14 @@ CONFIGURABLE
 • A default answer for the convert-or-not prompt, so it stops asking
 
 
+IN YOUR LANGUAGE
+
+The interface is available in English, Spanish, French, German, Brazilian
+Portuguese, and Japanese, following your browser's language automatically. The
+translations are new — if a phrase reads wrong to a native speaker, a
+correction is a one-line GitHub edit and needs no code.
+
+
 OPEN SOURCE
 
 Source, documentation, and design notes:
