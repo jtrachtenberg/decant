@@ -2831,7 +2831,8 @@ function linesFromGlyphs(glyphs) {
 //     median over the page called the 12pt block's 7pt wrap a row.
 function mergeWrappedCells(lines) {
   if (lines.length < 3) return lines;
-  const gapAbove = (i) => (i >= 1 ? lines[i - 1].y - lines[i].y : null);
+  const gapAbove = (i) =>
+    i >= 1 && i < lines.length ? lines[i - 1].y - lines[i].y : null;
   const merged = new Set();
 
   for (let i = 1; i < lines.length; i++) {
