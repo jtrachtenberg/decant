@@ -7,9 +7,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { t } from "../src/i18n.js";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the latter is "/C:/…/decant/",
+// and join() turns that leading slash into "\C:\…" — a path that reads
+// nowhere. Every other test in this directory resolves the same way.
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const en = JSON.parse(readFileSync(join(ROOT, "src/_locales/en/messages.json"), "utf8"));
 
 function walk(dir, out = []) {
@@ -22,9 +26,11 @@ function walk(dir, out = []) {
 }
 
 // i18n.js is the mechanism, not a consumer: its doc comment spells out the
-// markup forms, and those examples are not references to real keys.
+// markup forms, and those examples are not references to real keys. Compared
+// as a built path, so the separator matches on either platform.
+const I18N = join(ROOT, "src", "i18n.js");
 const sources = [
-  ...walk(join(ROOT, "src")).filter((p) => !p.endsWith("src/i18n.js")),
+  ...walk(join(ROOT, "src")).filter((p) => p !== I18N),
   join(ROOT, "manifest.json"),
   join(ROOT, "build.mjs"),
 ].map((path) => ({ path, text: readFileSync(path, "utf8") }));
