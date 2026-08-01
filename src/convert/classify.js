@@ -324,6 +324,17 @@ const GAP_FLUSH = 1.8;
 // else covers most of the measure, as a centred banner does.
 const SPAN_LEFT_TOL = 2; // median heights of indent tolerance at the margin
 const SPAN_WIDE_FRAC = 0.5;
+// A heading centred over the whole measure spans the columns even when its
+// text is too narrow to touch either corridor (SF-93's "10. PAST/CURRENT
+// MEDICAL HISTORY" sits centred over a three-column checklist, printed
+// entirely inside the middle column's x-range). Crossing can't see it, so a
+// second promotion path asks what a centred block heading IS: alone on its
+// band, set larger than the body, centred on the measure, and not flush-left
+// (flush-left is an ordinary line and stays with its column). A column's own
+// heading never passes: left-aligned it starts at its column's edge, centred
+// it centres on its COLUMN, and only the full measure's centre qualifies.
+const HEADING_SPAN_RATIO = 1.2; // type-size ratio over the median height
+const HEADING_CENTER_TOL = 1.5; // med heights the centre may sit off centre
 
 // N-column generalization: after the page splits at its primary gutter, each
 // side may itself hold several side-by-side streams (designed reports run 3–4
@@ -2805,7 +2816,82 @@ function linesFromGlyphs(glyphs) {
       .map((c) => ({ ...c, text: c.text.replace(/[ \t]+/g, " ").trim() }))
       .filter((c) => c.text.length);
   }
-  return mergeWrappedCells(lines.filter((line) => line.cells.length));
+  return mergeWrappedCells(
+    mergeStraddledStacks(lines.filter((line) => line.cells.length))
+  );
+}
+
+// Bind a two-line cell to the row it is vertically centred on. A narrow table
+// cell often sets its label on two lines straddling the row's baseline, a
+// half-leading above and below ("DON'T" over "KNOW" beside "CHECK EACH ITEM
+// YES NO" — SF-93's checklist header). Read as baselines that is three lines,
+// and the row's own header reads interleaved: DON'T / CHECK EACH ITEM YES NO /
+// KNOW.
+//
+// The shape is sharp: two terse one-cell lines, x-aligned with MATCHING widths
+// (a wrap's second line is short — public-famous p10's "Finished goods" over
+// "intended use." fails here), one leading apart, whose midpoint sits exactly
+// on the line between them — and that line's own cells all clear of the
+// stack's x-range (a prose or formula line between two others overlaps them —
+// private-novel p26's stacked formula labels fail here), with one near enough
+// to anchor the stack to the row. The halves join as one cell of the middle
+// line, in x order, so the label reads beside the row it annotates.
+const STACK_MAX_TOKENS = 2;
+const STACK_MAX_WIDTH = 8; // line heights: a stacked label is a narrow cell
+const STACK_MID_TOL = 0.3; // line heights: how exactly the row sits on centre
+const STACK_ANCHOR_REACH = 6; // line heights: max x-gap from row to the stack
+function mergeStraddledStacks(lines) {
+  for (let i = 0; i + 2 < lines.length; i++) {
+    const a = lines[i];
+    const b = lines[i + 1];
+    const c = lines[i + 2];
+    // RTL rows keep their cells in reading (descending-x) order; splicing by
+    // x would scramble them, so the repair stands aside there.
+    if (a.rtl || b.rtl || c.rtl) continue;
+    if (a.cells.length !== 1 || c.cells.length !== 1 || !b.cells.length)
+      continue;
+    const ca = a.cells[0];
+    const cc = c.cells[0];
+    const h = Math.max(a.h, c.h);
+    const terse = (cell) =>
+      cell.endX - cell.x <= STACK_MAX_WIDTH * h &&
+      cell.text.split(/\s+/).length <= STACK_MAX_TOKENS;
+    if (!terse(ca) || !terse(cc) || Math.abs(a.h - c.h) >= 1) continue;
+    const d = a.y - c.y;
+    if (d < 0.7 * h || d > 1.6 * h) continue;
+    const overlap = Math.min(ca.endX, cc.endX) - Math.max(ca.x, cc.x);
+    if (overlap < 0.8 * Math.max(ca.endX - ca.x, cc.endX - cc.x)) continue;
+    if (Math.abs((a.y + c.y) / 2 - b.y) > STACK_MID_TOL * h) continue;
+    const x0 = Math.min(ca.x, cc.x);
+    const x1 = Math.max(ca.endX, cc.endX);
+    let anchored = false;
+    let blocked = false;
+    for (const cell of b.cells) {
+      if (cell.x < x1 && cell.endX > x0) {
+        blocked = true;
+        break;
+      }
+      const gap = cell.x >= x1 ? cell.x - x1 : x0 - cell.endX;
+      if (gap <= STACK_ANCHOR_REACH * h) anchored = true;
+    }
+    if (blocked || !anchored) continue;
+    const cell = {
+      text: `${ca.text} ${cc.text}`,
+      x: x0,
+      endX: x1,
+      domH: ca.domH ?? a.h,
+    };
+    let at = b.cells.findIndex((o) => o.x > x0);
+    if (at < 0) at = b.cells.length;
+    b.cells.splice(at, 0, cell);
+    // The stack's upper half opened this block's paragraph; the row inherits
+    // the break so the block still separates from what precedes it.
+    if (a.para) b.para = true;
+    lines.splice(i + 2, 1);
+    lines.splice(i, 1);
+    i--;
+  }
+  return lines;
 }
 
 // Fold a wrapped value back into the cell it belongs to (ADR 0032).
@@ -3519,10 +3605,43 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
       const { cls, cl: own } = ctxOf(cl);
       return cls.some((o) => o !== own && clusterSide(o) !== clusterSide(cl));
     };
+    // A centred narrow heading (see HEADING_SPAN_RATIO): larger type, alone on
+    // its band, centred on the measure, not flush-left. It spans without ever
+    // crossing a corridor — narrow text centred over columns misses them all —
+    // and leaving it in a column both misplaces it and holds everything above
+    // it hostage to that column's emission order.
+    const measureMid = (measureX0 + measureX1) / 2;
+    // ...and not a WRAP of something taller than the band shows: a line one
+    // leading above the candidate, in the candidate's own type size and
+    // x-range, makes it that line's continuation (the last line of a wrapped
+    // column heading, or of a centred paragraph), not a standalone heading.
+    const isContinuation = (cl) => {
+      const clH = Math.max(...cl.boxes.map((b) => b.h));
+      const top = Math.max(...cl.boxes.map((b) => b.y0));
+      return boxes.some(
+        (b) =>
+          !b.ws &&
+          Math.abs(b.h - clH) < 1 &&
+          b.x0 < cl.x1 &&
+          b.x1 > cl.x0 &&
+          b.y0 - top > 0.5 * clH &&
+          b.y0 - top < 1.8 * clH
+      );
+    };
+    const centeredHeading = (cl) =>
+      ctxOf(cl).cls.length === 1 &&
+      Math.max(...cl.boxes.map((b) => b.h)) >= HEADING_SPAN_RATIO * med &&
+      Math.abs((cl.x0 + cl.x1) / 2 - measureMid) <= HEADING_CENTER_TOL * med &&
+      cl.x0 > measureX0 + SPAN_LEFT_TOL * med &&
+      // A heading never begins mid-sentence: a lowercase opening letter is
+      // a wrapped prose line whose position happens to centre.
+      !/^\p{Ll}/u.test(clusterText(cl)) &&
+      !isContinuation(cl);
     const spanning = clusters.filter(
       (cl) =>
-        cl.boxes.some(crosses) &&
-        (isFurniture(cl, ctxOf(cl).cls.length) || !hasOpposingRowMate(cl))
+        (cl.boxes.some(crosses) &&
+          (isFurniture(cl, ctxOf(cl).cls.length) || !hasOpposingRowMate(cl))) ||
+        centeredHeading(cl)
     );
     if (spanning.length) {
       flush();

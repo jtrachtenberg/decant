@@ -228,3 +228,66 @@ test("the gutter stays between the streams, not inside a row", () => {
     );
   }
 });
+
+// --- Straddled two-line cells (SF-93) ----------------------------------------
+// A narrow cell whose label is set on two lines vertically centred on its row
+// straddles the row's baseline, half a leading above and below. Read as
+// baselines that is three lines; the repair binds the stack to the row it
+// annotates. The fixture is SF-93's checklist header geometry verbatim:
+// "DON'T"(427.3) / "CHECK EACH ITEM  YES  NO"(423.1) / "KNOW"(418.9).
+function sf93Header() {
+  const item = (str, x, y, w, h = 7) => ({
+    str,
+    width: w,
+    height: h,
+    transform: [h, 0, 0, h, x, y],
+  });
+  return [
+    item("CHECK EACH ITEM", 48.2, 423.1, 64.6),
+    item("YES", 141.5, 423.1, 14.0),
+    item("NO", 164.9, 423.1, 10.5),
+    item("DON'T", 184.4, 427.3, 21.2),
+    item("KNOW", 184.1, 418.9, 21.8),
+  ];
+}
+
+test("a stacked two-line cell binds to the row it is centred on", () => {
+  const lines = reconstructPage(sf93Header()).lines;
+  assert.equal(lines.length, 1, linesToMarkdown(lines));
+  assert.equal(
+    lines[0].cells.map((c) => c.text).join(" "),
+    "CHECK EACH ITEM YES NO DON'T KNOW"
+  );
+});
+
+test("a stack overlapping the row's own cells stays three lines", () => {
+  // A cell of the middle line printed under the stack means the halves are
+  // not that row's spare column — nothing merges, y-order stands.
+  const items = sf93Header();
+  items.push({
+    str: "MAYBE",
+    width: 22,
+    height: 7,
+    transform: [7, 0, 0, 7, 190, 423.1],
+  });
+  const lines = reconstructPage(items).lines;
+  assert.equal(lines.length, 3, linesToMarkdown(lines));
+});
+
+test("ordinary wrapped text does not read as a stacked cell", () => {
+  // The wrap's second line is short — width match fails, and the pair has no
+  // row between its baselines anyway ("Excessive bleeding after injury or" /
+  // "dental work", SF-93's own checklist).
+  const item = (str, x, y, w, h = 7) => ({
+    str,
+    width: w,
+    height: h,
+    transform: [h, 0, 0, h, x, y],
+  });
+  const lines = reconstructPage([
+    item("Excessive bleeding after injury or", 24.3, 343.6, 102.7),
+    item("dental work", 24.3, 335.2, 35.8),
+  ]).lines;
+  assert.equal(lines.length, 2, linesToMarkdown(lines));
+  assert.equal(lines[0].cells[0].text, "Excessive bleeding after injury or");
+});
