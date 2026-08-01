@@ -9,6 +9,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { t } from "../src/i18n.js";
+import { CAPTURE_ERROR_KEYS } from "../src/capture/capture.js";
 
 // fileURLToPath, not URL.pathname: on Windows the latter is "/C:/…/decant/",
 // and join() turns that leading slash into "\C:\…" — a path that reads
@@ -65,6 +66,14 @@ test("every key the code names exists in the catalogue", () => {
   assert.ok(referenced.length > 40, "the scan found suspiciously few keys");
   const missing = referenced.filter(({ key }) => !en[key]);
   assert.deepEqual(missing, [], `keys with no catalogue entry: ${JSON.stringify(missing)}`);
+});
+
+test("every capture error sentinel names a catalogue entry", () => {
+  // These keys travel as data (result.error) and reach t() as a variable, so
+  // the t("…") scan above never sees them — a missing entry would ship as a
+  // bare key on the failure notice.
+  const missing = CAPTURE_ERROR_KEYS.filter((key) => !en[key]);
+  assert.deepEqual(missing, [], `sentinels with no catalogue entry: ${missing.join(", ")}`);
 });
 
 test("every catalogue entry is used", () => {
