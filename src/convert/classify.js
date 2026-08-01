@@ -2876,6 +2876,30 @@ const MODEL_MIN_WIDTH = 5;
 const MODEL_MIN_VSPAN = 0.55;
 const MODEL_MIN_OPEN = 2 * MIN_COL_ROWS;
 
+// ...and one more question, which none of the geometric guards can answer:
+// is this a boundary between the page's COLUMNS, or between a data table's
+// CELLS? Geometry cannot tell them apart, and measuring says so plainly — the
+// money columns of clean-text p16's partners'-capital statement open corridors
+// 5.7 to 9.0 median heights wide standing over the page's whole height, which
+// is indistinguishable from table-heavy p8's 9.3 and 10.8.
+//
+// What separates them is what is printed beside them. A data table's columns
+// are values lining up under a heading, so what abuts the corridor is short or
+// numeric; a layout's columns are blocks of prose standing side by side, so
+// what abuts it is running text. Counting the fraction of abutting clusters
+// that read as table cells over the corpus separates the two populations with
+// nothing in between:
+//
+//   layout columns   table-heavy p8/p15/p21/p23/p26/p28/p34   0.07 – 0.21
+//   a tag rail       table-heavy p10 (chip | item | status)   0.44 – 0.48
+//   data tables      clean-text p16/p37, messy-scan p32/p35   0.92 – 1.00
+//
+// So the model claims prose columns only. A statement, a worksheet and a
+// chart's tick columns are left exactly as they were, which is right twice
+// over: those pages are read row-major by machinery that already understands
+// them, and nothing above this line could have told them apart.
+const MODEL_MAX_CELLY = 0.3;
+
 // The page's column corridors, left to right. Each is { a, b, gx }: the x-range
 // over which the corridor is open, and the gutter x derived from it in
 // findGutter's convention (just left of where the next column starts), so every
@@ -3028,9 +3052,41 @@ export function pageColumnModel(boxes) {
     if (r.b - r.a < MODEL_MIN_WIDTH * med) continue;
     if (top - bot < MODEL_MIN_VSPAN * (pageTop - pageBot)) continue;
     if (open[Math.round((r.a + r.b) / 2)] < MODEL_MIN_OPEN) continue;
+    if (readsAsCells(bandCls, coreX)) continue;
     model.push({ a: lo + r.a, b: lo + r.b, gx });
   }
   return model.sort((p, q) => p.gx - q.gx);
+}
+
+// Does what abuts this corridor read as a table's cells rather than as two
+// blocks of prose? Measured on the cluster immediately either side of it in
+// every band that has one — see MODEL_MAX_CELLY for the populations this
+// separates. Either side being celly is enough: a rail of tags down one edge
+// and a status column down the other are each one column of a table whose
+// middle cell happens to be long.
+function readsAsCells(bandCls, x) {
+  const cellFrac = (pick) => {
+    let n = 0;
+    let celly = 0;
+    for (const { cls } of bandCls) {
+      const cl = pick(cls);
+      if (!cl) continue;
+      n++;
+      const text = cl.boxes
+        .map((b) => b.g.str)
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (isTabularCell(text)) celly++;
+    }
+    return n ? celly / n : 0;
+  };
+  const left = cellFrac((cls) => {
+    for (let i = cls.length - 1; i >= 0; i--) if (cls[i].x1 <= x) return cls[i];
+    return null;
+  });
+  const right = cellFrac((cls) => cls.find((cl) => cl.x0 >= x));
+  return Math.max(left, right) >= MODEL_MAX_CELLY;
 }
 
 // The page corridors that are interior to one box set, leftmost first. A
@@ -3139,9 +3195,20 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
   //   - A box must cross by half a median height on each side to count: a
   //     column line overshooting the gutter by a couple of points is a long
   //     line, not a full-width element.
+  //   - ...and when the page's model supplied this gutter, a box must cross the
+  //     whole CORRIDOR, not a line drawn through the middle of it (ADR 0030).
+  //     Half a median height is a guess at how wide the gutter is; the model
+  //     measured it. Column 2 of table-heavy p8 hangs its headings 14pt left of
+  //     its own text edge, so they begin inside the whitespace and reach only
+  //     their own column — they cross the centre line and nothing else. Judged
+  //     against the centre they were promoted to full-width furniture, which
+  //     shattered that heading into three regions and dragged column 3's
+  //     heading and the term labels of its goal panels in with them.
   const spanMargin = med * 0.5;
-  const crosses = (b) =>
-    !b.ws && b.x0 < gx - spanMargin && b.x1 > gx + spanMargin;
+  const corridor = model?.find((c) => Math.abs(c.gx - gx) <= 1);
+  const crossLo = corridor ? corridor.a : gx - spanMargin;
+  const crossHi = corridor ? corridor.b : gx + spanMargin;
+  const crosses = (b) => !b.ws && b.x0 < crossLo && b.x1 > crossHi;
   // Straddling the gutter is not by itself full-width furniture. A figure's
   // specification label outdented a few points past the gutter ("Protective
   // Casing", 66pt of a 495pt measure) was promoted to a spanning region and so
@@ -3186,17 +3253,43 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
       (b) => b.g.symbolLabel && b.x0 >= gx && b.x0 - gx <= RAIL_REACH * med
     )
   );
-  const sideOf = (b) =>
-    !adoptLeft.has(b) && (adopted.has(b) || (b.x0 + b.x1) / 2 >= gx);
+  // Every column of the page at once, not one cut and a recursion (ADR 0030).
+  // The split used to be binary, so a four-column page put three streams on one
+  // side of the first cut and relied on coming back for them — but the block
+  // flush runs between cuts, and it fragments that side into blocks too small
+  // to split again. table-heavy p8 lost its goals band exactly there: the
+  // band's term labels ("SHORT-TERM GOAL | MEDIUM-TERM GOAL | LONG-TERM GOAL")
+  // flushed into a different region from the two lines under them, which
+  // dropped that panel below detectGrid's row floor and left the three goals
+  // interleaved word by word across every line — "Annual reduction against
+  // Carbon-neutral Achieve net zero by".
+  //
+  // Routing every column in one pass removes the question. It is only safe
+  // because the model now claims prose columns and nothing else (see
+  // MODEL_MAX_CELLY): cutting all of a statement's corridors at once would
+  // slice its rows with no recursion left to re-test them, and that is what a
+  // first attempt at this did to clean-text p16 and table-heavy p10.
+  const cuts = model?.length
+    ? [...new Set([gx, ...model.map((c) => c.gx)])].sort((p, q) => p - q)
+    : [gx];
+  // Rail adoption is a claim about the gutter this unit cut at, so it moves a
+  // box across THAT cut, not to an end of the page.
+  const gxCut = cuts.indexOf(gx);
+  const columnOf = (b) => {
+    if (adoptLeft.has(b)) return gxCut;
+    if (adopted.has(b)) return gxCut + 1;
+    const c = (b.x0 + b.x1) / 2;
+    let i = 0;
+    while (i < cuts.length && c >= cuts[i]) i++;
+    return i;
+  };
   const regions = [];
-  let left = [];
-  let right = [];
+  const emptyCols = () => cuts.map(() => []).concat([[]]);
+  let cols = emptyCols();
   let span = [];
   const flush = () => {
-    if (left.length) regions.push(left);
-    if (right.length) regions.push(right);
-    left = [];
-    right = [];
+    for (const col of cols) if (col.length) regions.push(col);
+    cols = emptyCols();
   };
   const flushSpan = () => {
     if (span.length) regions.push(span);
@@ -3282,12 +3375,12 @@ export function columnRegions(boxes, hint = null, exclude = [], model = null) {
         if (spanning.includes(cl) || isTabularCell(clusterText(cl))) {
           span.push(...cl.boxes);
         } else {
-          for (const b of cl.boxes) (sideOf(b) ? right : left).push(b);
+          for (const b of cl.boxes) cols[columnOf(b)].push(b);
         }
       }
     } else {
       flushSpan();
-      for (const b of r.boxes) (sideOf(b) ? right : left).push(b);
+      for (const b of r.boxes) cols[columnOf(b)].push(b);
     }
     prevBottom = r.y0;
   }

@@ -55,8 +55,8 @@ function threeColumnPage({ banner = false, subPanel = true } = {}) {
   for (let i = 0; i < 29; i++) {
     const y = 488 - i * 14;
     if (subPanel && y <= 300) {
-      boxes.push(box("panel a", 400, y, { w: 30 }));
-      boxes.push(box("panel b", 520, y, { w: 30 }));
+      boxes.push(box("panel column text one", 400, y, { w: 30 }));
+      boxes.push(box("panel column text two", 520, y, { w: 30 }));
     } else {
       boxes.push(box("right column running text", 400, y, { w: 150 }));
     }
@@ -119,6 +119,58 @@ test("a corridor beside one figure is not the page's", () => {
     }
   }
   assert.deepEqual(pageColumnModel(boxes), []);
+});
+
+test("a data table's cell boundary is not one of the page's columns", () => {
+  // The same geometry as a three-column layout — same corridor widths, same
+  // height, same band count — but what abuts each corridor is short and
+  // numeric, so it is a statement's money columns, not the page's columns.
+  // Nothing above this test can tell the two apart: clean-text p16's corridors
+  // measure 5.7–9.0 median heights, table-heavy p8's 9.3 and 10.8.
+  const boxes = [];
+  for (let i = 0; i < 34; i++)
+    boxes.push(box("Partners’ equity, December", 0, 500 - i * 12, { w: 150 }));
+  for (let i = 0; i < 31; i++) boxes.push(box("$ XXX", 200, 494 - i * 13, { w: 150 }));
+  for (let i = 0; i < 29; i++) boxes.push(box("(X)", 400, 488 - i * 14, { w: 150 }));
+  assert.deepEqual(pageColumnModel(boxes), []);
+
+  // ...and the identical geometry with prose in those columns is.
+  const prose = [];
+  for (let i = 0; i < 34; i++)
+    prose.push(box("first column running text", 0, 500 - i * 12, { w: 150 }));
+  for (let i = 0; i < 31; i++)
+    prose.push(box("second column running text", 200, 494 - i * 13, { w: 150 }));
+  for (let i = 0; i < 29; i++)
+    prose.push(box("third column running text", 400, 488 - i * 14, { w: 150 }));
+  assert.equal(pageColumnModel(prose).length, 2);
+});
+
+test("a heading hung into the gutter is not full-width furniture", () => {
+  // Column 2 of table-heavy p8 hangs its headings 14pt left of its own text
+  // edge. They begin inside the whitespace and reach only their own column, so
+  // they cross a line drawn through the middle of the corridor and nothing
+  // else. Judged against that centre line they were promoted to a spanning
+  // region and dragged the next column's heading in with them; judged against
+  // the corridor the model measured, they stay in their column.
+  const boxes = [];
+  for (let i = 0; i < 24; i++)
+    boxes.push(box("first column running text", 0, 400 - i * 12, { w: 180 }));
+  for (let i = 0; i < 22; i++)
+    boxes.push(box("second column running text", 240, 394 - i * 13, { w: 180 }));
+  // The hung heading: starts at 226, inside the 190..235 corridor, and ends
+  // well inside column 2.
+  boxes.push(box("A hanging heading for column two", 226, 412, { w: 190 }));
+  const model = [{ a: 190, b: 235, gx: 239 }];
+
+  const { regions } = columnRegions(boxes, null, [], model);
+  const heading = regions.find((r) =>
+    r.some((b) => b.g.str.startsWith("A hanging heading"))
+  );
+  assert.ok(heading, "the heading must land in some region");
+  assert.ok(
+    heading.every((b) => b.x1 > 190),
+    "the hung heading must stay in its own column, not span the page"
+  );
 });
 
 test("the page's corridor overrules the band's own vote", () => {
