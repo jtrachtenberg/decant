@@ -712,6 +712,30 @@
     }
   },
 
+  "captureBlockedInternal": {
+    "message": "browser-internal pages can't be captured",
+    "description": "Reason phrase, shown inside noticeCaptureFailed, for a chrome://-style page the browser never lets extensions read. Lowercase — it continues a sentence."
+  },
+  "captureBlockedGallery": {
+    "message": "the extension gallery can't be captured",
+    "description": "Reason phrase, shown inside noticeCaptureFailed, for the browser's own extension store pages, where scripting is blocked. Lowercase — it continues a sentence."
+  },
+  "captureScriptMissing": {
+    "message": "capture script did not load",
+    "description": "Reason phrase, shown inside noticeCaptureFailed, for when the injected capture code never defined itself on the page. Lowercase — it continues a sentence."
+  },
+  "captureNoResult": {
+    "message": "capture returned no result",
+    "description": "Reason phrase, shown inside noticeCaptureFailed, for when the injection ran but nothing came back. Lowercase — it continues a sentence."
+  },
+  "captureNothingToConvert": {
+    "message": "nothing to convert ($reason$)",
+    "description": "Reason phrase, shown inside noticeCaptureFailed, for a page with no prose to turn into Markdown. $reason$ is an internal engine code such as \"no-text\" — leave it untranslated. Lowercase — it continues a sentence.",
+    "placeholders": {
+      "reason": { "content": "$1", "example": "no-text" }
+    }
+  },
+
   "deliverCouldNotOpen": {
     "message": "couldn't open $host$: $error$",
     "description": "Reason phrase, shown inside noticeDeliveryFailed, for when a tab for the chat couldn't be opened. Lowercase — it continues a sentence.",

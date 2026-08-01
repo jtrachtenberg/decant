@@ -182,10 +182,10 @@ test("captureFileName caps runaway titles", () => {
 
 // -------------------------------------------------------- blocked pages ---
 
-test("browser-internal and gallery pages report a friendly reason", () => {
-  assert.match(captureBlockedReason("chrome://settings"), /browser-internal/);
-  assert.match(captureBlockedReason("about:debugging"), /browser-internal/);
-  assert.match(captureBlockedReason("https://chromewebstore.google.com/x"), /gallery/);
+test("browser-internal and gallery pages report a named reason key", () => {
+  assert.equal(captureBlockedReason("chrome://settings"), "captureBlockedInternal");
+  assert.equal(captureBlockedReason("about:debugging"), "captureBlockedInternal");
+  assert.equal(captureBlockedReason("https://chromewebstore.google.com/x"), "captureBlockedGallery");
   assert.equal(captureBlockedReason("https://example.com/"), null);
 });
 
