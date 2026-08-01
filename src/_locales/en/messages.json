@@ -1,7 +1,7 @@
 {
   "extName": {
     "message": "Decant - In-Browser Document & Web Page to Markdown for AI, Cut Token Cost",
-    "description": "Extension name as listed on the Chrome Web Store (75-character limit). \"Decant\" is the product name and stays untranslated."
+    "description": "Extension name as listed on the Chrome Web Store (75-character limit). \"Decant\" is the product name and stays untranslated — the copies in every other locale are deliberate duplicates, because the store's upload validator rejects a package whose locales lack the name key (runtime fallback is not enough). Do not translate them."
   },
   "extNameShort": {
     "message": "Decant - Documents & Web Pages to Markdown",
