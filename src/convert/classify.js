@@ -1368,6 +1368,13 @@ function bandFit(bands, starts) {
 // double-spaces its rows and single-spaces the wraps inside them separates
 // cleanly. public-famous p17 runs 18pt between rows and 10pt inside them.
 const GRID_WRAP_RATIO = 0.7;
+// The most a continuation may sit below the line it continues, as a multiple
+// of its own type size (mergeWrappedCells). Ordinary leading runs ~1.2x the
+// size; a table's next ROW adds space on top of that and lands at 1.5x or
+// more, so this sits between them. Scale-free by construction — the same
+// number decides a 6pt block whose rows are 9pt apart and one whose rows are
+// 12pt apart, and this document has both.
+const WRAP_MAX_LEADING = 1.35;
 // How far a wrapped remainder's start may drift from the cell it continues
 // (mergeWrappedCells). A wrap resumes at its column's own left edge, so this
 // only has to absorb the point or two a justified line's first glyph shifts —
@@ -2838,11 +2845,18 @@ function mergeWrappedCells(lines) {
     const prev = lines[p];
     if (prev.cells.length < 2) continue;
 
-    // The rows' own spacing: the gap above the row being continued, or — when
-    // it opens its block — the gap below the continuation.
+    // Two readings of "set closer than a row", and a continuation is both.
+    // Against the TYPE, it sits at ordinary leading — a little over the size
+    // it is set in, and scale-free, so a block of 6pt rows 9pt apart and one
+    // 12pt apart are judged the same way. Against the ROWS, it is tighter than
+    // the gap above the row it continues (or below it, when that row opens its
+    // block). Neither alone is enough: leading is what a wrap looks like, but
+    // a table whose rows are themselves set at leading would fold row into row
+    // without the second test.
     const pitch = gapAbove(p) ?? gapAbove(i + 1);
     const drop = lines[i - 1].y - line.y;
-    if (!(pitch > 0) || !(drop > 0) || drop > GRID_WRAP_RATIO * pitch) continue;
+    if (!(pitch > 0) || !(drop > 0)) continue;
+    if (drop >= pitch || drop > WRAP_MAX_LEADING * line.h) continue;
 
     const cell = line.cells[0];
     const target = prev.cells[prev.cells.length - 1];
