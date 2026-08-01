@@ -24,6 +24,7 @@
     "test": "node --test",
     "build:cli": "node scripts/build-cli.mjs",
     "mock-endpoint": "node scripts/mock-endpoint.mjs",
+    "pseudo-locale": "node scripts/pseudo-locale.mjs",
     "inspect": "node scripts/inspect-pdf.mjs"
   },
   "license": "SEE LICENSE IN LICENSE",

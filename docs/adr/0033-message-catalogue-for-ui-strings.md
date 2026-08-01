@@ -68,7 +68,16 @@ the change rather than incidental to it:
 
 `localizeDocument()` also sets `lang` from `getUILanguage()` and `dir` from
 `@@bidi_dir`, so an RTL locale mirrors the options page rather than shipping a
-left-to-right layout full of right-to-left text.
+left-to-right layout full of right-to-left text. Both read the browser's **UI
+locale**, which is not the same thing as the catalogue that got selected —
+measured, not assumed: launching with `--lang=ar` against an `ar` catalogue
+picks that catalogue up (its strings render) while `getUILanguage()` and
+`@@bidi_dir` stay `en-US`/`ltr`, because the container's Chromium carries only
+en-US UI resources. In a browser whose UI language the user has actually
+changed the two agree, which is the case this is for; the divergence is an
+artifact of forcing the flag. Consequence for testing: `--lang` exercises the
+catalogue but not the mirroring, and RTL layout needs a genuinely
+RTL-configured browser.
 
 **`t()` falls back to the bundled English catalogue** when `browser.i18n` is
 absent. `getMessage` returns `""` for a key it doesn't have — a missing string
@@ -112,4 +121,8 @@ the same `messages.json` the browser loads, so the two cannot drift.
   to the UI locale), the converting and savings badges render their
   substituted forms, and every variant of the ambiguous prompt — singular and
   plural visual counts, one and many documents, all three detail bodies, all
-  four buttons — renders with its choice wiring intact.
+  four buttons — renders with its choice wiring intact. A pseudo-locale
+  (bracketed, accented, ~30% longer) dropped in as a second catalogue proves
+  the selection path end to end: every options-page string arrives bracketed,
+  so nothing on that page is still hardcoded. RTL mirroring is the one claim
+  above not verified by measurement — see the note in the Decision section.

@@ -604,8 +604,9 @@ on it fall back gracefully (in-browser conversion or passthrough).
     with callers naming *what happened* and the catalogue owning the grammar.
     Every entry carries a translator description, the options page is marked up
     rather than rewritten (an inline `<code>` shortcut stays inside its
-    sentence via a `%s` slot), and an RTL locale gets `dir` and `lang` set from
-    the catalogue. Conversion output is deliberately excluded — those markers
+    sentence via a `%s` slot), and the options page sets `dir` and `lang` from
+    the browser's UI locale so an RTL locale mirrors it. Conversion output is
+    deliberately excluded — those markers
     are read by a model, and the corpus is compared on them byte-for-byte.
     English is the only catalogue so far; translations are now a contribution
     that needs no code.
