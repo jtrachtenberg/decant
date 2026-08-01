@@ -40,7 +40,10 @@ await mkdir(outdir, { recursive: true });
 //     not a service worker (`service_worker`).
 //   - name: AMO rejects a name over 45 characters (addons-linter JSON_INVALID),
 //     where the Chrome Web Store allows 75 — the keyword-bearing store title
-//     doesn't fit, so Firefox gets a shorter one. Both name the same product.
+//     doesn't fit, so Firefox gets a shorter one. Both name the same product,
+//     and both are catalogue keys (see src/_locales): the linter resolves
+//     __MSG_ against default_locale, so the length rule applies to the English
+//     message and to every translation of it.
 //   - browser_specific_settings.gecko: FF requires an add-on id, a version floor
 //     (see below), and — for anything submitted to AMO since 2025-11-03 — a
 //     data_collection_permissions declaration, without which signing is refused.
@@ -62,7 +65,7 @@ await mkdir(outdir, { recursive: true });
 if (firefox) {
   const manifest = JSON.parse(await readFile("manifest.json", "utf8"));
   manifest.background = { scripts: ["background.js"], type: "module" };
-  manifest.name = "Decant - Documents & Web Pages to Markdown";
+  manifest.name = "__MSG_extNameShort__";
   manifest.browser_specific_settings = {
     gecko: {
       id: "decant@decant.tools",
@@ -123,6 +126,12 @@ await cp("THIRD-PARTY-NOTICES", `${outdir}/THIRD-PARTY-NOTICES`);
 for (const icon of ["decant_icon16.png", "decant_icon48.png", "decant_icon.png"]) {
   await cp(icon, `${outdir}/${icon}`);
 }
+// Message catalogues, one directory per language. They must sit at the package
+// root under exactly this name — that's where the browser looks — and the
+// manifest's default_locale names the one every other locale falls back to,
+// key by key. i18n.js imports the English file as well, so the bundle carries
+// a copy for the no-runtime case; this is the copy the browser itself reads.
+await cp("src/_locales", `${outdir}/_locales`, { recursive: true });
 // Options page markup (its script is bundled below).
 await mkdir(`${outdir}/options`, { recursive: true });
 await cp("src/options/options.html", `${outdir}/options/options.html`);

@@ -12,6 +12,7 @@
 // permission grants/revocations.
 
 import { browser } from "./browser.js";
+import { t } from "./i18n.js";
 import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
 import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
@@ -186,7 +187,7 @@ async function runCaptureInner(tab, forcedHost) {
   if (enabled.includes(hostOf(url))) {
     console.warn(TAG, "capture skipped: already on a chat host");
     flashBadge("—", "#8a8a8a");
-    showPageNotice(tab.id, "Decant: capture works on content pages — this is already a chat.");
+    showPageNotice(tab.id, t("noticeAlreadyChat"));
     return;
   }
 
@@ -200,11 +201,7 @@ async function runCaptureInner(tab, forcedHost) {
   const granted = await permittedHosts();
   if (forcedHost && !granted.includes(forcedHost)) {
     flashBadge("!", "#b3261e");
-    showPageNotice(
-      tab.id,
-      `Decant: ${forcedHost} is enabled but Decant was never granted access to it — re-enable it in Decant's options, then retry.`,
-      "error"
-    );
+    showPageNotice(tab.id, t("noticeForcedHostUngranted", forcedHost), "error");
     return;
   }
 
@@ -214,13 +211,13 @@ async function runCaptureInner(tab, forcedHost) {
   // later notice replaces this one (same element id), and the in-flight badge
   // outlives the default flash so it can't clear mid-delivery.
   flashBadge("…", "#6b5cff", 60000);
-  showPageNotice(tab.id, "Decant: capturing this page…");
+  showPageNotice(tab.id, t("noticeCapturing"));
 
   const result = await capturePage(tab.id, url, { figures: cfg.capture.figures });
   if (!result.ok) {
     console.warn(TAG, "capture failed:", result.error);
     flashBadge("!", "#b3261e");
-    showPageNotice(tab.id, `Decant couldn't capture this page — ${result.error}.`, "error");
+    showPageNotice(tab.id, t("noticeCaptureFailed", result.error), "error");
     return;
   }
 
@@ -229,9 +226,7 @@ async function runCaptureInner(tab, forcedHost) {
     flashBadge("!", "#b3261e");
     showPageNotice(
       tab.id,
-      enabled.length
-        ? "Decant: no enabled chat site has been granted access — re-enable one in Decant's options."
-        : "Decant: no chat sites are enabled — enable one in Decant's options.",
+      t(enabled.length ? "noticeNoGrantedTarget" : "noticeNoEnabledTarget"),
       "error"
     );
     return;
@@ -240,7 +235,7 @@ async function runCaptureInner(tab, forcedHost) {
   const name = captureFileName(result.title, result.url);
   const figures = result.figures ?? [];
   const targetName = displayName(target.host);
-  showPageNotice(tab.id, `Decant: sending "${name}" to ${targetName}…`);
+  showPageNotice(tab.id, t("noticeSending", name, targetName));
   console.log(
     TAG,
     `captured ${name}: ${result.summary.chars} chars` +
@@ -260,13 +255,16 @@ async function runCaptureInner(tab, forcedHost) {
     flashBadge("✓", "#1a7f37");
     // Closure for the "sending…" notice if the user flips back to the source.
     // When images were asked for, say what became of them — an all-skipped
-    // page (CORS-unreadable) otherwise looks like the toggle did nothing.
-    const figNote = figures.length
-      ? ` with ${figures.length} image(s)`
-      : result.figuresSkipped
-        ? ` — its images couldn't be read from the page, so they stay as links`
-        : "";
-    showPageNotice(tab.id, `Decant: delivered "${name}" to ${targetName}${figNote}.`);
+    // page (CORS-unreadable) otherwise looks like the toggle did nothing. One
+    // whole message per outcome, never a clause appended to a shared sentence.
+    showPageNotice(
+      tab.id,
+      figures.length
+        ? t("noticeDeliveredWithImages", name, targetName, figures.length)
+        : result.figuresSkipped
+          ? t("noticeDeliveredImagesSkipped", name, targetName)
+          : t("noticeDelivered", name, targetName)
+    );
     console.log(TAG, `delivered ${name} to ${target.host}`);
   } else if (outcome.noInput) {
     // The chat has no usable file input (Gemini/kimi — ADR 0020's capture
@@ -277,16 +275,12 @@ async function runCaptureInner(tab, forcedHost) {
     flashBadge("!", "#9a6700");
     showPageNotice(
       outcome.tabId,
-      copied
-        ? "Decant: this chat takes no file attachments — the page's Markdown is on your clipboard, paste it into the composer."
-        : "Decant: this chat takes no file attachments, and the clipboard copy failed — capture again once this tab is focused.",
+      t(copied ? "noticeNoInputClipboard" : "noticeNoInputClipboardFailed"),
       copied ? "info" : "error"
     );
     showPageNotice(
       tab.id,
-      copied
-        ? `Decant: ${targetName} takes no file attachments — the page's Markdown is on your clipboard instead.`
-        : `Decant: ${targetName} takes no file attachments, and the clipboard copy failed — see that tab.`,
+      t(copied ? "noticeNoInputSource" : "noticeNoInputSourceFailed", targetName),
       copied ? "info" : "error"
     );
     console.warn(TAG, `no usable input on ${target.host} — clipboard fallback${copied ? "" : " ALSO failed"}`);
@@ -294,7 +288,7 @@ async function runCaptureInner(tab, forcedHost) {
     flashBadge("!", "#b3261e");
     showPageNotice(
       tab.id,
-      `Decant: captured, but couldn't deliver to ${target.host} — ${outcome.reason}`,
+      t("noticeDeliveryFailed", target.host, outcome.reason),
       "error"
     );
     console.warn(TAG, `delivery to ${target.host} failed: ${outcome.reason}`);

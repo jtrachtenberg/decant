@@ -321,7 +321,7 @@ async function resolveAndInject(inject, fileArray) {
       try {
         for (const r of ambiguous) {
           figBadge?.remove();
-          figBadge = showConvertingBadge(r.file.name, "extracting figures from");
+          figBadge = showConvertingBadge(r.file.name, "badgeExtractingFigures");
           // Figures are computed first so the Markdown can gain an association
           // footer naming them; the (possibly annotated) .md still attaches
           // ahead of its figures.
@@ -633,7 +633,7 @@ window.addEventListener(
     // actually forgone; a file routing to passthrough anyway changes nothing.
     const noticeIfConvertible = () => {
       if (originals.some((f) => routeFile(f, routing).action !== "passthrough")) {
-        showUnconvertedNotice("drag-and-drop");
+        showUnconvertedNotice("drop");
       }
     };
 

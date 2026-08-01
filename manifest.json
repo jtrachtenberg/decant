@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Decant - In-Browser Document & Web Page to Markdown for AI, Cut Token Cost",
+  "name": "__MSG_extName__",
+  "default_locale": "en",
   "version": "0.3.2",
-  "description": "Convert PDF, Word, Excel, PowerPoint, HTML & web pages to Markdown before uploading to LLM chats - cut token cost, in-browser.",
+  "description": "__MSG_extDescription__",
   "permissions": ["scripting", "storage", "activeTab", "contextMenus"],
   "host_permissions": ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://www.perplexity.ai/*"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
@@ -14,7 +15,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Decant this page to your last-used chat",
+    "default_title": "__MSG_actionTitle__",
     "default_icon": {
       "16": "decant_icon16.png",
       "48": "decant_icon48.png",
@@ -24,7 +25,7 @@
   "commands": {
     "capture-page": {
       "suggested_key": { "default": "Alt+Shift+C" },
-      "description": "Decant this page to your last-used chat"
+      "description": "__MSG_actionTitle__"
     }
   },
   "icons": {

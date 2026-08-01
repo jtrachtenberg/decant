@@ -4,6 +4,7 @@
 // re-register the content script.
 
 import { browser } from "../browser.js";
+import { t, localizeDocument } from "../i18n.js";
 import { loadConfig, saveConfig } from "../config/config.js";
 import { loadStats, resetStats, onStatsChanged } from "../config/stats.js";
 import { formatTokens } from "../convert/savings.js";
@@ -57,7 +58,7 @@ async function commit() {
       // storage unreadable too — keep the in-memory config so the page stays usable
     }
     render();
-    status(`Save failed — ${err.message}`);
+    status(t("statusSaveFailed", err.message));
     return false;
   }
   config = await loadConfig(); // re-read normalized form
@@ -92,7 +93,7 @@ function renderHosts() {
     const remove = document.createElement("button");
     remove.className = "remove";
     remove.textContent = "✕";
-    remove.title = "Remove host";
+    remove.title = t("optionsRemoveHost");
     remove.addEventListener("click", () => removeHost(rule.match));
 
     li.append(label, remove);
@@ -115,12 +116,12 @@ async function markIfUngranted(li, before, host) {
   if (granted || !li.isConnected) return;
   const fix = document.createElement("button");
   fix.className = "grant";
-  fix.textContent = "needs access — grant";
-  fix.title = `Decant is on for ${host}, but Chrome no longer has an access grant for it, so nothing can run there.`;
+  fix.textContent = t("optionsNeedsAccess");
+  fix.title = t("optionsNeedsAccessTitle", host);
   fix.addEventListener("click", async () => {
     const ok = await browser.permissions.request({ origins: [pattern(host)] }).catch(() => false);
     if (ok) fix.remove(); // background re-registers via permissions.onAdded
-    status(ok ? `Access granted for ${host}.` : `Permission for ${host} was declined.`);
+    status(ok ? t("statusAccessGranted", host) : t("statusPermissionDeclined", host));
   });
   li.insertBefore(fix, before);
 }
@@ -133,15 +134,15 @@ async function toggleHost(host, cb) {
     const granted = await browser.permissions.request({ origins: [pattern(host)] });
     if (!granted) {
       cb.checked = false;
-      status(`Permission for ${host} was declined.`);
+      status(t("statusPermissionDeclined", host));
       return;
     }
     rule.enabled = true;
-    status(`Decant enabled on ${host}.`);
+    status(t("statusHostEnabled", host));
   } else {
     rule.enabled = false;
     await browser.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
-    status(`Decant disabled on ${host}.`);
+    status(t("statusHostDisabled", host));
   }
   await commit();
 }
@@ -150,19 +151,19 @@ async function removeHost(host) {
   config.activation.rules = config.activation.rules.filter((r) => r.match !== host);
   await browser.permissions.remove({ origins: [pattern(host)] }).catch(() => {});
   if (!(await commit())) return;
-  status(`Removed ${host}.`);
+  status(t("statusHostRemoved", host));
 }
 
 async function addHost() {
   const input = document.getElementById("new-host");
   const host = normalizeHost(input.value);
   if (!host) {
-    status("Enter a valid host, e.g. example.com");
+    status(t("statusInvalidHost"));
     return;
   }
   if (config.activation.rules.some((r) => r.match === host)) {
     input.value = "";
-    status(`${host} is already listed.`);
+    status(t("statusHostAlreadyListed", host));
     return;
   }
   // Default to enabled: request permission right away (from this click gesture).
@@ -170,21 +171,22 @@ async function addHost() {
   config.activation.rules.push({ type: "host", match: host, enabled: granted });
   input.value = "";
   if (!(await commit())) return;
-  status(
-    granted
-      ? `Added and enabled ${host}.`
-      : `Added ${host} (permission declined — toggle it on to grant).`
-  );
+  status(t(granted ? "statusHostAdded" : "statusHostAddedDeclined", host));
 }
 
 // ---------------------------------------------------------------- routing ---
 
-const ACTION_LABELS = {
-  inbrowser: "Convert in browser",
-  passthrough: "Pass through",
-  companion: "Local companion",
-  http: "Send to endpoint",
+const ACTION_LABEL_KEYS = {
+  inbrowser: "actionInbrowser",
+  passthrough: "actionPassthrough",
+  companion: "actionCompanion",
+  http: "actionHttp",
 };
+
+// A rule's action as the user sees it. An action the form can't produce (hand-
+// written JSON) has no catalogue entry and shows its raw config value.
+const actionLabel = (action) =>
+  ACTION_LABEL_KEYS[action] ? t(ACTION_LABEL_KEYS[action]) : action;
 
 // SPEC §3.5 privacy guardrail: anything that isn't loopback means documents
 // leave the machine. Unparseable URLs count as remote — fail toward warning.
@@ -254,25 +256,22 @@ function renderRules() {
     action.className = "rule-action";
     action.textContent =
       "→ " +
-      (ACTION_LABELS[rule.action] || rule.action) +
-      (rule.onEmpty
-        ? ` ⤳ ${ACTION_LABELS[rule.onEmpty] || rule.onEmpty} on empty`
-        : "") +
+      actionLabel(rule.action) +
+      (rule.onEmpty ? " " + t("optionsRuleOnEmpty", actionLabel(rule.onEmpty)) : "") +
       (rule.endpoint ? ` · ${rule.endpoint}` : "");
     label.append(cb, what, action);
     if (rule.endpoint && isRemoteEndpoint(rule.endpoint)) {
       const warn = document.createElement("span");
       warn.className = "warn";
       warn.textContent = "⚠";
-      warn.title =
-        "This endpoint is not localhost — matching files leave your machine.";
+      warn.title = t("optionsWarnRemoteTitle");
       label.append(warn);
     }
 
     const remove = document.createElement("button");
     remove.className = "remove";
     remove.textContent = "✕";
-    remove.title = "Remove rule";
+    remove.title = t("optionsRemoveRule");
     remove.addEventListener("click", () => removeRule(rule));
 
     li.append(label, remove);
@@ -289,7 +288,7 @@ async function toggleRule(rule, enabled) {
   if (!config.routing.rules.includes(rule)) return;
   rule.enabled = enabled;
   if (!(await commit())) return;
-  status(enabled ? "Rule enabled." : "Rule disabled.");
+  status(t(enabled ? "statusRuleEnabled" : "statusRuleDisabled"));
 }
 
 async function removeRule(rule) {
@@ -303,7 +302,7 @@ async function removeRule(rule) {
   if (origin && !config.routing.rules.some((r) => r.endpoint && originPattern(r.endpoint) === origin)) {
     await browser.permissions.remove({ origins: [origin] }).catch(() => {});
   }
-  status("Rule removed.");
+  status(t("statusRuleRemoved"));
 }
 
 // Show the endpoint / responseField / onEmpty inputs only when the chosen
@@ -327,7 +326,7 @@ async function addRule() {
 
   const tokens = matchInput.value.trim().toLowerCase().split(/[,\s]+/).filter(Boolean);
   if (!tokens.length) {
-    status("Enter at least one extension or MIME type to match.");
+    status(t("statusNeedMatch"));
     return;
   }
   const mime = tokens.filter((t) => t.includes("/"));
@@ -343,20 +342,16 @@ async function addRule() {
   if (carriesEndpoint) {
     const endpoint = endpointInput.value.trim();
     if (!isHttpEndpoint(endpoint)) {
-      status("This needs an endpoint URL (http:// or https://).");
+      status(t("statusNeedEndpoint"));
       return;
     }
     if (!isGrantableEndpoint(endpoint)) {
-      status(
-        "Chrome can't grant access to a plain http:// endpoint on another machine. Use https://, or run the endpoint on localhost."
-      );
+      status(t("statusUngrantableEndpoint"));
       return;
     }
     if (
       isRemoteEndpoint(endpoint) &&
-      !confirm(
-        `${endpoint} is not localhost — files matching this rule will leave your machine.\n\nAdd the rule anyway?`
-      )
+      !confirm(t("confirmRemoteEndpoint", endpoint))
     ) {
       return;
     }
@@ -388,16 +383,11 @@ async function addRule() {
   syncRuleForm();
   if (!(await commit())) return;
   if (shadow) {
-    const type = [...shadow.match.ext, ...shadow.match.mime][0] || "that type";
-    status(
-      `Rule added, but an earlier enabled rule already handles ${type}, so this one won't run until you remove or disable the earlier one.`
-    );
+    const type =
+      [...shadow.match.ext, ...shadow.match.mime][0] || t("statusRuleShadowedType");
+    status(t("statusRuleShadowed", type));
   } else {
-    status(
-      granted
-        ? "Rule added."
-        : "Rule added — endpoint permission declined, so matching files use the fallback until it's granted."
-    );
+    status(t(granted ? "statusRuleAdded" : "statusRuleAddedDeclined"));
   }
 }
 
@@ -405,7 +395,7 @@ async function addRule() {
 
 function exportJson() {
   document.getElementById("config-json").value = JSON.stringify(config, null, 2);
-  status("Current config loaded below — edit and “Apply JSON”.");
+  status(t("statusJsonLoaded"));
 }
 
 async function importJson() {
@@ -414,7 +404,7 @@ async function importJson() {
   try {
     parsed = JSON.parse(textarea.value);
   } catch (err) {
-    status(`Invalid JSON: ${err.message}`);
+    status(t("statusInvalidJson", err.message));
     return;
   }
   const next = normalizeConfig(parsed);
@@ -423,11 +413,7 @@ async function importJson() {
     .filter((r) => r.endpoint && isRemoteEndpoint(r.endpoint))
     .map((r) => r.endpoint);
   if (remote.length) {
-    const ok = confirm(
-      `This config sends matching files to non-localhost endpoints:\n\n` +
-        `${[...new Set(remote)].join("\n")}\n\nDocuments matching those rules ` +
-        `will leave your machine. Apply anyway?`
-    );
+    const ok = confirm(t("confirmRemoteEndpoints", [...new Set(remote)].join("\n")));
     if (!ok) return;
   }
 
@@ -438,10 +424,7 @@ async function importJson() {
   config = next;
   if (!(await commit())) return;
   textarea.value = JSON.stringify(config, null, 2); // show the normalized form
-  status(
-    "Config applied. Newly enabled hosts still need permission — toggle them to grant." +
-      (granted ? "" : " Endpoint permission declined — those rules use their fallback.")
-  );
+  status(t(granted ? "statusConfigApplied" : "statusConfigAppliedDeclined"));
 }
 
 function normalizeHost(value) {
@@ -471,10 +454,10 @@ function recordHotkey() {
     cancelRecording();
     return;
   }
-  btn.textContent = "Press keys…";
+  btn.textContent = t("optionsHotkeyRecording");
   const cancel = () => {
     document.removeEventListener("keydown", onKey, true);
-    btn.textContent = "Change…";
+    btn.textContent = t("optionsHotkeyChange");
     cancelRecording = null;
   };
   const onKey = async (e) => {
@@ -489,7 +472,7 @@ function recordHotkey() {
     // listener is capture-phase on document, so an unmodified binding like
     // bare KeyE would hijack typing on every enabled site.
     if (!e.altKey && !e.ctrlKey && !e.metaKey) {
-      status("Include Alt, Ctrl, or Cmd in the shortcut.");
+      status(t("statusHotkeyNeedsModifier"));
       return;
     }
     config.hotkey = {
@@ -501,7 +484,7 @@ function recordHotkey() {
     };
     cancel();
     if (!(await commit())) return;
-    status("Hotkey updated.");
+    status(t("statusHotkeyUpdated"));
   };
   document.addEventListener("keydown", onKey, true);
   cancelRecording = cancel;
@@ -510,7 +493,7 @@ function recordHotkey() {
 async function reset() {
   config = structuredClone(DEFAULT_CONFIG);
   if (!(await commit())) return;
-  status("Reset to defaults.");
+  status(t("statusResetDone"));
 }
 
 // ------------------------------------------------------------- bug report ---
@@ -519,6 +502,8 @@ const ISSUES_URL = "https://github.com/jtrachtenberg/decant/issues/new";
 
 // Build a prefilled "new issue" URL: GitHub reads title/body/labels from the
 // query string, so the template lives here rather than needing a repo file.
+// Deliberately not localized — it is addressed to an English-language issue
+// tracker, and a report the maintainer can't read helps nobody.
 function bugReportUrl() {
   const { version } = browser.runtime.getManifest();
   const body = [
@@ -554,25 +539,29 @@ function reportBug() {
 // live while one of them saves in the background.
 function renderStats(stats) {
   const n = stats.totalTokensSaved;
-  tokensSavedEl.textContent = n > 0 ? `~${formatTokens(n)} tokens` : "0 tokens";
+  tokensSavedEl.textContent =
+    n > 0 ? t("optionsTokensCount", formatTokens(n)) : t("optionsTokensZero");
 }
 
 async function resetSavingsCounter() {
   try {
     await resetStats();
   } catch (err) {
-    status(`Reset failed — ${err.message}`);
+    status(t("statusStatsResetFailed", err.message));
     return;
   }
   renderStats({ totalTokensSaved: 0 }); // onStatsChanged also fires; harmless
-  status("Savings counter reset.");
+  status(t("statusStatsReset"));
 }
 
 async function init() {
+  localizeDocument();
   config = await loadConfig();
   render();
   // Stats load failure shows a dash, never blocks the settings themselves.
-  loadStats().then(renderStats).catch(() => (tokensSavedEl.textContent = "—"));
+  loadStats()
+    .then(renderStats)
+    .catch(() => (tokensSavedEl.textContent = t("optionsTokensUnavailable")));
   onStatsChanged(renderStats);
   document.getElementById("reset-stats").addEventListener("click", resetSavingsCounter);
   document.getElementById("add-host").addEventListener("click", addHost);
@@ -592,20 +581,20 @@ async function init() {
   showSavingsEl.addEventListener("change", async () => {
     config.showSavings = showSavingsEl.checked;
     if (!(await commit())) return;
-    status(showSavingsEl.checked ? "Savings badge on." : "Savings badge off.");
+    status(t(showSavingsEl.checked ? "statusSavingsOn" : "statusSavingsOff"));
   });
   captureFiguresEl.addEventListener("change", async () => {
     config.capture = { ...config.capture, figures: captureFiguresEl.checked };
     if (!(await commit())) return;
-    status(captureFiguresEl.checked ? "Captures will attach page images." : "Captures send text only.");
+    status(
+      t(captureFiguresEl.checked ? "statusCaptureFiguresOn" : "statusCaptureFiguresOff")
+    );
   });
   ambiguousDefaultEl.addEventListener("change", async () => {
     config.ambiguousDefault = ambiguousDefaultEl.value;
     if (!(await commit())) return;
     status(
-      config.ambiguousDefault === "ask"
-        ? "Ambiguous documents will prompt."
-        : "Ambiguous default saved."
+      t(config.ambiguousDefault === "ask" ? "statusAmbiguousAsk" : "statusAmbiguousSaved")
     );
   });
   document.getElementById("reset").addEventListener("click", reset);

@@ -13,8 +13,14 @@
 // in a shadow root so the site's CSS can't reach it (and vice-versa).
 // Dismissing it (Escape / the X) resolves to choice "original" — the safe
 // default that never drops chart content.
+//
+// Every string this module puts on screen comes from the message catalogue
+// (src/i18n.js). Callers name what happened — "paste", "badgeExtractingFigures"
+// — and the sentence around it is the catalogue's, so a translation is free to
+// put the count, the file name, or the channel wherever its grammar wants it.
 
 import { formatTokens } from "../convert/savings.js";
+import { t } from "../i18n.js";
 
 const HOST_ID = "decant-prompt-host";
 const BADGE_ID = "decant-passthrough-badge";
@@ -49,38 +55,49 @@ export function promptConvertChoice(results, options = {}) {
       (n, r) => n + (r.meta?.chartPages ?? r.meta?.images ?? 0),
       0
     );
-    const count = visuals
-      ? `${visuals} visual element${visuals === 1 ? "" : "s"}`
-      : "the visuals";
+    const count = !visuals
+      ? t("promptVisualsUnknown")
+      : visuals === 1
+        ? t("promptVisualsOne")
+        : t("promptVisualsMany", visuals);
     const title =
       names.length === 1
-        ? `“${names[0]}” looks like text with charts or images`
-        : `${names.length} documents look like text with charts or images`;
-    const detail = companion
-      ? `Converting to text saves tokens but drops ${count}. The local companion can convert it and keep them, or send the original untouched.`
-      : figures
-        ? `Converting to Markdown drops ${count} from the text — but they can ride along: attach the document's images as separate files next to the Markdown.`
-        : `Converting to Markdown saves tokens but drops ${count}. Send the original to keep them.`;
+        ? t("promptTitleOne", names[0])
+        : t("promptTitleMany", names.length);
+    // Whole sentences per case rather than one sentence with a swapped clause:
+    // which half of a sentence a language puts the count in is not ours to
+    // decide.
+    const detail = t(
+      companion
+        ? "promptDetailCompanion"
+        : figures
+          ? "promptDetailFigures"
+          : "promptDetailPlain",
+      count
+    );
 
     // Optional richer choices go first; whichever is available leads as the
     // recommended (primary) action. Three or more buttons stack for room;
     // without extras the original 2-button row is unchanged.
     const extras = [
-      companion && ["companion", "Convert with companion"],
-      figures && ["figures", "Convert + attach figures"],
+      companion && ["companion", t("promptChoiceCompanion")],
+      figures && ["figures", t("promptChoiceFigures")],
     ].filter(Boolean);
-    const convertLabel = extras.length
-      ? "Convert to Markdown (text only)"
-      : "Convert to Markdown";
+    const convertLabel = t(
+      extras.length ? "promptChoiceConvertTextOnly" : "promptChoiceConvert"
+    );
     const choices = [
       ...extras,
       ["convert", convertLabel],
-      ["original", "Send original"],
+      ["original", t("promptChoiceOriginal")],
     ];
+    // Labels are catalogue text, so they go in as text, never as markup — a
+    // translation is not a place a stray "<" should be able to reshape the
+    // panel. The empty buttons are filled below, in the same order.
     const buttons = choices
       .map(
-        ([choice, label], i) =>
-          `<button class="${i === 0 ? "primary" : "secondary"}" data-choice="${choice}">${label}</button>`
+        ([choice], i) =>
+          `<button class="${i === 0 ? "primary" : "secondary"}" data-choice="${choice}"></button>`
       )
       .join("\n");
     const stack = choices.length > 2;
@@ -116,8 +133,8 @@ export function promptConvertChoice(results, options = {}) {
           font-size: 12px; color: #9aa0aa; cursor: pointer; user-select: none; }
         .remember input { accent-color: #6b5cff; margin: 0; }
       </style>
-      <div class="wrap" role="dialog" aria-label="Decant conversion choice">
-        <button class="x" data-choice="original" aria-label="Dismiss">✕</button>
+      <div class="wrap" role="dialog">
+        <button class="x" data-choice="original">✕</button>
         <p class="brand">Decant</p>
         <p class="title"></p>
         <p class="detail"></p>
@@ -126,12 +143,18 @@ export function promptConvertChoice(results, options = {}) {
         </div>
         <label class="remember">
           <input type="checkbox" id="remember" />
-          <span>Set as default (change anytime in Decant options)</span>
+          <span class="remember-label"></span>
         </label>
       </div>
     `;
+    root.querySelector(".wrap").setAttribute("aria-label", t("promptDialogLabel"));
+    root.querySelector(".x").setAttribute("aria-label", t("commonDismiss"));
     root.querySelector(".title").textContent = title;
     root.querySelector(".detail").textContent = detail;
+    root.querySelector(".remember-label").textContent = t("promptRemember");
+    root
+      .querySelectorAll(".row [data-choice]")
+      .forEach((btn, i) => (btn.textContent = choices[i][1]));
 
     let done = false;
     const finish = (choice, remember) => {
@@ -224,13 +247,16 @@ export function showPassthroughBadge(onCancel) {
     `
     <div class="badge" role="status">
       <span class="dot"></span>
-      <span>Decant: next upload sent as-is</span>
+      <span class="msg"></span>
       <span class="sep">·</span>
-      <button class="cancel" type="button">Esc to cancel</button>
+      <button class="cancel" type="button"></button>
     </div>
   `
   );
-  root.querySelector(".cancel").addEventListener("click", () => onCancel?.());
+  root.querySelector(".msg").textContent = t("badgePassthrough");
+  const cancel = root.querySelector(".cancel");
+  cancel.textContent = t("badgePassthroughCancel");
+  cancel.addEventListener("click", () => onCancel?.());
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
@@ -238,10 +264,11 @@ export function showPassthroughBadge(onCancel) {
 // Progress badge shown while a file is being converted, so a slow (large-PDF)
 // conversion doesn't look like a swallowed drop — the attached chip only
 // appears once conversion resolves. Same shadow-root pattern as the
-// passthrough badge; returns a handle with remove(). `verb` names the phase
-// ("converting" by default; the figures path passes its own — rendering chart
-// pages takes visibly longer than the text conversion that preceded it).
-export function showConvertingBadge(fileName, verb = "converting") {
+// passthrough badge; returns a handle with remove(). `phase` names what is
+// happening as a catalogue key, not as a word spliced into a sentence: the
+// figures path passes its own, because rendering chart pages takes visibly
+// longer than the text conversion that preceded it and should say so.
+export function showConvertingBadge(fileName, phase = "badgeConverting") {
   const { host, root } = mountBadge(
     CONVERTING_ID,
     `
@@ -261,7 +288,7 @@ export function showConvertingBadge(fileName, verb = "converting") {
     </div>
   `
   );
-  root.querySelector(".msg").textContent = `Decant: ${verb} “${fileName}”…`;
+  root.querySelector(".msg").textContent = t(phase, fileName);
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
@@ -289,16 +316,18 @@ export function showSavingsBadge(savings) {
     <div class="badge" role="status">
       <span class="check">✓</span>
       <span class="msg"></span>
-      <span class="est">est.</span>
-      <button class="x" type="button" aria-label="Dismiss">✕</button>
+      <span class="est"></span>
+      <button class="x" type="button">✕</button>
     </div>
   `
   );
-  const label =
+  const tokens = formatTokens(savings.savedTokens);
+  root.querySelector(".msg").textContent =
     savings.percent >= 5
-      ? `Decant saved ~${formatTokens(savings.savedTokens)} tokens (~${savings.percent}%)`
-      : `Decant saved ~${formatTokens(savings.savedTokens)} tokens`;
-  root.querySelector(".msg").textContent = label;
+      ? t("badgeSavingsPercent", tokens, savings.percent)
+      : t("badgeSavings", tokens);
+  root.querySelector(".est").textContent = t("badgeSavingsEstimate");
+  root.querySelector(".x").setAttribute("aria-label", t("commonDismiss"));
   autoDismiss(host, root, SAVINGS_TIMEOUT_MS);
   document.body.appendChild(host);
   return { remove: () => host.remove() };
@@ -313,8 +342,8 @@ const FAILURE_TIMEOUT_MS = 15000;
 export function showAttachFailureNotice(fileNames) {
   const label =
     fileNames.length === 1
-      ? `Decant couldn't attach “${fileNames[0]}”`
-      : `Decant couldn't attach ${fileNames.length} files`;
+      ? t("noticeAttachFailedOne", fileNames[0])
+      : t("noticeAttachFailedMany", fileNames.length);
   const { host, root } = mountBadge(
     FAILURE_ID,
     `
@@ -331,11 +360,12 @@ export function showAttachFailureNotice(fileNames) {
     <div class="badge" role="alert">
       <span class="dot"></span>
       <span class="msg"></span>
-      <button class="x" type="button" aria-label="Dismiss">✕</button>
+      <button class="x" type="button">✕</button>
     </div>
   `
   );
-  root.querySelector(".msg").textContent = `${label} — please re-attach using the site's file picker (+/attach button).`;
+  root.querySelector(".msg").textContent = label;
+  root.querySelector(".x").setAttribute("aria-label", t("commonDismiss"));
   autoDismiss(host, root, FAILURE_TIMEOUT_MS);
   document.body.appendChild(host);
 }
@@ -347,9 +377,12 @@ export function showAttachFailureNotice(fileNames) {
 // prompt/savings badge is indistinguishable from Decant not running. Shown
 // only when the file(s) would actually have converted (the caller gates on
 // routing), styled as information, not an error — nothing was lost.
+// `via` is the channel — "drop" or "paste" — naming which message to show,
+// not a word to be spliced into a shared one.
 const UNCONVERTED_TIMEOUT_MS = 6000;
 
 export function showUnconvertedNotice(via) {
+  const key = via === "paste" ? "noticeUnconvertedPaste" : "noticeUnconvertedDrop";
   const { host, root } = mountBadge(
     UNCONVERTED_ID,
     `
@@ -366,16 +399,17 @@ export function showUnconvertedNotice(via) {
     <div class="badge" role="status">
       <span class="dot"></span>
       <span class="msg"></span>
-      <button class="x" type="button" aria-label="Dismiss">✕</button>
+      <button class="x" type="button">✕</button>
     </div>
   `
   );
   // The pill is single-line with ellipsis and narrow windows truncate its
   // tail, so the actionable part leads and the explanation trails: no
   // filename (the user just dropped it and knows), no "original sent" prose —
-  // "use the file picker" must survive any width.
-  root.querySelector(".msg").textContent =
-    `Decant: use the file picker to convert — ${via} can't be substituted here.`;
+  // "use the file picker" must survive any width. One message per channel,
+  // rather than the channel's name dropped into a shared sentence.
+  root.querySelector(".msg").textContent = t(key);
+  root.querySelector(".x").setAttribute("aria-label", t("commonDismiss"));
   autoDismiss(host, root, UNCONVERTED_TIMEOUT_MS);
   document.body.appendChild(host);
 }
