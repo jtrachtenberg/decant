@@ -588,6 +588,27 @@ on it fall back gracefully (in-browser conversion or passthrough).
     instead of ending the table it sits in. Three of 308 corpus pages change,
     two of them repairs — a caption's wrapped tail and a split heading, both
     rejoined. The third gets worse and the ADR says so.
+  - **The interface can be translated** ([ADR
+    0033](./docs/adr/0033-message-catalogue-for-ui-strings.md)). Every string a
+    user reads now comes from a message catalogue
+    (`src/_locales/<lang>/messages.json`) rather than from a template literal
+    at the point it is displayed, and the manifest's own name, description and
+    shortcut labels go through it too. Adding a language is adding a directory:
+    the browser picks the catalogue from the UI locale and falls back to
+    English key by key, so a partial translation is a supported state. The work
+    was not mechanical, because several notices were not strings but sentences
+    assembled at the call site — `` `Decant: ${verb} “${file}”…` ``,
+    `` `${n} visual element${n === 1 ? "" : "s"}` `` — which hands a translator
+    half a sentence and asks them to make it fit around a fragment whose
+    position and agreement English chose. Those became whole messages per case,
+    with callers naming *what happened* and the catalogue owning the grammar.
+    Every entry carries a translator description, the options page is marked up
+    rather than rewritten (an inline `<code>` shortcut stays inside its
+    sentence via a `%s` slot), and an RTL locale gets `dir` and `lang` set from
+    the catalogue. Conversion output is deliberately excluded — those markers
+    are read by a model, and the corpus is compared on them byte-for-byte.
+    English is the only catalogue so far; translations are now a contribution
+    that needs no code.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

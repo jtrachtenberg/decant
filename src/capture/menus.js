@@ -4,6 +4,11 @@
 // is the override picker, built from the same enabled-hosts list the activation
 // layer uses, so a site the user disabled can never be a capture target. Pure —
 // the background turns these descriptors into contextMenus.create() calls.
+//
+// Titles come from the message catalogue; the chat names below do not — a
+// product name is the same word in every locale.
+
+import { t } from "../i18n.js";
 
 export const MENU_PARENT_ID = "decant-capture";
 export const MENU_PREFIX = "decant-capture:";
@@ -40,7 +45,7 @@ export function menuItems(hosts, { figures = false } = {}) {
   const figuresItem = (parentId) => ({
     id: FIGURES_MENU_ID,
     ...(parentId ? { parentId } : {}),
-    title: "Include page images",
+    title: t("menuIncludeImages"),
     type: "checkbox",
     checked: figures === true,
     contexts,
@@ -49,14 +54,14 @@ export function menuItems(hosts, { figures = false } = {}) {
     return [
       {
         id: MENU_PREFIX + hosts[0],
-        title: `Decant page to ${displayName(hosts[0])}`,
+        title: t("menuCaptureTo", displayName(hosts[0])),
         contexts,
       },
       figuresItem(),
     ];
   }
   return [
-    { id: MENU_PARENT_ID, title: "Decant page to…", contexts },
+    { id: MENU_PARENT_ID, title: t("menuCaptureToParent"), contexts },
     ...hosts.map((host) => ({
       id: MENU_PREFIX + host,
       parentId: MENU_PARENT_ID,

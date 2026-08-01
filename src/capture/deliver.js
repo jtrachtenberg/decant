@@ -12,6 +12,7 @@
 
 import { browser } from "../browser.js";
 import { CAPTURE_PING_MSG, CAPTURE_DELIVER_MSG } from "./delivery.js";
+import { t } from "../i18n.js";
 
 const PING_INTERVAL_MS = 250;
 const PING_TIMEOUT_MS = 30000;
@@ -61,7 +62,7 @@ export async function deliverCapture(target, wireFiles) {
       tabId = tab.id;
       cold = true;
     } catch (err) {
-      return { ok: false, reason: `couldn't open ${target.host}: ${err.message}` };
+      return { ok: false, reason: t("deliverCouldNotOpen", target.host, err.message) };
     }
   }
 
@@ -71,7 +72,7 @@ export async function deliverCapture(target, wireFiles) {
     return {
       ok: false,
       tabId,
-      reason: `${target.host} never answered — is Decant enabled (and granted) for it?`,
+      reason: t("deliverNoAnswer", target.host),
     };
   }
 
@@ -94,8 +95,11 @@ export async function deliverCapture(target, wireFiles) {
     if (!cold) await focusTab(tabId); // cold tabs were created focused
     return { ok: true, tabId };
   }
-  const reason = res?.reason || "delivery failed";
-  return { ok: false, tabId, reason, noInput: reason === "no-input" };
+  // "no-input" is the content side's sentinel, not prose — it is matched here
+  // before anything localized is substituted for it.
+  const raw = res?.reason;
+  const noInput = raw === "no-input";
+  return { ok: false, tabId, reason: raw || t("deliverFailed"), noInput };
 }
 
 // Copy text to the clipboard of a (focused) tab. navigator.clipboard needs a
@@ -117,12 +121,13 @@ export async function copyToTab(tabId, text) {
 // On-page notice pill, injected wherever we can script — the target chat tab
 // (host permission) or the capture source (activeTab). Self-contained by
 // necessity: executeScript serializes the function, so it can't close over
-// anything. Styling matches the ui.js badges; `tone` picks the accent.
+// anything — every string it renders arrives as an argument. Styling matches
+// the ui.js badges; `tone` picks the accent.
 export function showPageNotice(tabId, text, tone = "info") {
   return browser.scripting
     .executeScript({
       target: { tabId },
-      func: (msg, accent) => {
+      func: (msg, accent, dismissLabel) => {
         const ID = "decant-capture-notice";
         document.getElementById(ID)?.remove();
         const host = document.createElement("div");
@@ -146,9 +151,10 @@ export function showPageNotice(tabId, text, tone = "info") {
           </style>
           <div class="badge" role="status">
             <span class="dot"></span><span class="msg"></span>
-            <button class="x" type="button" aria-label="Dismiss">✕</button>
+            <button class="x" type="button">✕</button>
           </div>`;
         root.querySelector(".msg").textContent = msg;
+        root.querySelector(".x").setAttribute("aria-label", dismissLabel);
         const timer = setTimeout(() => host.remove(), 10000);
         root.querySelector(".x").addEventListener("click", () => {
           clearTimeout(timer);
@@ -156,7 +162,9 @@ export function showPageNotice(tabId, text, tone = "info") {
         });
         document.body.appendChild(host);
       },
-      args: [text, tone === "error" ? "#e05d5d" : "#6b5cff"],
+      // Localized text is resolved here and passed in: executeScript
+      // serializes the function, so nothing inside it can reach the catalogue.
+      args: [text, tone === "error" ? "#e05d5d" : "#6b5cff", t("commonDismiss")],
     })
     .catch((err) => console.warn("[decant bg] couldn't show page notice:", err));
 }

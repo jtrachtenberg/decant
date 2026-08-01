@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Decant Settings</title>
+<title data-i18n="optionsTitle">Decant Settings</title>
 <style>
   :root {
     --bg: #faf9f7; --card: #fff; --ink: #1c1c22; --muted: #6b6b76;
@@ -86,24 +86,25 @@
 <body>
 <main>
   <h1>Decant</h1>
-  <p class="sub">Convert files to Markdown before they upload.</p>
+  <p class="sub" data-i18n="optionsTagline">Convert files to Markdown before they upload.</p>
 
   <section>
-    <h2>Where Decant runs</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsHostsHeading">Where Decant runs</h2>
+    <p class="hint" data-i18n="optionsHostsHint">
       Decant does nothing on a site until you enable it here. Turning a host on
       asks Chrome for permission to run on that host.
     </p>
     <ul id="hosts"></ul>
     <div class="add">
-      <input id="new-host" type="text" placeholder="add a host, e.g. example.com" spellcheck="false" />
-      <button id="add-host">Add</button>
+      <input id="new-host" type="text" placeholder="add a host, e.g. example.com"
+             data-i18n-attr="placeholder:optionsHostsAddPlaceholder" spellcheck="false" />
+      <button id="add-host" data-i18n="optionsAdd">Add</button>
     </div>
   </section>
 
   <section>
-    <h2>What happens to each file type</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsRulesHeading">What happens to each file type</h2>
+    <p class="hint" data-i18n="optionsRulesHint">
       Files are matched top-down by extension or MIME type; the first enabled
       rule wins and anything unmatched is sent untouched. A companion / endpoint
       rule POSTs the file to a local service; an in-browser rule can also
@@ -112,121 +113,126 @@
     <ul id="rules"></ul>
     <div class="add">
       <input id="new-match" type="text"
-             placeholder="match: pdf, docx, application/pdf…" spellcheck="false" />
+             placeholder="match: pdf, docx, application/pdf…"
+             data-i18n-attr="placeholder:optionsRulesMatchPlaceholder" spellcheck="false" />
       <select id="new-action">
-        <option value="inbrowser">Convert in browser</option>
-        <option value="passthrough">Pass through</option>
-        <option value="companion">Local companion</option>
-        <option value="http">Send to endpoint</option>
+        <option value="inbrowser" data-i18n="actionInbrowser">Convert in browser</option>
+        <option value="passthrough" data-i18n="actionPassthrough">Pass through</option>
+        <option value="companion" data-i18n="actionCompanion">Local companion</option>
+        <option value="http" data-i18n="actionHttp">Send to endpoint</option>
       </select>
-      <button id="add-rule">Add</button>
+      <button id="add-rule" data-i18n="optionsAdd">Add</button>
     </div>
     <div class="add" id="onempty-row" hidden>
-      <span class="field-label">If the browser finds no text (a scan):</span>
+      <span class="field-label" data-i18n="optionsOnEmptyLabel">If the browser finds no text (a scan):</span>
       <select id="new-onempty">
-        <option value="">pass through</option>
-        <option value="companion">escalate to local companion</option>
-        <option value="http">escalate to endpoint</option>
+        <option value="" data-i18n="optionsOnEmptyNone">pass through</option>
+        <option value="companion" data-i18n="optionsOnEmptyCompanion">escalate to local companion</option>
+        <option value="http" data-i18n="optionsOnEmptyHttp">escalate to endpoint</option>
       </select>
     </div>
     <div class="add" id="endpoint-row" hidden>
       <input id="new-endpoint" type="text"
-             placeholder="endpoint, e.g. http://127.0.0.1:8765/convert-raw" spellcheck="false" />
+             placeholder="endpoint, e.g. http://127.0.0.1:8765/convert-raw"
+             data-i18n-attr="placeholder:optionsEndpointPlaceholder" spellcheck="false" />
     </div>
     <div class="add" id="responsefield-row" hidden>
       <input id="new-responsefield" type="text"
-             placeholder="responseField — JSON key holding the text, e.g. text (blank = raw body, as /convert-raw returns)" spellcheck="false" />
+             placeholder="responseField — JSON key holding the text, e.g. text (blank = raw body, as /convert-raw returns)"
+             data-i18n-attr="placeholder:optionsResponseFieldPlaceholder" spellcheck="false" />
     </div>
   </section>
 
   <section>
-    <h2>Config as JSON</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsJsonHeading">Config as JSON</h2>
+    <p class="hint" data-i18n="optionsJsonHint">
       Power users: the whole config (hosts, rules, hotkey) as editable JSON.
       Rule fields beyond the form above — output name/type, error fallback,
       request encoding — are available here.
     </p>
     <textarea id="config-json" spellcheck="false"
-              placeholder="Click “Show current” to load the active config."></textarea>
+              placeholder="Click “Show current” to load the active config."
+              data-i18n-attr="placeholder:optionsJsonPlaceholder"></textarea>
     <div class="row-gap">
-      <button id="export-json" class="ghost">Show current</button>
-      <button id="import-json" class="ghost">Apply JSON</button>
+      <button id="export-json" class="ghost" data-i18n="optionsShowCurrent">Show current</button>
+      <button id="import-json" class="ghost" data-i18n="optionsApplyJson">Apply JSON</button>
     </div>
   </section>
 
   <section>
-    <h2>Behavior</h2>
+    <h2 data-i18n="optionsBehaviorHeading">Behavior</h2>
     <label class="row-gap">
-      <span class="host">When a document is text plus charts/images:</span>
+      <span class="host" data-i18n="optionsAmbiguousLabel">When a document is text plus charts/images:</span>
       <select id="ambiguous-default">
-        <option value="ask">ask each time</option>
-        <option value="convert">convert to Markdown (text only)</option>
-        <option value="figures">convert + attach figures</option>
-        <option value="companion">convert with the local companion</option>
-        <option value="original">send the original</option>
+        <option value="ask" data-i18n="ambiguousAsk">ask each time</option>
+        <option value="convert" data-i18n="ambiguousConvert">convert to Markdown (text only)</option>
+        <option value="figures" data-i18n="ambiguousFigures">convert + attach figures</option>
+        <option value="companion" data-i18n="ambiguousCompanion">convert with the local companion</option>
+        <option value="original" data-i18n="ambiguousOriginal">send the original</option>
       </select>
     </label>
-    <p class="hint">
+    <p class="hint" data-i18n="optionsAmbiguousHint">
       The in-page prompt's “Set as default” checkbox changes this too. A choice
       that isn't possible for a file (no companion endpoint configured, no
       extractable figures) falls back to asking.
     </p>
     <label>
       <input id="show-savings" type="checkbox" />
-      <span class="host">Show the estimated token-savings badge after a conversion</span>
+      <span class="host" data-i18n="optionsShowSavingsLabel">Show the estimated token-savings badge after a conversion</span>
     </label>
   </section>
 
   <section>
-    <h2>Page capture</h2>
-    <p class="hint">
-      The toolbar button (or <code>Alt+Shift+C</code>) converts the page you're
-      reading to Markdown and attaches it in the chat you last used — the
-      right-click menu picks a different chat. Reading the page needs no new
-      site permissions: the click itself grants one-time access to that tab.
+    <h2 data-i18n="optionsCaptureHeading">Page capture</h2>
+    <p class="hint" data-i18n="optionsCaptureHint">
+      The toolbar button (or <code data-i18n-slot="optionsCaptureShortcut">Alt+Shift+C</code>)
+      converts the page you're reading to Markdown and attaches it in the chat
+      you last used — the right-click menu picks a different chat. Reading the
+      page needs no new site permissions: the click itself grants one-time
+      access to that tab.
     </p>
     <label>
       <input id="capture-figures" type="checkbox" />
-      <span class="host">Also attach the page's images (up to 5; ones the page can't share stay as links)</span>
+      <span class="host" data-i18n="optionsCaptureFiguresLabel">Also attach the page's images (up to 5; ones the page can't share stay as links)</span>
     </label>
   </section>
 
   <section>
-    <h2>Tokens saved</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsTokensHeading">Tokens saved</h2>
+    <p class="hint" data-i18n="optionsTokensHint">
       Estimated total across every converted upload whose message was actually
       sent — drafts you abandoned don't count. An estimate for the same reasons
       the badge is one (~4 characters/token, a conservative per-page image cost).
     </p>
     <div class="hotkey">
-      <code id="tokens-saved">0 tokens</code>
-      <button id="reset-stats" class="ghost">Reset counter</button>
+      <code id="tokens-saved" data-i18n="optionsTokensZero">0 tokens</code>
+      <button id="reset-stats" class="ghost" data-i18n="optionsResetCounter">Reset counter</button>
     </div>
   </section>
 
   <section>
-    <h2>Passthrough hotkey</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsHotkeyHeading">Passthrough hotkey</h2>
+    <p class="hint" data-i18n="optionsHotkeyHint">
       Press this before attaching a file to send the next upload untouched
       (skips conversion).
     </p>
     <div class="hotkey">
       <code id="hotkey-display">—</code>
-      <button id="record-hotkey" class="ghost">Change…</button>
+      <button id="record-hotkey" class="ghost" data-i18n="optionsHotkeyChange">Change…</button>
     </div>
   </section>
 
   <section>
-    <h2>Report a bug</h2>
-    <p class="hint">
+    <h2 data-i18n="optionsBugHeading">Report a bug</h2>
+    <p class="hint" data-i18n="optionsBugHint">
       Found something broken? This opens a new GitHub issue with a template and
       your Decant version and browser prefilled — review it before submitting.
     </p>
-    <button id="report-bug" class="ghost">Report a bug on GitHub…</button>
+    <button id="report-bug" class="ghost" data-i18n="optionsBugButton">Report a bug on GitHub…</button>
   </section>
 
   <section>
-    <button id="reset" class="danger">Reset to defaults</button>
+    <button id="reset" class="danger" data-i18n="optionsReset">Reset to defaults</button>
     <p class="status" id="status"></p>
   </section>
 </main>

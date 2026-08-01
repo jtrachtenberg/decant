@@ -1,0 +1,739 @@
+{
+  "extName": {
+    "message": "Decant - In-Browser Document & Web Page to Markdown for AI, Cut Token Cost",
+    "description": "Extension name as listed on the Chrome Web Store (75-character limit). \"Decant\" is the product name and stays untranslated."
+  },
+  "extNameShort": {
+    "message": "Decant - Documents & Web Pages to Markdown",
+    "description": "Shorter extension name for addons.mozilla.org, which rejects names over 45 characters. Must stay within 45 characters in every locale."
+  },
+  "extDescription": {
+    "message": "Convert PDF, Word, Excel, PowerPoint, HTML & web pages to Markdown before uploading to LLM chats - cut token cost, in-browser.",
+    "description": "Store listing description. Limited to 132 characters by both stores."
+  },
+  "actionTitle": {
+    "message": "Decant this page to your last-used chat",
+    "description": "Toolbar button tooltip, and the description of the keyboard shortcut that does the same thing. \"Decant\" is used as a verb here — the product name doubles as the action."
+  },
+
+  "optionsTitle": {
+    "message": "Decant Settings",
+    "description": "Title of the options page browser tab."
+  },
+  "optionsTagline": {
+    "message": "Convert files to Markdown before they upload.",
+    "description": "One-line product summary under the heading on the options page."
+  },
+
+  "optionsHostsHeading": {
+    "message": "Where Decant runs",
+    "description": "Heading of the section listing the sites Decant is allowed to run on."
+  },
+  "optionsHostsHint": {
+    "message": "Decant does nothing on a site until you enable it here. Turning a host on asks Chrome for permission to run on that host.",
+    "description": "Explanation under the \"Where Decant runs\" heading."
+  },
+  "optionsHostsAddPlaceholder": {
+    "message": "add a host, e.g. example.com",
+    "description": "Placeholder in the text box for adding a new site. \"example.com\" is a reserved example domain and should stay as-is."
+  },
+  "optionsAdd": {
+    "message": "Add",
+    "description": "Button that adds the site or rule typed beside it."
+  },
+  "optionsRemoveHost": {
+    "message": "Remove host",
+    "description": "Tooltip on the ✕ button that removes a site from the list."
+  },
+  "optionsNeedsAccess": {
+    "message": "needs access — grant",
+    "description": "Button on an enabled site whose browser permission has gone missing. Clicking it asks for the permission again. Kept short — it sits inline in a list row."
+  },
+  "optionsNeedsAccessTitle": {
+    "message": "Decant is on for $host$, but Chrome no longer has an access grant for it, so nothing can run there.",
+    "description": "Tooltip explaining why a site shows the \"needs access\" button.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+
+  "optionsRulesHeading": {
+    "message": "What happens to each file type",
+    "description": "Heading of the section listing the routing rules."
+  },
+  "optionsRulesHint": {
+    "message": "Files are matched top-down by extension or MIME type; the first enabled rule wins and anything unmatched is sent untouched. A companion / endpoint rule POSTs the file to a local service; an in-browser rule can also escalate to one — but only when the browser finds no text (a scan).",
+    "description": "Explanation under the \"What happens to each file type\" heading."
+  },
+  "optionsRulesMatchPlaceholder": {
+    "message": "match: pdf, docx, application/pdf…",
+    "description": "Placeholder in the box for the file extensions / MIME types a new rule matches. The examples are literal file-format identifiers and stay untranslated."
+  },
+  "optionsRemoveRule": {
+    "message": "Remove rule",
+    "description": "Tooltip on the ✕ button that removes a routing rule."
+  },
+  "optionsRuleOnEmpty": {
+    "message": "⤳ $action$ on empty",
+    "description": "Appended to a rule's summary when it escalates elsewhere on finding no text. $action$ is one of the actionInbrowser/actionPassthrough/actionCompanion/actionHttp labels.",
+    "placeholders": {
+      "action": { "content": "$1", "example": "Local companion" }
+    }
+  },
+  "optionsWarnRemoteTitle": {
+    "message": "This endpoint is not localhost — matching files leave your machine.",
+    "description": "Tooltip on the ⚠ shown beside a rule that sends documents off the user's own machine."
+  },
+
+  "actionInbrowser": {
+    "message": "Convert in browser",
+    "description": "Routing action: convert the file with the built-in engines, locally."
+  },
+  "actionPassthrough": {
+    "message": "Pass through",
+    "description": "Routing action: leave the file untouched."
+  },
+  "actionCompanion": {
+    "message": "Local companion",
+    "description": "Routing action: send the file to the optional helper program running on the user's own machine."
+  },
+  "actionHttp": {
+    "message": "Send to endpoint",
+    "description": "Routing action: send the file to a user-configured URL."
+  },
+
+  "optionsOnEmptyLabel": {
+    "message": "If the browser finds no text (a scan):",
+    "description": "Label for the choice of what to do when a document turns out to be a scan with no readable text."
+  },
+  "optionsOnEmptyNone": {
+    "message": "pass through",
+    "description": "Escalation choice: do nothing further, send the original file."
+  },
+  "optionsOnEmptyCompanion": {
+    "message": "escalate to local companion",
+    "description": "Escalation choice: hand the scan to the local helper program, which can read it with OCR."
+  },
+  "optionsOnEmptyHttp": {
+    "message": "escalate to endpoint",
+    "description": "Escalation choice: hand the scan to a user-configured URL."
+  },
+  "optionsEndpointPlaceholder": {
+    "message": "endpoint, e.g. http://127.0.0.1:8765/convert-raw",
+    "description": "Placeholder in the box for a rule's destination URL. The example URL stays as-is."
+  },
+  "optionsResponseFieldPlaceholder": {
+    "message": "responseField — JSON key holding the text, e.g. text (blank = raw body, as /convert-raw returns)",
+    "description": "Placeholder in the box naming which JSON key of the endpoint's reply holds the converted text. \"responseField\" is a config key name and stays as-is."
+  },
+
+  "optionsJsonHeading": {
+    "message": "Config as JSON",
+    "description": "Heading of the section holding the whole configuration as editable JSON."
+  },
+  "optionsJsonHint": {
+    "message": "Power users: the whole config (hosts, rules, hotkey) as editable JSON. Rule fields beyond the form above — output name/type, error fallback, request encoding — are available here.",
+    "description": "Explanation under the \"Config as JSON\" heading."
+  },
+  "optionsJsonPlaceholder": {
+    "message": "Click “Show current” to load the active config.",
+    "description": "Placeholder in the empty JSON editor. The quoted text must match the optionsShowCurrent button label."
+  },
+  "optionsShowCurrent": {
+    "message": "Show current",
+    "description": "Button that loads the active configuration into the JSON editor."
+  },
+  "optionsApplyJson": {
+    "message": "Apply JSON",
+    "description": "Button that saves the edited JSON as the new configuration."
+  },
+
+  "optionsBehaviorHeading": {
+    "message": "Behavior",
+    "description": "Heading of the section holding conversion preferences."
+  },
+  "optionsAmbiguousLabel": {
+    "message": "When a document is text plus charts/images:",
+    "description": "Label for the default action on a document Decant can't classify confidently."
+  },
+  "ambiguousAsk": {
+    "message": "ask each time",
+    "description": "Default for an unclear document: show the in-page prompt every time."
+  },
+  "ambiguousConvert": {
+    "message": "convert to Markdown (text only)",
+    "description": "Default for an unclear document: convert it, accepting that the charts and images are dropped."
+  },
+  "ambiguousFigures": {
+    "message": "convert + attach figures",
+    "description": "Default for an unclear document: convert it and attach its charts and images as separate files."
+  },
+  "ambiguousCompanion": {
+    "message": "convert with the local companion",
+    "description": "Default for an unclear document: send it to the local helper program, which can keep the visuals."
+  },
+  "ambiguousOriginal": {
+    "message": "send the original",
+    "description": "Default for an unclear document: don't convert, upload the file as it is."
+  },
+  "optionsAmbiguousHint": {
+    "message": "The in-page prompt's “Set as default” checkbox changes this too. A choice that isn't possible for a file (no companion endpoint configured, no extractable figures) falls back to asking.",
+    "description": "Explanation under the unclear-document default. The quoted text must match the promptRemember label."
+  },
+  "optionsShowSavingsLabel": {
+    "message": "Show the estimated token-savings badge after a conversion",
+    "description": "Checkbox label for the badge reporting how many tokens a conversion saved."
+  },
+
+  "optionsCaptureHeading": {
+    "message": "Page capture",
+    "description": "Heading of the section about converting the page the user is reading."
+  },
+  "optionsCaptureHint": {
+    "message": "The toolbar button (or %s) converts the page you're reading to Markdown and attaches it in the chat you last used — the right-click menu picks a different chat. Reading the page needs no new site permissions: the click itself grants one-time access to that tab.",
+    "description": "Explanation under the \"Page capture\" heading. %s marks where the keyboard shortcut is shown in a styled box — keep it in the sentence, and put it where the shortcut reads naturally in your language."
+  },
+  "optionsCaptureShortcut": {
+    "message": "Alt+Shift+C",
+    "description": "The page-capture keyboard shortcut, as printed on the options page. Translate the modifier names only if your locale's browser prints them differently."
+  },
+  "optionsCaptureFiguresLabel": {
+    "message": "Also attach the page's images (up to 5; ones the page can't share stay as links)",
+    "description": "Checkbox label for attaching a captured page's images alongside its text."
+  },
+
+  "optionsTokensHeading": {
+    "message": "Tokens saved",
+    "description": "Heading of the section showing the running total of tokens saved."
+  },
+  "optionsTokensHint": {
+    "message": "Estimated total across every converted upload whose message was actually sent — drafts you abandoned don't count. An estimate for the same reasons the badge is one (~4 characters/token, a conservative per-page image cost).",
+    "description": "Explanation under the \"Tokens saved\" heading."
+  },
+  "optionsTokensZero": {
+    "message": "0 tokens",
+    "description": "The saved-tokens total before anything has been converted."
+  },
+  "optionsTokensCount": {
+    "message": "~$count$ tokens",
+    "description": "The saved-tokens total. Deliberately approximate — the ~ should survive translation.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "12.4k" }
+    }
+  },
+  "optionsTokensUnavailable": {
+    "message": "—",
+    "description": "Shown in place of the saved-tokens total when it can't be read from storage."
+  },
+  "optionsResetCounter": {
+    "message": "Reset counter",
+    "description": "Button that sets the saved-tokens total back to zero."
+  },
+
+  "optionsHotkeyHeading": {
+    "message": "Passthrough hotkey",
+    "description": "Heading of the section binding the shortcut that skips conversion once."
+  },
+  "optionsHotkeyHint": {
+    "message": "Press this before attaching a file to send the next upload untouched (skips conversion).",
+    "description": "Explanation under the \"Passthrough hotkey\" heading."
+  },
+  "optionsHotkeyChange": {
+    "message": "Change…",
+    "description": "Button that starts recording a new key combination."
+  },
+  "optionsHotkeyRecording": {
+    "message": "Press keys…",
+    "description": "Label the \"Change…\" button takes on while it waits for the new key combination."
+  },
+
+  "optionsBugHeading": {
+    "message": "Report a bug",
+    "description": "Heading of the section linking to the project's issue tracker."
+  },
+  "optionsBugHint": {
+    "message": "Found something broken? This opens a new GitHub issue with a template and your Decant version and browser prefilled — review it before submitting.",
+    "description": "Explanation under the \"Report a bug\" heading."
+  },
+  "optionsBugButton": {
+    "message": "Report a bug on GitHub…",
+    "description": "Button that opens a prefilled new issue on GitHub."
+  },
+  "optionsReset": {
+    "message": "Reset to defaults",
+    "description": "Button that discards all settings and restores the shipped defaults."
+  },
+
+  "statusSaveFailed": {
+    "message": "Save failed — $error$",
+    "description": "Shown when the browser refused to store the changed settings.",
+    "placeholders": {
+      "error": { "content": "$1", "example": "QUOTA_BYTES_PER_ITEM quota exceeded" }
+    }
+  },
+  "statusAccessGranted": {
+    "message": "Access granted for $host$.",
+    "description": "Shown after the user re-grants a site's missing permission.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusPermissionDeclined": {
+    "message": "Permission for $host$ was declined.",
+    "description": "Shown when the user dismisses the browser's permission prompt for a site.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusHostEnabled": {
+    "message": "Decant enabled on $host$.",
+    "description": "Shown after a site is switched on.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusHostDisabled": {
+    "message": "Decant disabled on $host$.",
+    "description": "Shown after a site is switched off.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusHostRemoved": {
+    "message": "Removed $host$.",
+    "description": "Shown after a site is deleted from the list.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusInvalidHost": {
+    "message": "Enter a valid host, e.g. example.com",
+    "description": "Shown when the typed site name isn't a domain. \"example.com\" is a reserved example domain and stays as-is."
+  },
+  "statusHostAlreadyListed": {
+    "message": "$host$ is already listed.",
+    "description": "Shown when the typed site is already in the list.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusHostAdded": {
+    "message": "Added and enabled $host$.",
+    "description": "Shown after a new site is added and its permission granted.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "statusHostAddedDeclined": {
+    "message": "Added $host$ (permission declined — toggle it on to grant).",
+    "description": "Shown after a new site is added but its permission was declined, so it can't run yet.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+
+  "statusRuleEnabled": {
+    "message": "Rule enabled.",
+    "description": "Shown after a routing rule is switched on."
+  },
+  "statusRuleDisabled": {
+    "message": "Rule disabled.",
+    "description": "Shown after a routing rule is switched off."
+  },
+  "statusRuleRemoved": {
+    "message": "Rule removed.",
+    "description": "Shown after a routing rule is deleted."
+  },
+  "statusNeedMatch": {
+    "message": "Enter at least one extension or MIME type to match.",
+    "description": "Shown when a new rule was submitted without anything for it to match."
+  },
+  "statusNeedEndpoint": {
+    "message": "This needs an endpoint URL (http:// or https://).",
+    "description": "Shown when a rule that posts files somewhere was submitted without a destination URL."
+  },
+  "statusUngrantableEndpoint": {
+    "message": "Chrome can't grant access to a plain http:// endpoint on another machine. Use https://, or run the endpoint on localhost.",
+    "description": "Shown when the destination URL is one the browser can never permit — unencrypted HTTP to another machine."
+  },
+  "confirmRemoteEndpoint": {
+    "message": "$endpoint$ is not localhost — files matching this rule will leave your machine.\n\nAdd the rule anyway?",
+    "description": "Confirmation before adding a rule that sends documents off the user's own machine.",
+    "placeholders": {
+      "endpoint": { "content": "$1", "example": "https://convert.example.com/api" }
+    }
+  },
+  "statusRuleAdded": {
+    "message": "Rule added.",
+    "description": "Shown after a routing rule is created."
+  },
+  "statusRuleAddedDeclined": {
+    "message": "Rule added — endpoint permission declined, so matching files use the fallback until it's granted.",
+    "description": "Shown after a rule is created but the browser permission for its destination was declined."
+  },
+  "statusRuleShadowed": {
+    "message": "Rule added, but an earlier enabled rule already handles $type$, so this one won't run until you remove or disable the earlier one.",
+    "description": "Shown after a rule is created that an earlier rule already covers, so it can never take effect.",
+    "placeholders": {
+      "type": { "content": "$1", "example": "pdf" }
+    }
+  },
+  "statusRuleShadowedType": {
+    "message": "that type",
+    "description": "Stands in for the file type in statusRuleShadowed when the shadowing rule names none."
+  },
+
+  "statusJsonLoaded": {
+    "message": "Current config loaded below — edit and “Apply JSON”.",
+    "description": "Shown after the active configuration is written into the JSON editor. The quoted text must match the optionsApplyJson button label."
+  },
+  "statusInvalidJson": {
+    "message": "Invalid JSON: $error$",
+    "description": "Shown when the text in the JSON editor doesn't parse.",
+    "placeholders": {
+      "error": { "content": "$1", "example": "Unexpected token } in JSON at position 42" }
+    }
+  },
+  "confirmRemoteEndpoints": {
+    "message": "This config sends matching files to non-localhost endpoints:\n\n$endpoints$\n\nDocuments matching those rules will leave your machine. Apply anyway?",
+    "description": "Confirmation before applying pasted JSON that sends documents off the user's own machine. $endpoints$ is a newline-separated list of URLs.",
+    "placeholders": {
+      "endpoints": { "content": "$1", "example": "https://convert.example.com/api" }
+    }
+  },
+  "statusConfigApplied": {
+    "message": "Config applied. Newly enabled hosts still need permission — toggle them to grant.",
+    "description": "Shown after pasted JSON is saved as the new configuration."
+  },
+  "statusConfigAppliedDeclined": {
+    "message": "Config applied. Newly enabled hosts still need permission — toggle them to grant. Endpoint permission declined — those rules use their fallback.",
+    "description": "Shown after pasted JSON is saved but the browser permission for its destinations was declined."
+  },
+
+  "statusHotkeyNeedsModifier": {
+    "message": "Include Alt, Ctrl, or Cmd in the shortcut.",
+    "description": "Shown when the recorded key combination has no modifier, which would hijack ordinary typing. The modifier names are keyboard keys."
+  },
+  "statusHotkeyUpdated": {
+    "message": "Hotkey updated.",
+    "description": "Shown after a new key combination is saved."
+  },
+  "statusResetDone": {
+    "message": "Reset to defaults.",
+    "description": "Shown after all settings are restored to the shipped defaults."
+  },
+  "statusSavingsOn": {
+    "message": "Savings badge on.",
+    "description": "Shown after the token-savings badge is switched on."
+  },
+  "statusSavingsOff": {
+    "message": "Savings badge off.",
+    "description": "Shown after the token-savings badge is switched off."
+  },
+  "statusCaptureFiguresOn": {
+    "message": "Captures will attach page images.",
+    "description": "Shown after page captures are set to include the page's images."
+  },
+  "statusCaptureFiguresOff": {
+    "message": "Captures send text only.",
+    "description": "Shown after page captures are set to leave the page's images out."
+  },
+  "statusAmbiguousAsk": {
+    "message": "Ambiguous documents will prompt.",
+    "description": "Shown after unclear documents are set to ask every time."
+  },
+  "statusAmbiguousSaved": {
+    "message": "Ambiguous default saved.",
+    "description": "Shown after a fixed action for unclear documents is chosen."
+  },
+  "statusStatsResetFailed": {
+    "message": "Reset failed — $error$",
+    "description": "Shown when the saved-tokens total couldn't be cleared.",
+    "placeholders": {
+      "error": { "content": "$1", "example": "storage unavailable" }
+    }
+  },
+  "statusStatsReset": {
+    "message": "Savings counter reset.",
+    "description": "Shown after the saved-tokens total is cleared."
+  },
+
+  "promptDialogLabel": {
+    "message": "Decant conversion choice",
+    "description": "Screen-reader name of the in-page panel asking what to do with a document."
+  },
+  "promptTitleOne": {
+    "message": "“$name$” looks like text with charts or images",
+    "description": "Title of the in-page prompt for a single document.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "annual-report.pdf" }
+    }
+  },
+  "promptTitleMany": {
+    "message": "$count$ documents look like text with charts or images",
+    "description": "Title of the in-page prompt when several documents were attached at once. $count$ is always 2 or more.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "3" }
+    }
+  },
+  "promptVisualsOne": {
+    "message": "1 visual element",
+    "description": "How many charts or images conversion would drop, when there is exactly one. Appears inside promptDetailCompanion / promptDetailFigures / promptDetailPlain."
+  },
+  "promptVisualsMany": {
+    "message": "$count$ visual elements",
+    "description": "How many charts or images conversion would drop. $count$ is always 2 or more. Appears inside promptDetailCompanion / promptDetailFigures / promptDetailPlain.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "12" }
+    }
+  },
+  "promptVisualsUnknown": {
+    "message": "the visuals",
+    "description": "Stands in for a count of charts or images when the number isn't known. Appears inside promptDetailCompanion / promptDetailFigures / promptDetailPlain."
+  },
+  "promptDetailCompanion": {
+    "message": "Converting to text saves tokens but drops $visuals$. The local companion can convert it and keep them, or send the original untouched.",
+    "description": "Body of the in-page prompt when the local helper program is available for this file type. $visuals$ is one of promptVisualsOne / promptVisualsMany / promptVisualsUnknown.",
+    "placeholders": {
+      "visuals": { "content": "$1", "example": "12 visual elements" }
+    }
+  },
+  "promptDetailFigures": {
+    "message": "Converting to Markdown drops $visuals$ from the text — but they can ride along: attach the document's images as separate files next to the Markdown.",
+    "description": "Body of the in-page prompt when the document's figures can be attached alongside. $visuals$ is one of promptVisualsOne / promptVisualsMany / promptVisualsUnknown.",
+    "placeholders": {
+      "visuals": { "content": "$1", "example": "12 visual elements" }
+    }
+  },
+  "promptDetailPlain": {
+    "message": "Converting to Markdown saves tokens but drops $visuals$. Send the original to keep them.",
+    "description": "Body of the in-page prompt when converting is the only alternative to sending the original. $visuals$ is one of promptVisualsOne / promptVisualsMany / promptVisualsUnknown.",
+    "placeholders": {
+      "visuals": { "content": "$1", "example": "12 visual elements" }
+    }
+  },
+  "promptChoiceCompanion": {
+    "message": "Convert with companion",
+    "description": "Button: send the document to the local helper program, which can keep its visuals."
+  },
+  "promptChoiceFigures": {
+    "message": "Convert + attach figures",
+    "description": "Button: convert to Markdown and attach the document's charts and images as separate files."
+  },
+  "promptChoiceConvertTextOnly": {
+    "message": "Convert to Markdown (text only)",
+    "description": "Button: convert to Markdown, dropping the visuals. Used when other convert buttons are also shown."
+  },
+  "promptChoiceConvert": {
+    "message": "Convert to Markdown",
+    "description": "Button: convert to Markdown. Used when it is the only convert button."
+  },
+  "promptChoiceOriginal": {
+    "message": "Send original",
+    "description": "Button: don't convert, upload the file as it is."
+  },
+  "promptRemember": {
+    "message": "Set as default (change anytime in Decant options)",
+    "description": "Checkbox on the in-page prompt that saves the clicked choice as the standing default. Must match the quoted text in optionsAmbiguousHint."
+  },
+
+  "badgePassthrough": {
+    "message": "Decant: next upload sent as-is",
+    "description": "Badge shown while the skip-conversion shortcut is armed."
+  },
+  "badgePassthroughCancel": {
+    "message": "Esc to cancel",
+    "description": "Clickable text on the skip-conversion badge. \"Esc\" is the keyboard key."
+  },
+  "badgeConverting": {
+    "message": "Decant: converting “$name$”…",
+    "description": "Badge shown while a file is being converted.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "annual-report.pdf" }
+    }
+  },
+  "badgeExtractingFigures": {
+    "message": "Decant: extracting figures from “$name$”…",
+    "description": "Badge shown while a document's charts and images are being pulled out into separate files. A visibly slower step than the text conversion before it, which is why it is named separately.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "annual-report.pdf" }
+    }
+  },
+  "badgeSavings": {
+    "message": "Decant saved ~$tokens$ tokens",
+    "description": "Badge reporting how many tokens a conversion saved. Deliberately approximate — the ~ should survive translation.",
+    "placeholders": {
+      "tokens": { "content": "$1", "example": "12.4k" }
+    }
+  },
+  "badgeSavingsPercent": {
+    "message": "Decant saved ~$tokens$ tokens (~$percent$%)",
+    "description": "Badge reporting how many tokens a conversion saved, with the share of the total. Deliberately approximate — the ~ should survive translation.",
+    "placeholders": {
+      "tokens": { "content": "$1", "example": "12.4k" },
+      "percent": { "content": "$2", "example": "44" }
+    }
+  },
+  "badgeSavingsEstimate": {
+    "message": "est.",
+    "description": "Short marker on the savings badge flagging the figure as an estimate. Abbreviation of \"estimated\"."
+  },
+
+  "noticeAttachFailedOne": {
+    "message": "Decant couldn't attach “$name$” — please re-attach using the site's file picker (+/attach button).",
+    "description": "Shown when the converted file couldn't be handed to the chat page, e.g. because the page re-rendered mid-conversion.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "annual-report.pdf" }
+    }
+  },
+  "noticeAttachFailedMany": {
+    "message": "Decant couldn't attach $count$ files — please re-attach using the site's file picker (+/attach button).",
+    "description": "Shown when several converted files couldn't be handed to the chat page. $count$ is always 2 or more.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "3" }
+    }
+  },
+  "noticeUnconvertedDrop": {
+    "message": "Decant: use the file picker to convert — drag-and-drop can't be substituted here.",
+    "description": "Shown on sites where a dragged-in file is uploaded unconverted because there is nothing to substitute it through. Narrow pill with a single line: keep the actionable part first, it may be cut off at the end."
+  },
+  "noticeUnconvertedPaste": {
+    "message": "Decant: use the file picker to convert — paste can't be substituted here.",
+    "description": "Shown on sites where a pasted file is uploaded unconverted because there is nothing to substitute it through. Narrow pill with a single line: keep the actionable part first, it may be cut off at the end."
+  },
+
+  "menuCaptureTo": {
+    "message": "Decant page to $target$",
+    "description": "Right-click menu item that converts this page and sends it to a named chat. \"Decant\" is used as a verb — the product name doubles as the action.",
+    "placeholders": {
+      "target": { "content": "$1", "example": "Claude" }
+    }
+  },
+  "menuCaptureToParent": {
+    "message": "Decant page to…",
+    "description": "Right-click submenu holding one entry per enabled chat. \"Decant\" is used as a verb — the product name doubles as the action."
+  },
+  "menuIncludeImages": {
+    "message": "Include page images",
+    "description": "Right-click checkbox controlling whether a captured page's images are attached with its text."
+  },
+
+  "noticeAlreadyChat": {
+    "message": "Decant: capture works on content pages — this is already a chat.",
+    "description": "Shown when the user tries to capture a chat site into itself."
+  },
+  "noticeForcedHostUngranted": {
+    "message": "Decant: $host$ is enabled but Decant was never granted access to it — re-enable it in Decant's options, then retry.",
+    "description": "Shown when the chosen chat is switched on but has no browser permission, so it could never receive the page.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "noticeCapturing": {
+    "message": "Decant: capturing this page…",
+    "description": "Shown on the page being captured, right after the user clicks."
+  },
+  "noticeCaptureFailed": {
+    "message": "Decant couldn't capture this page — $error$.",
+    "description": "Shown when reading or converting the page failed.",
+    "placeholders": {
+      "error": { "content": "$1", "example": "Cannot access contents of the page" }
+    }
+  },
+  "noticeNoGrantedTarget": {
+    "message": "Decant: no enabled chat site has been granted access — re-enable one in Decant's options.",
+    "description": "Shown when chat sites are switched on but none has browser permission, so none can receive the page."
+  },
+  "noticeNoEnabledTarget": {
+    "message": "Decant: no chat sites are enabled — enable one in Decant's options.",
+    "description": "Shown when no chat site is switched on, so there is nowhere to send the page."
+  },
+  "noticeSending": {
+    "message": "Decant: sending \"$name$\" to $target$…",
+    "description": "Shown while the converted page is on its way to the chat.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "How DNS works.md" },
+      "target": { "content": "$2", "example": "Claude" }
+    }
+  },
+  "noticeDelivered": {
+    "message": "Decant: delivered \"$name$\" to $target$.",
+    "description": "Shown when the converted page reached the chat.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "How DNS works.md" },
+      "target": { "content": "$2", "example": "Claude" }
+    }
+  },
+  "noticeDeliveredWithImages": {
+    "message": "Decant: delivered \"$name$\" to $target$ with $count$ image(s).",
+    "description": "Shown when the converted page reached the chat together with its images.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "How DNS works.md" },
+      "target": { "content": "$2", "example": "Claude" },
+      "count": { "content": "$3", "example": "4" }
+    }
+  },
+  "noticeDeliveredImagesSkipped": {
+    "message": "Decant: delivered \"$name$\" to $target$ — its images couldn't be read from the page, so they stay as links.",
+    "description": "Shown when the converted page reached the chat but its images were asked for and none could be read. Without this the toggle looks like it did nothing.",
+    "placeholders": {
+      "name": { "content": "$1", "example": "How DNS works.md" },
+      "target": { "content": "$2", "example": "Claude" }
+    }
+  },
+  "noticeNoInputClipboard": {
+    "message": "Decant: this chat takes no file attachments — the page's Markdown is on your clipboard, paste it into the composer.",
+    "description": "Shown on the chat page itself when it accepts no files, so the text went to the clipboard instead."
+  },
+  "noticeNoInputClipboardFailed": {
+    "message": "Decant: this chat takes no file attachments, and the clipboard copy failed — capture again once this tab is focused.",
+    "description": "Shown on the chat page itself when it accepts no files and the clipboard fallback also failed."
+  },
+  "noticeNoInputSource": {
+    "message": "Decant: $target$ takes no file attachments — the page's Markdown is on your clipboard instead.",
+    "description": "Shown back on the captured page when the chat accepts no files, so the text went to the clipboard.",
+    "placeholders": {
+      "target": { "content": "$1", "example": "Gemini" }
+    }
+  },
+  "noticeNoInputSourceFailed": {
+    "message": "Decant: $target$ takes no file attachments, and the clipboard copy failed — see that tab.",
+    "description": "Shown back on the captured page when the chat accepts no files and the clipboard fallback also failed.",
+    "placeholders": {
+      "target": { "content": "$1", "example": "Gemini" }
+    }
+  },
+  "noticeDeliveryFailed": {
+    "message": "Decant: captured, but couldn't deliver to $host$ — $reason$",
+    "description": "Shown when the page converted but never reached the chat. $reason$ is one of the deliver* messages.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" },
+      "reason": { "content": "$2", "example": "delivery failed" }
+    }
+  },
+
+  "deliverCouldNotOpen": {
+    "message": "couldn't open $host$: $error$",
+    "description": "Reason phrase, shown inside noticeDeliveryFailed, for when a tab for the chat couldn't be opened. Lowercase — it continues a sentence.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" },
+      "error": { "content": "$2", "example": "Invalid url" }
+    }
+  },
+  "deliverNoAnswer": {
+    "message": "$host$ never answered — is Decant enabled (and granted) for it?",
+    "description": "Reason phrase, shown inside noticeDeliveryFailed, for when the chat tab never responded.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "deliverFailed": {
+    "message": "delivery failed",
+    "description": "Reason phrase, shown inside noticeDeliveryFailed, for a failure the chat page reported without a reason. Lowercase — it continues a sentence."
+  },
+
+  "commonDismiss": {
+    "message": "Dismiss",
+    "description": "Screen-reader name of the ✕ button that closes a badge or panel."
+  }
+}
