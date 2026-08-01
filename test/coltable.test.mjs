@@ -107,3 +107,48 @@ test("short/numeric 2-col table stays on the marker path, not the new table", ()
   const md = linesToMarkdown(reconstructPage(items).lines);
   assert.match(md, /low structural confidence/i);
 });
+
+// --- Label rails (ADR 0032) --------------------------------------------------
+
+test("a form's label rail binds to its values instead of splitting", () => {
+  // The generated-report case: field labels down one side of a wide gap, their
+  // values down the other. Read column-major this emits every label and then
+  // every value, and nothing says which belongs to which.
+  const items = [];
+  const fields = [
+    ["Name:", "Kitchen Units"],
+    ["Description:", "Kitchen mantle needs to be ordered and fitted"],
+    ["Due Date:", "05 Jun 2017"],
+    ["Priority:", "High"],
+    ["Status:", "In Progress"],
+    ["Assigned To:", "Me"],
+  ];
+  fields.forEach(([label, value], k) => {
+    const y = 490 - k * 9;
+    items.push(item(label, 235, y, { w: label.length * 2.8, h: 6 }));
+    items.push(item(value, 325, y, { w: value.length * 2.8, h: 6 }));
+  });
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /\| Name: \| Kitchen Units \|/);
+  assert.match(md, /\| Due Date: \| 05 Jun 2017 \|/);
+  assert.match(md, /\| Assigned To: \| Me \|/);
+  // The column-major failure mode: a label line with no value on it.
+  assert.doesNotMatch(md, /^Name:\s*$/m);
+});
+
+test("two columns of prose still split when neither side is a label rail", () => {
+  // Same geometry, same short cells — only the trailing colons are gone. The
+  // rail veto must not reach this: it is an ordinary two-column page.
+  const items = [];
+  for (let k = 0; k < 6; k++) {
+    const y = 490 - k * 9;
+    items.push(item(`left line ${k}`, 235, y, { w: 34, h: 6 }));
+    items.push(item(`right line ${k}`, 325, y, { w: 38, h: 6 }));
+  }
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  for (const l of md.split("\n"))
+    assert.ok(
+      !(l.includes("left line") && l.includes("right line")),
+      `columns interleaved: "${l}"`
+    );
+});
