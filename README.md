@@ -505,6 +505,33 @@ on it fall back gracefully (in-browser conversion or passthrough).
     subscripts gluing to their neighbours. No page converges worse, none is
     newly flagged, and the balance sheets ADR 0025 rejected this on are
     byte-identical. Residuals in the ADR.
+  - **A page's columns are the page's, not each band's**
+    ([ADR 0030](./docs/adr/0030-page-level-column-model.md)).
+    Reconstruction chops a page into horizontal bands — above and below every
+    grid, and again inside every region — and each band then decided where the
+    columns were from scratch, over its own few rows. On a designed four-column
+    spread the bands disagreed and the page came apart: six numbered objectives
+    were emitted in order but with two other columns' text spliced between
+    them. The bands were not failing to *find* the page's corridors; they were
+    finding them and being outvoted, because the widest column held three
+    infographics standing side by side and the corridors between *those* were
+    locally the densest evidence on the page. So the page's columns are now
+    decided once, over the whole page, by a census that counts
+    **contradictions rather than proposals** — a corridor of the page is one
+    nothing is printed across, which every band can be asked about directly and
+    which local density cannot sway. That set is imposed on every band, and the
+    leftmost corridor is cut first so exactly one column peels off per cut. The
+    model is deliberately blind inside tables (a table's rows straddle every
+    cell boundary; a column's rows don't), is computed from what a detected
+    grid has *not* claimed, and suppresses the row-correspondence table
+    upgrade at a page corridor — that last one caught a spurious upgrade that
+    was silently dropping 423 words of legible prose as an unreliable chart
+    table. Fourteen of 308 corpus pages change; **no page loses a word**, two
+    gain words by un-gluing streams the old reading ran together, and the
+    balance sheets, the table of contents, the rotated rails and the whole of
+    the novel and the chart deck are byte-identical. Residuals — the same
+    page's shattered header, and one three-column grid that degrades to
+    correctly-ordered plain text — are characterised in the ADR.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
