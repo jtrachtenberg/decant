@@ -1,4 +1,6 @@
 {
+  "extName": { "message": "Decant - In-Browser Document & Web Page to Markdown for AI, Cut Token Cost" },
+  "extNameShort": { "message": "Decant - Documents & Web Pages to Markdown" },
   "extDescription": { "message": "Wandelt PDF, Word, Excel, PowerPoint, HTML und Webseiten in Markdown um, bevor sie in einen KI-Chat hochgeladen werden." },
   "actionTitle": { "message": "Diese Seite in den zuletzt genutzten Chat dekantieren" },
 
