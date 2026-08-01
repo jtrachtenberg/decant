@@ -2738,18 +2738,31 @@ function toBox(g) {
 // found among narrow rows only, so a full-width heading bridging it doesn't
 // hide it. Returns an ordered list of box-arrays; falls back to [boxes] (single
 // region, unchanged behavior) whenever no confident column layout is found.
-function columnRegions(boxes, hint = null, exclude = []) {
+// Exported for the row-grouping tests, like groupRows: the straddler rules here
+// are calibrated against pages too large to synthesize whole, and the decision
+// they make is worth pinning at its own level rather than through whatever a
+// forty-line fixture happens to emit.
+export function columnRegions(boxes, hint = null, exclude = []) {
+  // Two views of the same page, and they answer different questions (ADR
+  // 0029). The GUTTER is a vertical corridor of whitespace, so it is measured
+  // over baseline bands: on a page whose columns are typeset on independent
+  // baselines, the corridor between the two streams is only visible in a unit
+  // that holds runs from both, and settling those into printed lines would
+  // leave findGutter reading each line's own internal spacing instead. ROUTING
+  // is per printed row — which cluster shares a line with which is exactly the
+  // question "does this straddler have a row-mate across the gutter" asks.
+  const { rows: bands } = bandRows(boxes);
   const rows = groupRows(boxes);
   const med = medianHeight(boxes);
 
-  let gx = detectGutter(rows, med, exclude);
+  let gx = detectGutter(bands, med, exclude);
 
   // Page-break remainder: too short for confident detection, but the previous
   // page established a gutter. Accept it when this page's rows agree — at
   // least two rows with text entirely on each side — so the fragment keeps
   // reading column-first instead of interleaving. A full-width page never
   // agrees (its rows straddle the gutter), so a stale hint is inert there.
-  if (gx == null && hint != null && fragmentFitsGutter(rows, hint)) {
+  if (gx == null && hint != null && fragmentFitsGutter(bands, hint)) {
     gx = hint;
   }
   if (gx == null) return { regions: [boxes], gutter: null };
@@ -2837,6 +2850,39 @@ function columnRegions(boxes, hint = null, exclude = []) {
     if (span.length) regions.push(span);
     span = [];
   };
+  // Chain a unit's content boxes into horizontal clusters at the same gap that
+  // splits cells, so a heading typeset as several adjacent glyph runs stays one
+  // unit. Used for both views: the printed row (what routes) and the band (what
+  // the straddler tests below ask about).
+  const clusterize = (unitBoxes, h) => {
+    const content = unitBoxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
+    const out = [];
+    for (const b of content) {
+      const cur = out[out.length - 1];
+      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * h) {
+        cur.boxes.push(b);
+        if (b.x1 > cur.x1) cur.x1 = b.x1;
+        cur.x0 = Math.min(cur.x0, b.x0);
+      } else {
+        out.push({ x0: b.x0, x1: b.x1, boxes: [b] });
+      }
+    }
+    return out;
+  };
+  // "Is this straddler furniture, or one cell of a two-stream row?" is a
+  // question about WHAT IS PRINTED AT THIS HEIGHT — so it is asked of the band,
+  // not of the settled row (ADR 0029). ADR 0025's demotion depends on it: a
+  // figure's outdented specification label ("Protective Casing") is not a
+  // banner, and what proves it is the callout printed level with it across the
+  // gutter. Settling moves that callout onto its own baseline, so asking the
+  // settled row leaves the label alone on its line, reading as furniture, and
+  // the column blocks it spans flush apart.
+  const bandCtx = new Map();
+  for (const bd of bands) {
+    const cls = clusterize(bd.boxes, bd.h);
+    for (const cl of cls) for (const b of cl.boxes) bandCtx.set(b, { cls, cl });
+  }
+
   let prevBottom = null;
   for (const r of rows) {
     // A large vertical gap ends the current column block (e.g. a heading sitting
@@ -2845,20 +2891,9 @@ function columnRegions(boxes, hint = null, exclude = []) {
       flush();
       flushSpan();
     }
-    // Chain the row's content boxes into horizontal clusters; whitespace-only
-    // boxes ride with whichever cluster they sit in (nearest by center).
-    const content = r.boxes.filter((b) => !b.ws).sort((a, b) => a.x0 - b.x0);
-    const clusters = [];
-    for (const b of content) {
-      const cur = clusters[clusters.length - 1];
-      if (cur && b.x0 - cur.x1 <= COLUMN_GAP * r.h) {
-        cur.boxes.push(b);
-        if (b.x1 > cur.x1) cur.x1 = b.x1;
-        cur.x0 = Math.min(cur.x0, b.x0);
-      } else {
-        clusters.push({ x0: b.x0, x1: b.x1, boxes: [b] });
-      }
-    }
+    // Whitespace-only boxes ride with whichever cluster they sit in (nearest by
+    // center); the chaining itself is clusterize above.
+    const clusters = clusterize(r.boxes, r.h);
     for (const b of r.boxes) {
       if (!b.ws || !clusters.length) continue;
       const c = (b.x0 + b.x1) / 2;
@@ -2890,12 +2925,17 @@ function columnRegions(boxes, hint = null, exclude = []) {
     // has row-mates, but they sit on its own side — it is one banner broken
     // into runs, not a row of two columns, and splitting it severs the banner.
     const clusterSide = (cl) => (cl.x0 + cl.x1) / 2 >= gx;
-    const hasOpposingRowMate = (cl) =>
-      clusters.some((o) => o !== cl && clusterSide(o) !== clusterSide(cl));
+    // Both tests read the band the straddler is printed in (see bandCtx above);
+    // a cluster with no band context falls back to its own row.
+    const ctxOf = (cl) => bandCtx.get(cl.boxes[0]) || { cls: clusters, cl };
+    const hasOpposingRowMate = (cl) => {
+      const { cls, cl: own } = ctxOf(cl);
+      return cls.some((o) => o !== own && clusterSide(o) !== clusterSide(cl));
+    };
     const spanning = clusters.filter(
       (cl) =>
         cl.boxes.some(crosses) &&
-        (isFurniture(cl, clusters.length) || !hasOpposingRowMate(cl))
+        (isFurniture(cl, ctxOf(cl).cls.length) || !hasOpposingRowMate(cl))
     );
     if (spanning.length) {
       flush();
@@ -3173,8 +3213,15 @@ function largestInteriorGap(boxes) {
   return best;
 }
 
-// Group boxes into rows by vertical proximity, top-to-bottom.
-function groupRows(boxes) {
+// Group boxes into BANDS of baseline: everything printed at about this height,
+// top-to-bottom. A band is a horizontal slice of the page, not a printed line —
+// where two streams are typeset on independent baselines (a figure's callouts
+// beside its specification list, a balance sheet's asset and liability columns)
+// one band holds runs from both. That is the wrong unit for binding a cell to
+// its row, and groupRows below settles it into printed lines; it is the RIGHT
+// unit for measuring the page's vertical whitespace, which is why detectGutter
+// reads bands. See ADR 0029.
+function bandRows(boxes) {
   // Bucketed total order (see linesFromGlyphs): the pairwise "within 2pt" test
   // is intransitive, so quantize the baseline and sort by (bucket desc, x asc).
   // The half-height tolerance in the grouping loop below still merges rows that
@@ -3201,7 +3248,76 @@ function groupRows(boxes) {
       rows.push({ y0: b.y0, y1: b.y1, x0: b.x0, x1: b.x1, h, boxes: [b] });
     }
   }
-  return rows;
+  return { rows, sorted };
+}
+
+// Group boxes into printed rows, top-to-bottom: bands, settled onto their
+// nearest baseline. Exported for the row-grouping tests — every consumer of a
+// row (grid binding, column blocks, the rail detector, column routing) reads
+// this, so its own contract is worth pinning directly rather than only through
+// whatever a page happens to emit.
+export function groupRows(boxes) {
+  const { rows, sorted } = bandRows(boxes);
+  return settleRows(rows, sorted);
+}
+
+// Second pass over the banding above: a box belongs to the NEAREST baseline in
+// reach, not to whichever band happened to reach it first (ADR 0029).
+//
+// The greedy pass admits a box when it falls within half of the band's TALLEST
+// box, and the row grows as it goes, so one tall run reaches further down the
+// page than the type it is set beside ever justifies — and it claims by
+// arriving first, not by being closest. On a USGS well-completion figure
+// (messy-scan p31) a 10pt drawing callout reached 5.0pt down and took the
+// specification label 4.7pt below it, while that label's own dot-leader line —
+// 0.7pt further down, and 0.7pt from the label — started a fresh row:
+//
+//   ROW y0=659.8 h=10.0: "Locking Cap an"[123-216] "Protective Cas"[290-356]
+//   ROW y0=654.4 h=8.0:  ".............."[358-391] "6" x 6" x 5' s"[392-474]
+//
+// The label is 6.7× nearer its own value than the callout that captured it.
+// Settling moves it, and the leader line reads as one row.
+//
+// Baselines come from the greedy pass and do not move: a row's y0 is its seed
+// box's, and a box is never nearer to another baseline than to its own, so a
+// seed never migrates and no row empties. Reach is still the receiving row's
+// tallest box, so this only ever REASSIGNS a contested box — it admits none
+// that the greedy pass would have refused everywhere. Candidates are the
+// neighbouring rows: the greedy pass builds rows from a baseline-ordered
+// stream, so a box's true home is its own row or one of the two beside it.
+function settleRows(rows, sorted) {
+  if (rows.length < 2) return rows;
+  const home = new Map();
+  let moved = false;
+  for (let i = 0; i < rows.length; i++) {
+    for (const b of rows[i].boxes) {
+      let best = i;
+      let dist = Math.abs(b.y0 - rows[i].y0);
+      for (const j of [i - 1, i + 1]) {
+        if (j < 0 || j >= rows.length) continue;
+        const d = Math.abs(b.y0 - rows[j].y0);
+        if (d < dist && d <= rows[j].h * 0.5) {
+          dist = d;
+          best = j;
+        }
+      }
+      if (best !== i) moved = true;
+      home.set(b, best);
+    }
+  }
+  if (!moved) return rows;
+
+  // Rebuild from the sorted stream so each row's boxes keep the global
+  // (baseline desc, x asc) order the greedy pass gave them.
+  const settled = rows.map((r) => ({ ...r, boxes: [] }));
+  for (const b of sorted) settled[home.get(b)].boxes.push(b);
+  for (const r of settled) {
+    r.x0 = Math.min(...r.boxes.map((b) => b.x0));
+    r.x1 = Math.max(...r.boxes.map((b) => b.x1));
+    r.y1 = Math.max(...r.boxes.map((b) => b.y1));
+    r.h = Math.max(...r.boxes.map((b) => b.h));
+  }
+  return settled;
 }
 
 // Character-weighted median box height. A plain box-count median breaks on
