@@ -112,9 +112,21 @@ the same `messages.json` the browser loads, so the two cannot drift.
   the entry it was meant to name.
 - Contributors adding UI must add a catalogue entry — the test fails on a key
   with no entry, and on an entry nothing uses.
-- Translations are now a contribution anyone can make without touching code.
-  None ship yet; English is the only catalogue, which is exactly the state the
-  fallback is designed for.
+- Five translations ship with it — es, fr, de, pt_BR, ja — each carrying 144
+  of the 146 messages. The two they omit are `extName` and `extNameShort`:
+  the store listing's product title is keyword-tuned English and an unreviewed
+  translation of it would trade discoverability for nothing, so it falls back
+  while `extDescription` does not. They are machine-produced and unreviewed by
+  native speakers, which the README says plainly; the per-key fallback is what
+  makes that an acceptable starting state rather than a gamble, since a bad
+  string can be deleted and degrades to English rather than to nothing.
+- Every locale is validated, not just the reference one: retired keys are an
+  error, placeholder positions must match English argument for argument, the
+  `%s` slot must survive, and the store length limits are measured per
+  translation — which is where they actually apply, German being where the
+  45-character AMO name would have broken first had the name been translated.
+  Missing keys are deliberately not an error, or starting a translation would
+  be impossible.
 - Verified against the built extension in headless Chromium: the options page
   renders from `chrome.i18n` (headings, placeholders, select options, the
   `<code>` slot inside its sentence, a substituted status message, `lang` set

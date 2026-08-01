@@ -1,0 +1,291 @@
+{
+  "extDescription": { "message": "Convierte PDF, Word, Excel, PowerPoint, HTML y páginas web a Markdown antes de subirlos a un chat de IA: menos tokens." },
+  "actionTitle": { "message": "Decantar esta página al último chat que usaste" },
+
+  "optionsTitle": { "message": "Ajustes de Decant" },
+  "optionsTagline": { "message": "Convierte los archivos a Markdown antes de que se suban." },
+
+  "optionsHostsHeading": { "message": "Dónde funciona Decant" },
+  "optionsHostsHint": { "message": "Decant no hace nada en un sitio hasta que lo actives aquí. Al activar un dominio se le pide permiso a Chrome para ejecutarse en él." },
+  "optionsHostsAddPlaceholder": { "message": "añade un dominio, p. ej. example.com" },
+  "optionsAdd": { "message": "Añadir" },
+  "optionsRemoveHost": { "message": "Quitar dominio" },
+  "optionsNeedsAccess": { "message": "sin acceso — conceder" },
+  "optionsNeedsAccessTitle": {
+    "message": "Decant está activado para $host$, pero Chrome ya no tiene permiso de acceso, así que ahí no puede ejecutarse nada.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+
+  "optionsRulesHeading": { "message": "Qué ocurre con cada tipo de archivo" },
+  "optionsRulesHint": { "message": "Los archivos se comparan de arriba abajo por extensión o tipo MIME; gana la primera regla activa y todo lo que no coincida se envía sin tocar. Una regla de servicio local o endpoint envía el archivo por POST a un servicio local; una regla en el navegador también puede escalar a uno, pero solo cuando el navegador no encuentra texto (un escaneo)." },
+  "optionsRulesMatchPlaceholder": { "message": "coincidencia: pdf, docx, application/pdf…" },
+  "optionsRemoveRule": { "message": "Quitar regla" },
+  "optionsRuleOnEmpty": {
+    "message": "⤳ $action$ si está vacío",
+    "placeholders": { "action": { "content": "$1" } }
+  },
+  "optionsWarnRemoteTitle": { "message": "Este endpoint no es localhost: los archivos que coincidan saldrán de tu equipo." },
+
+  "actionInbrowser": { "message": "Convertir en el navegador" },
+  "actionPassthrough": { "message": "Enviar sin convertir" },
+  "actionCompanion": { "message": "Servicio local" },
+  "actionHttp": { "message": "Enviar a un endpoint" },
+
+  "optionsOnEmptyLabel": { "message": "Si el navegador no encuentra texto (un escaneo):" },
+  "optionsOnEmptyNone": { "message": "enviar sin convertir" },
+  "optionsOnEmptyCompanion": { "message": "escalar al servicio local" },
+  "optionsOnEmptyHttp": { "message": "escalar al endpoint" },
+  "optionsEndpointPlaceholder": { "message": "endpoint, p. ej. http://127.0.0.1:8765/convert-raw" },
+  "optionsResponseFieldPlaceholder": { "message": "responseField — clave JSON que contiene el texto, p. ej. text (en blanco = cuerpo sin procesar, como devuelve /convert-raw)" },
+
+  "optionsJsonHeading": { "message": "Configuración como JSON" },
+  "optionsJsonHint": { "message": "Para usuarios avanzados: toda la configuración (dominios, reglas, atajo) como JSON editable. Aquí están disponibles los campos de regla que no aparecen en el formulario de arriba: nombre y tipo de salida, alternativa en caso de error y codificación de la petición." },
+  "optionsJsonPlaceholder": { "message": "Pulsa «Mostrar actual» para cargar la configuración activa." },
+  "optionsShowCurrent": { "message": "Mostrar actual" },
+  "optionsApplyJson": { "message": "Aplicar JSON" },
+
+  "optionsBehaviorHeading": { "message": "Comportamiento" },
+  "optionsAmbiguousLabel": { "message": "Cuando un documento tiene texto y además gráficos o imágenes:" },
+  "ambiguousAsk": { "message": "preguntar cada vez" },
+  "ambiguousConvert": { "message": "convertir a Markdown (solo texto)" },
+  "ambiguousFigures": { "message": "convertir y adjuntar las figuras" },
+  "ambiguousCompanion": { "message": "convertir con el servicio local" },
+  "ambiguousOriginal": { "message": "enviar el original" },
+  "optionsAmbiguousHint": { "message": "La casilla «Establecer como predeterminado» del aviso en la página también cambia esto. Una opción que no sea posible para un archivo (sin endpoint de servicio local configurado, sin figuras extraíbles) vuelve a preguntar." },
+  "optionsShowSavingsLabel": { "message": "Mostrar el distintivo con el ahorro estimado de tokens tras una conversión" },
+
+  "optionsCaptureHeading": { "message": "Captura de página" },
+  "optionsCaptureHint": { "message": "El botón de la barra de herramientas (o %s) convierte a Markdown la página que estás leyendo y la adjunta en el último chat que usaste; el menú contextual permite elegir otro chat. Leer la página no necesita permisos nuevos: el propio clic concede acceso puntual a esa pestaña." },
+  "optionsCaptureShortcut": { "message": "Alt+Shift+C" },
+  "optionsCaptureFiguresLabel": { "message": "Adjuntar también las imágenes de la página (hasta 5; las que la página no pueda compartir quedan como enlaces)" },
+
+  "optionsTokensHeading": { "message": "Tokens ahorrados" },
+  "optionsTokensHint": { "message": "Total estimado de todas las subidas convertidas cuyo mensaje se llegó a enviar; los borradores que abandonaste no cuentan. Es una estimación por las mismas razones que lo es el distintivo (~4 caracteres por token y un coste de imagen por página conservador)." },
+  "optionsTokensZero": { "message": "0 tokens" },
+  "optionsTokensCount": {
+    "message": "~$count$ tokens",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "optionsTokensUnavailable": { "message": "—" },
+  "optionsResetCounter": { "message": "Reiniciar contador" },
+
+  "optionsHotkeyHeading": { "message": "Atajo para no convertir" },
+  "optionsHotkeyHint": { "message": "Púlsalo antes de adjuntar un archivo para enviar la siguiente subida sin tocar (omite la conversión)." },
+  "optionsHotkeyChange": { "message": "Cambiar…" },
+  "optionsHotkeyRecording": { "message": "Pulsa las teclas…" },
+
+  "optionsBugHeading": { "message": "Informar de un error" },
+  "optionsBugHint": { "message": "¿Algo no funciona? Esto abre una incidencia nueva en GitHub con una plantilla y tu versión de Decant y tu navegador ya rellenados; revísala antes de enviarla." },
+  "optionsBugButton": { "message": "Informar de un error en GitHub…" },
+  "optionsReset": { "message": "Restablecer los valores predeterminados" },
+
+  "statusSaveFailed": {
+    "message": "No se pudo guardar — $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "statusAccessGranted": {
+    "message": "Acceso concedido para $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusPermissionDeclined": {
+    "message": "Se ha denegado el permiso para $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostEnabled": {
+    "message": "Decant activado en $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostDisabled": {
+    "message": "Decant desactivado en $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostRemoved": {
+    "message": "Se ha quitado $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusInvalidHost": { "message": "Introduce un dominio válido, p. ej. example.com" },
+  "statusHostAlreadyListed": {
+    "message": "$host$ ya está en la lista.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostAdded": {
+    "message": "Se ha añadido y activado $host$.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostAddedDeclined": {
+    "message": "Se ha añadido $host$ (permiso denegado: actívalo para concederlo).",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+
+  "statusRuleEnabled": { "message": "Regla activada." },
+  "statusRuleDisabled": { "message": "Regla desactivada." },
+  "statusRuleRemoved": { "message": "Regla eliminada." },
+  "statusNeedMatch": { "message": "Introduce al menos una extensión o un tipo MIME que coincida." },
+  "statusNeedEndpoint": { "message": "Esto necesita una URL de endpoint (http:// o https://)." },
+  "statusUngrantableEndpoint": { "message": "Chrome no puede conceder acceso a un endpoint http:// sin cifrar en otro equipo. Usa https:// o ejecuta el endpoint en localhost." },
+  "confirmRemoteEndpoint": {
+    "message": "$endpoint$ no es localhost: los archivos que coincidan con esta regla saldrán de tu equipo.\n\n¿Añadir la regla de todos modos?",
+    "placeholders": { "endpoint": { "content": "$1" } }
+  },
+  "statusRuleAdded": { "message": "Regla añadida." },
+  "statusRuleAddedDeclined": { "message": "Regla añadida: se denegó el permiso del endpoint, así que los archivos que coincidan usarán la alternativa hasta que se conceda." },
+  "statusRuleShadowed": {
+    "message": "Regla añadida, pero una regla activa anterior ya gestiona $type$, así que esta no se ejecutará hasta que quites o desactives la anterior.",
+    "placeholders": { "type": { "content": "$1" } }
+  },
+  "statusRuleShadowedType": { "message": "ese tipo" },
+
+  "statusJsonLoaded": { "message": "Configuración actual cargada abajo: edítala y pulsa «Aplicar JSON»." },
+  "statusInvalidJson": {
+    "message": "JSON no válido: $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "confirmRemoteEndpoints": {
+    "message": "Esta configuración envía los archivos que coincidan a endpoints que no son localhost:\n\n$endpoints$\n\nLos documentos que coincidan con esas reglas saldrán de tu equipo. ¿Aplicar de todos modos?",
+    "placeholders": { "endpoints": { "content": "$1" } }
+  },
+  "statusConfigApplied": { "message": "Configuración aplicada. Los dominios recién activados aún necesitan permiso: actívalos para concederlo." },
+  "statusConfigAppliedDeclined": { "message": "Configuración aplicada. Los dominios recién activados aún necesitan permiso: actívalos para concederlo. Se denegó el permiso del endpoint, así que esas reglas usarán su alternativa." },
+
+  "statusHotkeyNeedsModifier": { "message": "Incluye Alt, Ctrl o Cmd en el atajo." },
+  "statusHotkeyUpdated": { "message": "Atajo actualizado." },
+  "statusResetDone": { "message": "Se han restablecido los valores predeterminados." },
+  "statusSavingsOn": { "message": "Distintivo de ahorro activado." },
+  "statusSavingsOff": { "message": "Distintivo de ahorro desactivado." },
+  "statusCaptureFiguresOn": { "message": "Las capturas adjuntarán las imágenes de la página." },
+  "statusCaptureFiguresOff": { "message": "Las capturas enviarán solo texto." },
+  "statusAmbiguousAsk": { "message": "Los documentos ambiguos preguntarán." },
+  "statusAmbiguousSaved": { "message": "Se ha guardado la opción predeterminada para documentos ambiguos." },
+  "statusStatsResetFailed": {
+    "message": "No se pudo reiniciar — $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "statusStatsReset": { "message": "Contador de ahorro reiniciado." },
+
+  "promptDialogLabel": { "message": "Elección de conversión de Decant" },
+  "promptTitleOne": {
+    "message": "«$name$» parece texto con gráficos o imágenes",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "promptTitleMany": {
+    "message": "$count$ documentos parecen texto con gráficos o imágenes",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "promptVisualsOne": { "message": "1 elemento visual" },
+  "promptVisualsMany": {
+    "message": "$count$ elementos visuales",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "promptVisualsUnknown": { "message": "los elementos visuales" },
+  "promptDetailCompanion": {
+    "message": "Convertir a texto ahorra tokens pero pierde $visuals$. El servicio local puede convertirlo conservándolos, o puedes enviar el original sin tocar.",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptDetailFigures": {
+    "message": "Convertir a Markdown quita $visuals$ del texto, pero pueden ir aparte: se adjuntan las imágenes del documento como archivos separados junto al Markdown.",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptDetailPlain": {
+    "message": "Convertir a Markdown ahorra tokens pero pierde $visuals$. Envía el original para conservarlos.",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptChoiceCompanion": { "message": "Convertir con el servicio local" },
+  "promptChoiceFigures": { "message": "Convertir y adjuntar figuras" },
+  "promptChoiceConvertTextOnly": { "message": "Convertir a Markdown (solo texto)" },
+  "promptChoiceConvert": { "message": "Convertir a Markdown" },
+  "promptChoiceOriginal": { "message": "Enviar el original" },
+  "promptRemember": { "message": "Establecer como predeterminado (se cambia cuando quieras en las opciones de Decant)" },
+
+  "badgePassthrough": { "message": "Decant: la siguiente subida se enviará tal cual" },
+  "badgePassthroughCancel": { "message": "Esc para cancelar" },
+  "badgeConverting": {
+    "message": "Decant: convirtiendo «$name$»…",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "badgeExtractingFigures": {
+    "message": "Decant: extrayendo las figuras de «$name$»…",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "badgeSavings": {
+    "message": "Decant ha ahorrado ~$tokens$ tokens",
+    "placeholders": { "tokens": { "content": "$1" } }
+  },
+  "badgeSavingsPercent": {
+    "message": "Decant ha ahorrado ~$tokens$ tokens (~$percent$%)",
+    "placeholders": { "tokens": { "content": "$1" }, "percent": { "content": "$2" } }
+  },
+  "badgeSavingsEstimate": { "message": "aprox." },
+
+  "noticeAttachFailedOne": {
+    "message": "Decant no ha podido adjuntar «$name$»: vuelve a adjuntarlo con el selector de archivos del sitio (el botón +/adjuntar).",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "noticeAttachFailedMany": {
+    "message": "Decant no ha podido adjuntar $count$ archivos: vuelve a adjuntarlos con el selector de archivos del sitio (el botón +/adjuntar).",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "noticeUnconvertedDrop": { "message": "Decant: usa el selector de archivos para convertir; aquí no se puede sustituir lo que se arrastra." },
+  "noticeUnconvertedPaste": { "message": "Decant: usa el selector de archivos para convertir; aquí no se puede sustituir lo que se pega." },
+
+  "menuCaptureTo": {
+    "message": "Decantar la página a $target$",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "menuCaptureToParent": { "message": "Decantar la página a…" },
+  "menuIncludeImages": { "message": "Incluir las imágenes de la página" },
+
+  "noticeAlreadyChat": { "message": "Decant: la captura funciona en páginas de contenido y esto ya es un chat." },
+  "noticeForcedHostUngranted": {
+    "message": "Decant: $host$ está activado, pero Decant nunca recibió acceso a él. Vuelve a activarlo en las opciones de Decant y reinténtalo.",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "noticeCapturing": { "message": "Decant: capturando esta página…" },
+  "noticeCaptureFailed": {
+    "message": "Decant no ha podido capturar esta página — $error$.",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "noticeNoGrantedTarget": { "message": "Decant: ningún chat activado tiene acceso concedido. Vuelve a activar uno en las opciones de Decant." },
+  "noticeNoEnabledTarget": { "message": "Decant: no hay ningún chat activado. Activa uno en las opciones de Decant." },
+  "noticeSending": {
+    "message": "Decant: enviando «$name$» a $target$…",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeDelivered": {
+    "message": "Decant: «$name$» entregado a $target$.",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeDeliveredWithImages": {
+    "message": "Decant: «$name$» entregado a $target$ con $count$ imagen(es).",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" }, "count": { "content": "$3" } }
+  },
+  "noticeDeliveredImagesSkipped": {
+    "message": "Decant: «$name$» entregado a $target$. No se pudieron leer sus imágenes desde la página, así que quedan como enlaces.",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeNoInputClipboard": { "message": "Decant: este chat no acepta archivos adjuntos. El Markdown de la página está en tu portapapeles; pégalo en el cuadro de mensaje." },
+  "noticeNoInputClipboardFailed": { "message": "Decant: este chat no acepta archivos adjuntos y falló la copia al portapapeles. Vuelve a capturar cuando esta pestaña esté enfocada." },
+  "noticeNoInputSource": {
+    "message": "Decant: $target$ no acepta archivos adjuntos. En su lugar, el Markdown de la página está en tu portapapeles.",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "noticeNoInputSourceFailed": {
+    "message": "Decant: $target$ no acepta archivos adjuntos y falló la copia al portapapeles. Consulta esa pestaña.",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "noticeDeliveryFailed": {
+    "message": "Decant: se capturó, pero no se pudo entregar a $host$ — $reason$",
+    "placeholders": { "host": { "content": "$1" }, "reason": { "content": "$2" } }
+  },
+
+  "deliverCouldNotOpen": {
+    "message": "no se pudo abrir $host$: $error$",
+    "placeholders": { "host": { "content": "$1" }, "error": { "content": "$2" } }
+  },
+  "deliverNoAnswer": {
+    "message": "$host$ no ha respondido nunca. ¿Está Decant activado (y con permiso) para ese sitio?",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "deliverFailed": { "message": "falló la entrega" },
+
+  "commonDismiss": { "message": "Descartar" }
+}

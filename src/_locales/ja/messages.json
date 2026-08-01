@@ -1,0 +1,291 @@
+{
+  "extDescription": { "message": "PDF・Word・Excel・PowerPoint・HTML・Webページを、AIチャットへのアップロード前にMarkdownへ変換。トークン量を削減します。" },
+  "actionTitle": { "message": "このページを最後に使ったチャットへデカントする" },
+
+  "optionsTitle": { "message": "Decant の設定" },
+  "optionsTagline": { "message": "アップロードされる前にファイルを Markdown へ変換します。" },
+
+  "optionsHostsHeading": { "message": "Decant が動作する場所" },
+  "optionsHostsHint": { "message": "ここで有効にするまで、Decant はどのサイトでも何もしません。ホストを有効にすると、そこで実行するための権限を Chrome に要求します。" },
+  "optionsHostsAddPlaceholder": { "message": "ホストを追加（例: example.com）" },
+  "optionsAdd": { "message": "追加" },
+  "optionsRemoveHost": { "message": "ホストを削除" },
+  "optionsNeedsAccess": { "message": "アクセス権がありません — 付与" },
+  "optionsNeedsAccessTitle": {
+    "message": "$host$ で Decant は有効ですが、Chrome にアクセス権が残っていないため、そこでは何も実行できません。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+
+  "optionsRulesHeading": { "message": "ファイル種別ごとの処理" },
+  "optionsRulesHint": { "message": "ファイルは拡張子または MIME タイプで上から順に照合され、最初に一致した有効なルールが適用されます。どれにも一致しないものはそのまま送信されます。ローカルサービスまたはエンドポイントのルールは、ファイルをローカルサービスへ POST します。ブラウザー内のルールも同様にエスカレーションできますが、ブラウザーがテキストを見つけられなかった場合（スキャン文書）に限られます。" },
+  "optionsRulesMatchPlaceholder": { "message": "照合対象: pdf, docx, application/pdf…" },
+  "optionsRemoveRule": { "message": "ルールを削除" },
+  "optionsRuleOnEmpty": {
+    "message": "⤳ 空の場合は $action$",
+    "placeholders": { "action": { "content": "$1" } }
+  },
+  "optionsWarnRemoteTitle": { "message": "このエンドポイントは localhost ではありません。一致したファイルはお使いの端末の外に出ます。" },
+
+  "actionInbrowser": { "message": "ブラウザー内で変換" },
+  "actionPassthrough": { "message": "変換せずに送信" },
+  "actionCompanion": { "message": "ローカルサービス" },
+  "actionHttp": { "message": "エンドポイントへ送信" },
+
+  "optionsOnEmptyLabel": { "message": "ブラウザーがテキストを見つけられない場合（スキャン文書）:" },
+  "optionsOnEmptyNone": { "message": "変換せずに送信" },
+  "optionsOnEmptyCompanion": { "message": "ローカルサービスへエスカレーション" },
+  "optionsOnEmptyHttp": { "message": "エンドポイントへエスカレーション" },
+  "optionsEndpointPlaceholder": { "message": "エンドポイント（例: http://127.0.0.1:8765/convert-raw）" },
+  "optionsResponseFieldPlaceholder": { "message": "responseField — テキストを保持する JSON キー（例: text。空欄なら /convert-raw が返す生のボディ）" },
+
+  "optionsJsonHeading": { "message": "JSON としての設定" },
+  "optionsJsonHint": { "message": "上級者向け: 設定全体（ホスト、ルール、ショートカット）を編集可能な JSON として扱えます。上のフォームにないルール項目 — 出力名と種別、エラー時の代替動作、リクエストのエンコード — はここで指定できます。" },
+  "optionsJsonPlaceholder": { "message": "「現在の設定を表示」をクリックすると、有効な設定が読み込まれます。" },
+  "optionsShowCurrent": { "message": "現在の設定を表示" },
+  "optionsApplyJson": { "message": "JSON を適用" },
+
+  "optionsBehaviorHeading": { "message": "動作" },
+  "optionsAmbiguousLabel": { "message": "文書にテキストと図表・画像の両方が含まれる場合:" },
+  "ambiguousAsk": { "message": "毎回たずねる" },
+  "ambiguousConvert": { "message": "Markdown に変換（テキストのみ）" },
+  "ambiguousFigures": { "message": "変換して図を添付" },
+  "ambiguousCompanion": { "message": "ローカルサービスで変換" },
+  "ambiguousOriginal": { "message": "元のファイルを送信" },
+  "optionsAmbiguousHint": { "message": "ページ内に表示される確認の「既定にする」チェックボックスでも、この設定は変わります。そのファイルでは選べない選択肢（ローカルサービスのエンドポイント未設定、抽出できる図がない）の場合は、たずねる動作に戻ります。" },
+  "optionsShowSavingsLabel": { "message": "変換後に推定トークン削減量のバッジを表示する" },
+
+  "optionsCaptureHeading": { "message": "ページのキャプチャ" },
+  "optionsCaptureHint": { "message": "ツールバーのボタン（または %s）で、読んでいるページを Markdown に変換し、最後に使ったチャットへ添付します。右クリックメニューを使えば別のチャットを選べます。ページの読み取りに新しいサイト権限は不要です。クリックそのものが、そのタブへの一度限りのアクセスを与えます。" },
+  "optionsCaptureShortcut": { "message": "Alt+Shift+C" },
+  "optionsCaptureFiguresLabel": { "message": "ページの画像も添付する（最大 5 件。ページ側が共有できないものはリンクのまま）" },
+
+  "optionsTokensHeading": { "message": "削減できたトークン" },
+  "optionsTokensHint": { "message": "実際にメッセージを送信した変換済みアップロードの推定合計です。書きかけで破棄した下書きは含まれません。バッジと同じ理由で推定値です（1 トークンあたり約 4 文字、1 ページあたりの画像コストは控えめに見積もり）。" },
+  "optionsTokensZero": { "message": "0 トークン" },
+  "optionsTokensCount": {
+    "message": "約 $count$ トークン",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "optionsTokensUnavailable": { "message": "—" },
+  "optionsResetCounter": { "message": "カウンターをリセット" },
+
+  "optionsHotkeyHeading": { "message": "変換しないためのショートカット" },
+  "optionsHotkeyHint": { "message": "ファイルを添付する前に押すと、次のアップロードだけ変換せずそのまま送信します。" },
+  "optionsHotkeyChange": { "message": "変更…" },
+  "optionsHotkeyRecording": { "message": "キーを押してください…" },
+
+  "optionsBugHeading": { "message": "不具合を報告" },
+  "optionsBugHint": { "message": "うまく動かないところがありましたか。テンプレートと、お使いの Decant のバージョン・ブラウザーを記入済みの GitHub Issue が開きます。送信前にご確認ください。" },
+  "optionsBugButton": { "message": "GitHub で不具合を報告…" },
+  "optionsReset": { "message": "既定値に戻す" },
+
+  "statusSaveFailed": {
+    "message": "保存できませんでした — $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "statusAccessGranted": {
+    "message": "$host$ へのアクセスを許可しました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusPermissionDeclined": {
+    "message": "$host$ の権限は拒否されました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostEnabled": {
+    "message": "$host$ で Decant を有効にしました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostDisabled": {
+    "message": "$host$ で Decant を無効にしました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostRemoved": {
+    "message": "$host$ を削除しました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusInvalidHost": { "message": "有効なホストを入力してください（例: example.com）" },
+  "statusHostAlreadyListed": {
+    "message": "$host$ はすでに一覧にあります。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostAdded": {
+    "message": "$host$ を追加して有効にしました。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "statusHostAddedDeclined": {
+    "message": "$host$ を追加しました（権限は拒否されました。オンに切り替えると許可できます）。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+
+  "statusRuleEnabled": { "message": "ルールを有効にしました。" },
+  "statusRuleDisabled": { "message": "ルールを無効にしました。" },
+  "statusRuleRemoved": { "message": "ルールを削除しました。" },
+  "statusNeedMatch": { "message": "照合する拡張子か MIME タイプを 1 つ以上入力してください。" },
+  "statusNeedEndpoint": { "message": "これにはエンドポイントの URL が必要です（http:// または https://）。" },
+  "statusUngrantableEndpoint": { "message": "別の端末上の暗号化されていない http:// エンドポイントには、Chrome はアクセスを許可できません。https:// を使うか、エンドポイントを localhost で動かしてください。" },
+  "confirmRemoteEndpoint": {
+    "message": "$endpoint$ は localhost ではありません。このルールに一致したファイルはお使いの端末の外に出ます。\n\nそれでもルールを追加しますか。",
+    "placeholders": { "endpoint": { "content": "$1" } }
+  },
+  "statusRuleAdded": { "message": "ルールを追加しました。" },
+  "statusRuleAddedDeclined": { "message": "ルールを追加しました。エンドポイントの権限が拒否されたため、許可されるまで一致したファイルは代替動作を使います。" },
+  "statusRuleShadowed": {
+    "message": "ルールを追加しましたが、$type$ はより前にある有効なルールがすでに処理しています。前のルールを削除するか無効にするまで、このルールは実行されません。",
+    "placeholders": { "type": { "content": "$1" } }
+  },
+  "statusRuleShadowedType": { "message": "その種別" },
+
+  "statusJsonLoaded": { "message": "現在の設定を下に読み込みました。編集して「JSON を適用」を押してください。" },
+  "statusInvalidJson": {
+    "message": "JSON が不正です: $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "confirmRemoteEndpoints": {
+    "message": "この設定は、一致したファイルを localhost 以外のエンドポイントへ送信します。\n\n$endpoints$\n\nこれらのルールに一致した文書はお使いの端末の外に出ます。それでも適用しますか。",
+    "placeholders": { "endpoints": { "content": "$1" } }
+  },
+  "statusConfigApplied": { "message": "設定を適用しました。新しく有効にしたホストにはまだ権限が必要です。オンに切り替えて許可してください。" },
+  "statusConfigAppliedDeclined": { "message": "設定を適用しました。新しく有効にしたホストにはまだ権限が必要です。オンに切り替えて許可してください。エンドポイントの権限は拒否されたため、それらのルールは代替動作を使います。" },
+
+  "statusHotkeyNeedsModifier": { "message": "ショートカットには Alt、Ctrl、Cmd のいずれかを含めてください。" },
+  "statusHotkeyUpdated": { "message": "ショートカットを更新しました。" },
+  "statusResetDone": { "message": "既定値に戻しました。" },
+  "statusSavingsOn": { "message": "削減量バッジをオンにしました。" },
+  "statusSavingsOff": { "message": "削減量バッジをオフにしました。" },
+  "statusCaptureFiguresOn": { "message": "キャプチャにページの画像を添付します。" },
+  "statusCaptureFiguresOff": { "message": "キャプチャはテキストのみ送信します。" },
+  "statusAmbiguousAsk": { "message": "判断が難しい文書では確認します。" },
+  "statusAmbiguousSaved": { "message": "判断が難しい文書の既定の動作を保存しました。" },
+  "statusStatsResetFailed": {
+    "message": "リセットできませんでした — $error$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "statusStatsReset": { "message": "削減量カウンターをリセットしました。" },
+
+  "promptDialogLabel": { "message": "Decant の変換方法の選択" },
+  "promptTitleOne": {
+    "message": "「$name$」はテキストと図表・画像を含むようです",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "promptTitleMany": {
+    "message": "$count$ 件の文書がテキストと図表・画像を含むようです",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "promptVisualsOne": { "message": "1 件の視覚要素" },
+  "promptVisualsMany": {
+    "message": "$count$ 件の視覚要素",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "promptVisualsUnknown": { "message": "視覚要素" },
+  "promptDetailCompanion": {
+    "message": "テキストへの変換はトークンを節約しますが、$visuals$ が失われます。ローカルサービスならそれらを残したまま変換できます。元のファイルをそのまま送ることもできます。",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptDetailFigures": {
+    "message": "Markdown への変換では $visuals$ がテキストから失われますが、一緒に送ることもできます。文書内の画像を Markdown と並べて別ファイルとして添付します。",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptDetailPlain": {
+    "message": "Markdown への変換はトークンを節約しますが、$visuals$ が失われます。残したい場合は元のファイルを送信してください。",
+    "placeholders": { "visuals": { "content": "$1" } }
+  },
+  "promptChoiceCompanion": { "message": "ローカルサービスで変換" },
+  "promptChoiceFigures": { "message": "変換して図を添付" },
+  "promptChoiceConvertTextOnly": { "message": "Markdown に変換（テキストのみ）" },
+  "promptChoiceConvert": { "message": "Markdown に変換" },
+  "promptChoiceOriginal": { "message": "元のファイルを送信" },
+  "promptRemember": { "message": "既定にする（Decant のオプションでいつでも変更できます）" },
+
+  "badgePassthrough": { "message": "Decant: 次のアップロードはそのまま送信されます" },
+  "badgePassthroughCancel": { "message": "Esc で取り消し" },
+  "badgeConverting": {
+    "message": "Decant:「$name$」を変換しています…",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "badgeExtractingFigures": {
+    "message": "Decant:「$name$」から図を抽出しています…",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "badgeSavings": {
+    "message": "Decant で約 $tokens$ トークン削減しました",
+    "placeholders": { "tokens": { "content": "$1" } }
+  },
+  "badgeSavingsPercent": {
+    "message": "Decant で約 $tokens$ トークン削減しました（約 $percent$%）",
+    "placeholders": { "tokens": { "content": "$1" }, "percent": { "content": "$2" } }
+  },
+  "badgeSavingsEstimate": { "message": "推定" },
+
+  "noticeAttachFailedOne": {
+    "message": "Decant は「$name$」を添付できませんでした。サイトのファイル選択（＋/添付ボタン）からもう一度添付してください。",
+    "placeholders": { "name": { "content": "$1" } }
+  },
+  "noticeAttachFailedMany": {
+    "message": "Decant は $count$ 件のファイルを添付できませんでした。サイトのファイル選択（＋/添付ボタン）からもう一度添付してください。",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "noticeUnconvertedDrop": { "message": "Decant: 変換するにはファイル選択をお使いください。ここではドラッグ＆ドロップを差し替えられません。" },
+  "noticeUnconvertedPaste": { "message": "Decant: 変換するにはファイル選択をお使いください。ここでは貼り付けを差し替えられません。" },
+
+  "menuCaptureTo": {
+    "message": "ページを $target$ へデカント",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "menuCaptureToParent": { "message": "ページをデカント…" },
+  "menuIncludeImages": { "message": "ページの画像を含める" },
+
+  "noticeAlreadyChat": { "message": "Decant: キャプチャは内容のあるページで使う機能です。ここはすでにチャットです。" },
+  "noticeForcedHostUngranted": {
+    "message": "Decant: $host$ は有効ですが、Decant にアクセス権が与えられたことがありません。Decant のオプションで有効にし直してから、もう一度お試しください。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "noticeCapturing": { "message": "Decant: このページをキャプチャしています…" },
+  "noticeCaptureFailed": {
+    "message": "Decant はこのページをキャプチャできませんでした — $error$。",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "noticeNoGrantedTarget": { "message": "Decant: 有効なチャットサイトのいずれにもアクセス権がありません。Decant のオプションで有効にし直してください。" },
+  "noticeNoEnabledTarget": { "message": "Decant: 有効なチャットサイトがありません。Decant のオプションでいずれかを有効にしてください。" },
+  "noticeSending": {
+    "message": "Decant:「$name$」を $target$ へ送信しています…",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeDelivered": {
+    "message": "Decant:「$name$」を $target$ へ届けました。",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeDeliveredWithImages": {
+    "message": "Decant:「$name$」を画像 $count$ 件とともに $target$ へ届けました。",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" }, "count": { "content": "$3" } }
+  },
+  "noticeDeliveredImagesSkipped": {
+    "message": "Decant:「$name$」を $target$ へ届けました。画像はページから読み取れなかったため、リンクのままです。",
+    "placeholders": { "name": { "content": "$1" }, "target": { "content": "$2" } }
+  },
+  "noticeNoInputClipboard": { "message": "Decant: このチャットはファイル添付に対応していません。ページの Markdown をクリップボードにコピーしました。入力欄に貼り付けてください。" },
+  "noticeNoInputClipboardFailed": { "message": "Decant: このチャットはファイル添付に対応しておらず、クリップボードへのコピーにも失敗しました。このタブを前面にしてから、もう一度キャプチャしてください。" },
+  "noticeNoInputSource": {
+    "message": "Decant: $target$ はファイル添付に対応していません。代わりにページの Markdown をクリップボードにコピーしました。",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "noticeNoInputSourceFailed": {
+    "message": "Decant: $target$ はファイル添付に対応しておらず、クリップボードへのコピーにも失敗しました。そのタブをご確認ください。",
+    "placeholders": { "target": { "content": "$1" } }
+  },
+  "noticeDeliveryFailed": {
+    "message": "Decant: キャプチャできましたが、$host$ へ届けられませんでした — $reason$",
+    "placeholders": { "host": { "content": "$1" }, "reason": { "content": "$2" } }
+  },
+
+  "deliverCouldNotOpen": {
+    "message": "$host$ を開けませんでした: $error$",
+    "placeholders": { "host": { "content": "$1" }, "error": { "content": "$2" } }
+  },
+  "deliverNoAnswer": {
+    "message": "$host$ から応答がありませんでした。そのサイトで Decant は有効で、権限も与えられていますか。",
+    "placeholders": { "host": { "content": "$1" } }
+  },
+  "deliverFailed": { "message": "配信に失敗しました" },
+
+  "commonDismiss": { "message": "閉じる" }
+}

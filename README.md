@@ -608,8 +608,12 @@ on it fall back gracefully (in-browser conversion or passthrough).
     the browser's UI locale so an RTL locale mirrors it. Conversion output is
     deliberately excluded — those markers
     are read by a model, and the corpus is compared on them byte-for-byte.
-    English is the only catalogue so far; translations are now a contribution
-    that needs no code.
+    Ships with **Spanish, French, German, Brazilian Portuguese and Japanese**
+    alongside English. Those five are machine-translated and have not been
+    reviewed by native speakers — corrections are welcome and need no code
+    (see [Contributing](#contributing)). The store listing's product name is
+    deliberately *not* translated, so the title reads the same in every market;
+    the description is.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish
@@ -676,6 +680,20 @@ on it fall back gracefully (in-browser conversion or passthrough).
 ---
 
 ## Contributing
+
+**Translations.** Every string the extension shows lives in
+`src/_locales/<lang>/messages.json`, one file per language, each entry carrying
+a description explaining where the text appears and what constrains it. To fix
+a wording, edit the entry; to add a language, copy `en/` to your locale code
+(`pt_BR`, not `pt-BR`) and translate the `message` values — leaving `$name$`
+placeholders and the `%s` slot where your grammar wants them, which is the
+point of their being whole sentences. You can skip any entry: a missing key
+falls back to English rather than breaking. `npm test` checks that a
+translation still substitutes what its English original does and still fits
+the stores' name limits. The five shipped translations are machine-produced
+and unreviewed, so corrections from native speakers are especially welcome —
+`npm run pseudo-locale -- <code>` renders a fake language if you want to see
+where a string lands before writing it.
 
 Early-stage and moving fast — [issues](https://github.com/jtrachtenberg/decant/issues) and [discussion](https://github.com/jtrachtenberg/decant/discussions) are welcome. If you're
 opening a PR, please read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the
