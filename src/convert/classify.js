@@ -1368,6 +1368,11 @@ function bandFit(bands, starts) {
 // double-spaces its rows and single-spaces the wraps inside them separates
 // cleanly. public-famous p17 runs 18pt between rows and 10pt inside them.
 const GRID_WRAP_RATIO = 0.7;
+// How far a wrapped remainder's start may drift from the cell it continues
+// (mergeWrappedCells). A wrap resumes at its column's own left edge, so this
+// only has to absorb the point or two a justified line's first glyph shifts —
+// tight enough that a genuinely indented line under a table is not swallowed.
+const WRAP_CELL_X_TOL = 3;
 // ...and no taller, relative to the row it continues, than ordinary variation
 // within one cell's type (a cap-height line against one with descenders).
 const GRID_WRAP_MAX_HEIGHT_RATIO = 1.2;
@@ -2793,7 +2798,64 @@ function linesFromGlyphs(glyphs) {
       .map((c) => ({ ...c, text: c.text.replace(/[ \t]+/g, " ").trim() }))
       .filter((c) => c.text.length);
   }
-  return lines.filter((line) => line.cells.length);
+  return mergeWrappedCells(lines.filter((line) => line.cells.length));
+}
+
+// Fold a wrapped value back into the cell it belongs to (ADR 0032).
+//
+// A row whose value runs past the column's measure sets its remainder on the
+// next line, under the value and with no label beside it. That line is not a
+// row: emitted as one it ends the table it sits inside, and the two halves
+// then read as separate tables with an orphaned sentence between them. A
+// project's "Description:" wrapping onto a second line split an eleven-row
+// details block into a four-row table, a loose line, and a seven-row table.
+//
+// What identifies a continuation, and separates it from the next ROW of the
+// same table:
+//   - the line before it states a value (two cells or more) and this one
+//     states only the remainder (exactly one),
+//   - that one cell starts under the previous row's LAST cell, so it is that
+//     column's text and not a new row label, and
+//   - it is set closer than the rows AROUND IT are spaced. Row pitch is the
+//     measurement that matters and leading is always tighter than it, which is
+//     how wrapFlags tells the same two apart inside a detected grid. The pitch
+//     has to be read locally, though: a page whose details block sets 12pt
+//     rows above an issue list setting 9pt ones has no single pitch, and a
+//     median over the page called the 12pt block's 7pt wrap a row.
+function mergeWrappedCells(lines) {
+  if (lines.length < 3) return lines;
+  const gapAbove = (i) => (i >= 1 ? lines[i - 1].y - lines[i].y : null);
+  const merged = new Set();
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.cells.length !== 1) continue;
+    // The row this would continue: the nearest line above that is still
+    // standing, so a value wrapping over three lines folds into one cell.
+    let p = i - 1;
+    while (p >= 0 && merged.has(p)) p--;
+    if (p < 0) continue;
+    const prev = lines[p];
+    if (prev.cells.length < 2) continue;
+
+    // The rows' own spacing: the gap above the row being continued, or — when
+    // it opens its block — the gap below the continuation.
+    const pitch = gapAbove(p) ?? gapAbove(i + 1);
+    const drop = lines[i - 1].y - line.y;
+    if (!(pitch > 0) || !(drop > 0) || drop > GRID_WRAP_RATIO * pitch) continue;
+
+    const cell = line.cells[0];
+    const target = prev.cells[prev.cells.length - 1];
+    if (Math.abs(cell.x - target.x) > WRAP_CELL_X_TOL) continue;
+    const hi = Math.max(line.h, prev.h);
+    const lo = Math.min(line.h, prev.h);
+    if (!(lo > 0) || hi / lo > GRID_WRAP_MAX_HEIGHT_RATIO) continue;
+
+    target.text = `${target.text} ${cell.text}`;
+    target.endX = Math.max(target.endX, cell.endX);
+    merged.add(i);
+  }
+  return merged.size ? lines.filter((_, i) => !merged.has(i)) : lines;
 }
 
 // --- Column detection: partition glyphs into ordered reading regions -------

@@ -152,3 +152,50 @@ test("two columns of prose still split when neither side is a label rail", () =>
       `columns interleaved: "${l}"`
     );
 });
+
+test("a wrapped value folds into its cell instead of ending the table", () => {
+  // The details block: a description too long for its column sets its
+  // remainder under the value, with no label beside it. Emitted as a row of
+  // its own it ends the table there, and an eleven-row block comes out as two
+  // tables with a loose sentence between them.
+  const rows = [
+    ["Name:", "3 Main Street"],
+    ["Reference:", "2017/04/0001S"],
+    ["Description:", "Full renovation and extension as per project"],
+  ];
+  const items = [];
+  rows.forEach(([label, value], k) => {
+    const y = 719 - k * 12;
+    items.push(item(label, 70, y, { w: label.length * 2.7, h: 6 }));
+    items.push(item(value, 190, y, { w: value.length * 2.9, h: 6 }));
+  });
+  // The wrap: 7pt below its row (695) where the rows are set 12pt apart.
+  items.push(item("document reference 17/6353G", 190, 688, { w: 81, h: 6 }));
+  items.push(item("Started:", 70, 676, { w: 21, h: 6 }));
+  items.push(item("10 Jan 2017", 190, 676, { w: 33, h: 6 }));
+
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(
+    md,
+    /\| Description: \| Full renovation and extension as per project document reference 17\/6353G \|/
+  );
+  // One table, not two with an orphan between them.
+  assert.equal(md.split("| --- |").length - 1, 1);
+});
+
+test("the next ROW at the same pitch is not folded into the row above", () => {
+  // Same shape, but the second line is set at the rows' own spacing — it is a
+  // row that happens to have no label, not a continuation.
+  const items = [];
+  [
+    ["Name:", "3 Main Street"],
+    ["Reference:", "2017/04/0001S"],
+  ].forEach(([label, value], k) => {
+    const y = 719 - k * 12;
+    items.push(item(label, 70, y, { w: label.length * 2.7, h: 6 }));
+    items.push(item(value, 190, y, { w: value.length * 2.9, h: 6 }));
+  });
+  items.push(item("a full 12pt below", 190, 695, { w: 50, h: 6 }));
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.doesNotMatch(md, /2017\/04\/0001S a full 12pt below/);
+});
