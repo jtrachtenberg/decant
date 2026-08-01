@@ -539,11 +539,28 @@ on it fall back gracefully (in-browser conversion or passthrough).
     page that loses a table turns out to be a correction: it had been pairing
     two independent colour legends into "Short term = Very high", a
     relationship the page never states. The open residual is the confidence
-    metric, which now moves the wrong way in both directions — two pages read
-    better than they ever have *and* are newly flagged, because convergence
-    rewards uniform line starts and a layout read as a layout has none. That
-    needs a kind-aware flag, which this ADR finally supplies the distinction
-    for.
+    metric, addressed next.
+  - **A low convergence score only means something on a page made of fragments**
+    ([ADR 0031](./docs/adr/0031-kind-aware-confidence-flag.md)).
+    Reading a page's layout correctly made it score *worse*. The
+    flattened-figure marker — "labels may be scrambled, values unreliable" —
+    fires when a page's emitted cells fail to line up on a few left edges,
+    which is sound evidence on a chart's label soup or a table read badly, and
+    evidence of nothing on a designed layout whose blocks have no reason to
+    share a left edge. So the report page whose three climate commitments had
+    just been un-scrambled was told its labels might be scrambled, and attached
+    as an image for it. Two corpus pages score **0.48 apiece** — one clean
+    prose, one a table whose values came away from their labels — and no
+    threshold separates them. The fix is not a new metric but the second half
+    of the question: **is this page made of fragments or of sentences?** The
+    marker now needs both a low score and a page whose cells read as short or
+    numeric (0.17–0.26 for the two false alarms, 0.42–0.85 for the four real
+    ones). Two pages change, by exactly the one line each that should never
+    have been there; every true marker still fires, no text moves, and the
+    attached-figures PDF returns to what it held before. The alternative that
+    looked obviously right — scoring each column separately, using machinery
+    that already exists for it — was measured and is worse, and the ADR records
+    why.
   - Deferred as nice-to-haves (post-M3): **figure descriptions** as inline
     text (describe-in-text via the companion's VLM — the mini-PDF already
     gives the model the figures themselves); companion quality-gate polish

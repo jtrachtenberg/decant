@@ -693,7 +693,10 @@ export function reconstructPage(items, columnHint = null, pageModel = null) {
   if (!sawTable) {
     if (split && looksTabular(lines)) {
       lines.unshift(lowConfidenceMarker());
-    } else if (columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD) {
+    } else if (
+      columnConvergence(lines).score < CONVERGENCE_FLAG_THRESHOLD &&
+      readsAsFragments(lines)
+    ) {
       lines.unshift(flattenedFigureMarker());
     }
   }
@@ -2336,6 +2339,27 @@ export const CONVERGENCE_MIN_CELLS = 12;
 // content, and errs toward NOT flagging (a page in the unverified 0.5–0.6 band
 // is left alone). Tunable.
 export const CONVERGENCE_FLAG_THRESHOLD = 0.5;
+// ...but a low score only MEANS a flattened figure on a page made of fragments
+// (ADR 0031). Convergence pools every emitted cell's start x and rewards them
+// clustering on a few positions. That is a sound proxy for a chart's label soup
+// or a table read badly — both of which should align and don't — and an unsound
+// one for a designed layout, whose blocks have no reason to share a left edge
+// at all. ADR 0030 made that reading possible and immediately produced the
+// proof: table-heavy p26 fell to 0.22 and gained "labels may be scrambled" on
+// the page where its three commitments had just been un-scrambled.
+//
+// The page's own cells settle it. Flattened figures and mangled tables are made
+// of short, numeric fragments; a layout is made of sentences. Over the corpus
+// that separates every page the marker fires on today into the two it should:
+//
+//   marker is wrong    table-heavy p26 (0.17), p11 (0.26)  — prose blocks
+//   marker is right    table-heavy p33 (0.42), chart-heavy p53 (0.51),
+//                      messy-scan p27 (0.54), p43 (0.85)   — soup and tables
+//
+// Note the pair at 0.48 convergence apiece — p11 clean prose, p33 a Scope 3
+// table whose values came away from their labels. The score cannot tell them
+// apart; what they are made of can.
+const FLAG_MIN_FRAGMENTS = 0.35;
 // Column bands are "the same" within this fraction of the median line height —
 // a few characters of jitter around a shared start x.
 const CONVERGENCE_TOL_RATIO = 1.5;
@@ -2344,6 +2368,20 @@ const CONVERGENCE_TOL_RATIO = 1.5;
 // prose margin, or each column of a table/two-column layout, clears this; a
 // lone chart label never does.
 const CONVERGENCE_MIN_SUPPORT_RATIO = 0.2;
+
+// Is this page made of fragments rather than sentences? The second half of the
+// flattened-figure test (see FLAG_MIN_FRAGMENTS): what a page is MADE OF, where
+// convergence measures only how its pieces line up.
+function readsAsFragments(lines) {
+  const cells = (lines || [])
+    .filter((l) => l && !l.marker && Array.isArray(l.cells))
+    .flatMap((l) => l.cells.map((c) => (c.text || "").trim()))
+    .filter(Boolean);
+  if (!cells.length) return false;
+  return (
+    cells.filter(isTabularCell).length / cells.length >= FLAG_MIN_FRAGMENTS
+  );
+}
 
 export function columnConvergence(lines) {
   const conv = convergenceOf(lines);
