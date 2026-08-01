@@ -183,6 +183,23 @@ test("a wrapped value folds into its cell instead of ending the table", () => {
   assert.equal(md.split("| --- |").length - 1, 1);
 });
 
+test("a wrap chain anchored on the region's FIRST row does not crash at the last line", () => {
+  // The anchor row opens the region (no gap above it) and the candidate closes
+  // it (no line below): both pitch readings are out of range at once. The
+  // fallback used to index one past the end of the lines array and throw,
+  // killing conversion of the whole document.
+  const items = [
+    item("Description:", 70, 719, { w: 32, h: 6 }),
+    item("Full renovation and extension as per project", 190, 719, { w: 127, h: 6 }),
+    // First continuation, at leading — merges into the row above.
+    item("document reference 17/6353G and annexes", 190, 712, { w: 113, h: 6 }),
+    // Second continuation, last line of the region: its anchor is line 0.
+    item("as amended by the March addendum", 190, 700, { w: 94, h: 6 }),
+  ];
+  const md = linesToMarkdown(reconstructPage(items).lines);
+  assert.match(md, /document reference 17\/6353G/);
+});
+
 test("the next ROW at the same pitch is not folded into the row above", () => {
   // Same shape, but the second line is set at the rows' own spacing — it is a
   // row that happens to have no label, not a continuation.
