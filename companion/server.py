@@ -30,6 +30,7 @@ host is the conscious "shape C" tradeoff and lives elsewhere.
 
 import base64
 import os
+import re
 import tempfile
 
 from flask import Flask, Response, jsonify, request
@@ -112,6 +113,11 @@ def read_upload():
     )
 
 
+# A temp-file suffix is the one piece of the upload name that touches the
+# filesystem; only a plain dotted extension may pass (CodeQL py/path-injection).
+_SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,16}$")
+
+
 def convert_upload(name, data):
     """Run the engine over the uploaded bytes and return Markdown.
 
@@ -120,7 +126,8 @@ def convert_upload(name, data):
     NamedTemporaryFile can't be reopened while held, so it's closed first and
     removed in finally.
     """
-    suffix = os.path.splitext(name)[1] or ".bin"
+    ext = os.path.splitext(name)[1]
+    suffix = ext if _SAFE_SUFFIX.fullmatch(ext) else ".bin"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
         tmp.write(data)
