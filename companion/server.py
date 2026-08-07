@@ -181,13 +181,21 @@ def _convert_or_error():
     try:
         name, data = read_upload()
     except ValueError as exc:
-        return None, _plain_error(str(exc) + "\n", 400)
+        # Exception text stays in the local console (CodeQL py/stack-trace-
+        # exposure); the body restates the whole request contract instead, which
+        # is what a curl user actually needs.
+        app.logger.info("invalid upload request: %s", exc)
+        return None, _plain_error(
+            'invalid request: expected multipart/form-data with a "file" field '
+            'or application/json {"name","type","data"} with valid base64\n',
+            400,
+        )
 
     try:
         text = convert_upload(name, data)
     except Exception as exc:  # noqa: BLE001 - any engine failure -> onError fallback
-        app.logger.warning("conversion failed for %s: %s", name, exc)
-        return None, _plain_error(f"conversion failed: {exc}\n", 422)
+        app.logger.warning("conversion failed for %s: %s", name, exc, exc_info=True)
+        return None, _plain_error("conversion failed; see companion log\n", 422)
 
     # An empty conversion isn't worth substituting; a non-2xx lets the client
     # fall back rather than attach a blank file (matches http.js).
