@@ -54,8 +54,8 @@ def test_convert_raw_returns_markdown_body():
 
 
 def test_hostile_upload_name_still_converts():
-    # The extension of the upload name feeds a temp-file suffix; anything but a
-    # plain dotted extension must fall back to .bin rather than reach the path.
+    # The extension of the upload name selects a temp-file suffix; anything not
+    # in the known-format table must fall back to .bin rather than reach the path.
     payload = {
         "name": "..\\..\\evil.a-b!c",
         "type": "application/octet-stream",
@@ -66,14 +66,14 @@ def test_hostile_upload_name_still_converts():
     assert "7 bytes" in r.get_json()["text"]
 
 
-def test_suffix_allowlist_shape():
-    assert server._SAFE_SUFFIX.fullmatch(".txt")
-    assert server._SAFE_SUFFIX.fullmatch(".docx")
-    assert not server._SAFE_SUFFIX.fullmatch("")          # no extension
-    assert not server._SAFE_SUFFIX.fullmatch(".")         # bare dot
-    assert not server._SAFE_SUFFIX.fullmatch(".t xt")     # whitespace
-    assert not server._SAFE_SUFFIX.fullmatch('.aspx\\x00')   # embedded NUL
-    assert not server._SAFE_SUFFIX.fullmatch("." + "a" * 17)  # oversized
+def test_suffix_table_maps_extensions_to_its_own_literals():
+    # Every value the table can yield is one of its own constant strings, so
+    # nothing user-controlled ever reaches the temp-file path.
+    assert all(k == v for k, v in server._KNOWN_SUFFIXES.items())
+    assert server._KNOWN_SUFFIXES[".pdf"] == ".pdf"
+    assert ".exe" not in server._KNOWN_SUFFIXES
+    assert ".t xt" not in server._KNOWN_SUFFIXES
+    assert "" not in server._KNOWN_SUFFIXES
 
 
 def test_unparseable_body_is_400():

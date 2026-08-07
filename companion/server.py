@@ -30,7 +30,6 @@ host is the conscious "shape C" tradeoff and lives elsewhere.
 
 import base64
 import os
-import re
 import tempfile
 
 from flask import Flask, Response, jsonify, request
@@ -113,21 +112,29 @@ def read_upload():
     )
 
 
-# A temp-file suffix is the one piece of the upload name that touches the
-# filesystem; only a plain dotted extension may pass (CodeQL py/path-injection).
-_SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,16}$")
+# The temp-file suffix is the one piece of the upload name that touches the
+# filesystem. The upload's extension only *selects* from this table of formats
+# the engines can sniff; the string handed to NamedTemporaryFile is always one
+# of these literals, never user data (CodeQL py/path-injection).
+_KNOWN_SUFFIXES = {s: s for s in (
+    ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
+    ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".md", ".txt", ".rtf",
+    ".epub", ".zip", ".ipynb", ".msg", ".eml", ".adoc", ".asciidoc",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
+    ".mp3", ".wav", ".m4a",
+)}
 
 
 def convert_upload(name, data):
     """Run the engine over the uploaded bytes and return Markdown.
 
     The engines sniff format largely from the file extension, so the bytes are
-    written to a temp file carrying the upload's own suffix. On Windows a
+    written to a temp file carrying the upload's own suffix — when it's a
+    format we know; anything else becomes .bin. On Windows a
     NamedTemporaryFile can't be reopened while held, so it's closed first and
     removed in finally.
     """
-    ext = os.path.splitext(name)[1]
-    suffix = ext if _SAFE_SUFFIX.fullmatch(ext) else ".bin"
+    suffix = _KNOWN_SUFFIXES.get(os.path.splitext(name)[1].lower(), ".bin")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
         tmp.write(data)
