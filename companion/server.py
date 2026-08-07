@@ -32,7 +32,7 @@ import base64
 import os
 import tempfile
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, abort, jsonify, request
 
 # --- Engine selection (MarkItDown default, Docling opt-in) ------------------
 # Imported lazily inside make_engine so the service starts with only the engine
@@ -172,11 +172,13 @@ def _plain_error(message, status):
     return Response(message, status=status, mimetype="text/plain")
 
 
-def _convert_or_error():
+def _convert_or_abort():
     """Shared body handling: parse, convert, and normalize failures to codes.
 
-    Returns (name, text) on success, or (None, flask_response) on a handled
-    error so both endpoints answer identically.
+    Returns the converted text; every handled failure aborts with a plain-text
+    response instead, so both endpoints answer identically. Errors travel as
+    raised responses — never through the same variable as the converted text —
+    which is also what keeps CodeQL's py/reflective-xss flow provably closed.
     """
     try:
         name, data = read_upload()
@@ -185,45 +187,39 @@ def _convert_or_error():
         # exposure); the body restates the whole request contract instead, which
         # is what a curl user actually needs.
         app.logger.info("invalid upload request: %s", exc)
-        return None, _plain_error(
+        abort(_plain_error(
             'invalid request: expected multipart/form-data with a "file" field '
             'or application/json {"name","type","data"} with valid base64\n',
             400,
-        )
+        ))
 
     try:
         text = convert_upload(name, data)
     except Exception as exc:  # noqa: BLE001 - any engine failure -> onError fallback
         app.logger.warning("conversion failed for %s: %s", name, exc, exc_info=True)
-        return None, _plain_error("conversion failed; see companion log\n", 422)
+        abort(_plain_error("conversion failed; see companion log\n", 422))
 
     # An empty conversion isn't worth substituting; a non-2xx lets the client
     # fall back rather than attach a blank file (matches http.js).
     if not text or not text.strip():
-        return None, _plain_error("engine produced no text\n", 422)
+        abort(_plain_error("engine produced no text\n", 422))
 
     app.logger.info("converted %s (%d bytes -> %d chars)", name, len(data), len(text))
-    return name, text
+    return text
 
 
 @app.route("/convert", methods=["POST", "PUT", "OPTIONS"])
 def convert():
     if request.method == "OPTIONS":
         return ("", 204)
-    name, result = _convert_or_error()
-    if name is None:
-        return result
-    return jsonify({"text": result})
+    return jsonify({"text": _convert_or_abort()})
 
 
 @app.route("/convert-raw", methods=["POST", "PUT", "OPTIONS"])
 def convert_raw():
     if request.method == "OPTIONS":
         return ("", 204)
-    name, result = _convert_or_error()
-    if name is None:
-        return result
-    return Response(result, mimetype="text/markdown")
+    return Response(_convert_or_abort(), mimetype="text/markdown")
 
 
 @app.route("/health", methods=["GET"])
