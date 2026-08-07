@@ -157,7 +157,19 @@ def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "POST, PUT, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    # Responses echo request-derived text (errors, converted uploads); nosniff
+    # stops a legacy browser from second-guessing text/plain or text/markdown
+    # into something renderable.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
+
+
+def _plain_error(message, status):
+    # Error text can echo request details (filename, decode errors), so it goes
+    # out as an explicit text/plain Response — never a renderable page. The
+    # Response mimetype form (vs a headers dict) is also what CodeQL models
+    # (py/reflective-xss).
+    return Response(message, status=status, mimetype="text/plain")
 
 
 def _convert_or_error():
@@ -169,18 +181,26 @@ def _convert_or_error():
     try:
         name, data = read_upload()
     except ValueError as exc:
-        return None, (str(exc) + "\n", 400, {"Content-Type": "text/plain"})
+        # Exception text stays in the local console (CodeQL py/stack-trace-
+        # exposure); the body restates the whole request contract instead, which
+        # is what a curl user actually needs.
+        app.logger.info("invalid upload request: %s", exc)
+        return None, _plain_error(
+            'invalid request: expected multipart/form-data with a "file" field '
+            'or application/json {"name","type","data"} with valid base64\n',
+            400,
+        )
 
     try:
         text = convert_upload(name, data)
     except Exception as exc:  # noqa: BLE001 - any engine failure -> onError fallback
-        app.logger.warning("conversion failed for %s: %s", name, exc)
-        return None, (f"conversion failed: {exc}\n", 422, {"Content-Type": "text/plain"})
+        app.logger.warning("conversion failed for %s: %s", name, exc, exc_info=True)
+        return None, _plain_error("conversion failed; see companion log\n", 422)
 
     # An empty conversion isn't worth substituting; a non-2xx lets the client
     # fall back rather than attach a blank file (matches http.js).
     if not text or not text.strip():
-        return None, ("engine produced no text\n", 422, {"Content-Type": "text/plain"})
+        return None, _plain_error("engine produced no text\n", 422)
 
     app.logger.info("converted %s (%d bytes -> %d chars)", name, len(data), len(text))
     return name, text

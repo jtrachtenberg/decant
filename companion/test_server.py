@@ -79,6 +79,12 @@ def test_suffix_table_maps_extensions_to_its_own_literals():
 def test_unparseable_body_is_400():
     r = client.post("/convert", data="not a file", content_type="text/plain")
     assert r.status_code == 400
+    # Errors must never go out as renderable HTML — plain text plus nosniff
+    # (CodeQL py/reflective-xss) — and never carry exception text; the body is
+    # a constant restating the request contract (py/stack-trace-exposure).
+    assert r.mimetype == "text/plain"
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+    assert "multipart/form-data" in r.get_data(as_text=True)
 
 
 def test_json_without_data_is_400():
