@@ -122,13 +122,11 @@ def convert_upload(name, data):
     """Run the engine over the uploaded bytes and return Markdown.
 
     The engines sniff format largely from the file extension, so the bytes are
-    written to a temp file carrying the upload's own suffix. On Windows a
+    written to a temp file carrying a fixed safe suffix. On Windows a
     NamedTemporaryFile can't be reopened while held, so it's closed first and
     removed in finally.
     """
-    ext = os.path.splitext(name)[1]
-    suffix = ext if _SAFE_SUFFIX.fullmatch(ext) else ".bin"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".bin")
     try:
         tmp.write(data)
         tmp.close()
