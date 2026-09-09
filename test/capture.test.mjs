@@ -97,6 +97,39 @@ test("hidden elements are stripped by attribute and by inline style", () => {
   }
 });
 
+test("a hidden accessible-name target survives so svg-locked chart values reach the output", () => {
+  // Trimmed from a real MyChart lab-result card: the value lives in an <svg>
+  // (stripped) and is mirrored into an aria-hidden, off-screen summary that is
+  // the graph's aria-labelledby target. That summary is the only place the
+  // number survives once the SVG goes.
+  const card = `
+    <div class="graphContent" role="img" aria-labelledby="EID-b4">
+      <div aria-hidden="true">
+        <svg width="475" height="79" viewBox="0 0 475 79">
+          <g><path class="scatterPoint" d="M 168 31 L 184 31 z"></path></g>
+          <g><text><tspan>3.7</tspan></text><text><tspan>11.1</tspan></text></g>
+          <foreignObject><div><span class="yValue">5.5</span></div></foreignObject>
+        </svg>
+      </div>
+    </div>
+    <div id="EID-b4" aria-hidden="true">
+      <div class="AssistiveTextSummary">
+        <span class="clearlabel">Your value is 5.5 K/uL</span>
+        <span class="clearlabel">Normal range: 3.7 - 11.1 K/uL</span>
+      </div>
+    </div>`;
+  const d = doc(`<body><main><h3>WBC COUNT</h3>${card}</main></body>`);
+  const html = stripNonContent(cloneForCapture(pickRoot(d), d), { fromBody: false }).innerHTML;
+  assert.match(html, /Your value is 5\.5 K\/uL/);
+  assert.match(html, /Normal range: 3\.7 - 11\.1 K\/uL/);
+  // The SVG and its geometry are still stripped — the number comes from the
+  // summary, not from scraping chart coordinates.
+  assert.ok(!/<svg/i.test(html), "svg should be stripped");
+  assert.ok(!html.includes("scatterPoint"), "svg geometry should be gone");
+  // The decorative aria-hidden svg wrapper (not a label target) is still removed.
+  assert.ok(!html.includes("foreignObject"));
+});
+
 test("the live document is never mutated", () => {
   const d = doc(`<body><main><p>keep</p><script>evil()</script></main></body>`);
   const before = d.body.innerHTML;

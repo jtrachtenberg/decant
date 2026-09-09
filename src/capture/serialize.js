@@ -45,6 +45,37 @@ function all(root, selector) {
   return Array.from(root.querySelectorAll(selector));
 }
 
+// Ids referenced by an aria-labelledby / aria-describedby somewhere in the tree.
+// The element carrying such an id (and everything under it) is the accessible
+// name or description of some control or graphic — real content, kept even when
+// it is hidden. This is how a value locked inside an <svg> chart still reaches
+// the output: charts render the number in the SVG but also mirror it into an
+// off-screen, aria-hidden summary named as the graph's label (MyChart lab
+// results: `role="img" aria-labelledby=…` → "Your value is 5.5 K/uL"). Strip
+// that summary and the number is gone once the SVG itself goes.
+function labelTargetIds(root) {
+  const ids = new Set();
+  for (const el of all(root, "[aria-labelledby],[aria-describedby]")) {
+    for (const attr of ["aria-labelledby", "aria-describedby"]) {
+      const val = el.getAttribute(attr) || "";
+      for (const id of val.split(/\s+/)) if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+// True if `el` is, or lives inside, an element whose id is one of those targets.
+// Walks the parent chain so the target's whole subtree (the label's text nodes
+// and their wrappers) is protected, not just the id-bearing element itself.
+function isLabelTarget(el, ids) {
+  if (!ids.size) return false;
+  for (let node = el; node; node = node.parentElement) {
+    const id = node.getAttribute?.("id");
+    if (id && ids.has(id)) return true;
+  }
+  return false;
+}
+
 // Choose the element that holds the article. Falls back to <body> unless a
 // landmark holds a real share of the text — a <main> wrapping only a teaser
 // (or an <article> that is one card in a feed) would otherwise throw the page
@@ -112,6 +143,7 @@ export function cloneForCapture(root, doc = root.ownerDocument) {
   const clones = [clone, ...clone.querySelectorAll("*")];
   const view = doc?.defaultView;
   const computed = typeof view?.getComputedStyle === "function" ? view.getComputedStyle.bind(view) : null;
+  const protectedIds = labelTargetIds(root);
 
   const n = Math.min(originals.length, clones.length);
   for (let i = 0; i < n; i++) {
@@ -120,7 +152,14 @@ export function cloneForCapture(root, doc = root.ownerDocument) {
     if (shadow) {
       for (const child of [...shadow.children]) clones[i].append(adopt(child));
     }
-    if (computed && isVisuallyHidden(computed, originals[i])) {
+    // An accessible-name/description target stays even when computed-hidden — an
+    // aria-labelledby target legitimately provides a name while display:none,
+    // and off-screen chart summaries are exactly that (see labelTargetIds).
+    if (
+      computed &&
+      isVisuallyHidden(computed, originals[i]) &&
+      !isLabelTarget(originals[i], protectedIds)
+    ) {
       clones[i].remove(); // detaching an already-detached node is a no-op
     }
   }
@@ -138,14 +177,25 @@ function isVisuallyHidden(computed, el) {
 // Remove non-content elements from an already-cloned tree. `fromBody` selects
 // whether site furniture goes too (see CHROME_STRIP).
 export function stripNonContent(clone, { fromBody }) {
-  const selectors = [ALWAYS_STRIP, HIDDEN_STRIP];
+  const protectedIds = labelTargetIds(clone);
+  const selectors = [ALWAYS_STRIP];
   if (fromBody) selectors.push(CHROME_STRIP);
   for (const el of all(clone, selectors.join(","))) el.remove();
+
+  // Hidden elements go — unless they carry a control's or graphic's accessible
+  // name/description (see labelTargetIds), which is content regardless of how
+  // it is hidden.
+  for (const el of all(clone, HIDDEN_STRIP)) {
+    if (!isLabelTarget(el, protectedIds)) el.remove();
+  }
 
   // Inline display:none survives the computed-style pass when that pass can't
   // run (tests, detached documents), and costs one regex here.
   for (const el of all(clone, "[style]")) {
-    if (/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(el.getAttribute("style") || "")) {
+    if (
+      /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(el.getAttribute("style") || "") &&
+      !isLabelTarget(el, protectedIds)
+    ) {
       el.remove();
     }
   }
