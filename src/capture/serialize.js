@@ -64,14 +64,26 @@ function labelTargetIds(root) {
   return ids;
 }
 
-// True if `el` is, or lives inside, an element whose id is one of those targets.
-// Walks the parent chain so the target's whole subtree (the label's text nodes
-// and their wrappers) is protected, not just the id-bearing element itself.
+// A label or description is short. A hidden element far larger than this is not
+// a label — it's a region a site happens to name (an inactive tab panel, a
+// collapsed accordion body) that is hidden because it isn't the current view.
+// Resurrecting that would dump off-screen content that may contradict what's on
+// screen, so the size gate below leaves it stripped. Generous on purpose: real
+// descriptions run to a sentence or two, never a screenful.
+const LABEL_TARGET_MAX_CHARS = 1000;
+
+// True if `el` is, or lives inside, a *label-sized* element whose id is one of
+// those targets. Walks the parent chain so the target's whole subtree (the
+// label's text nodes and their wrappers) is protected, not just the id-bearing
+// element itself. The nearest id-bearing ancestor governs — any further one only
+// contains it and is larger — so if that one is too big, protection is refused.
 function isLabelTarget(el, ids) {
   if (!ids.size) return false;
   for (let node = el; node; node = node.parentElement) {
     const id = node.getAttribute?.("id");
-    if (id && ids.has(id)) return true;
+    if (id && ids.has(id)) {
+      return (node.textContent || "").trim().length <= LABEL_TARGET_MAX_CHARS;
+    }
   }
   return false;
 }

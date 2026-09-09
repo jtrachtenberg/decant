@@ -130,6 +130,24 @@ test("a hidden accessible-name target survives so svg-locked chart values reach 
   assert.ok(!html.includes("foreignObject"));
 });
 
+test("a large hidden region that is merely aria-labelledby'd is NOT resurrected", () => {
+  // The failure mode of the label-target rescue: a site names a whole hidden
+  // view (inactive tab, collapsed accordion) via aria-labelledby. That is not a
+  // label — surfacing it dumps off-screen content that may contradict what is
+  // shown. The size gate leaves it stripped; a short label in the same page is
+  // still kept.
+  const bigBody = "<p>" + "off-screen inactive tab content. ".repeat(80) + "</p>";
+  const d = doc(`<body><main>
+    <div role="tabpanel" aria-labelledby="panel2"></div>
+    <section id="panel2" hidden><h2>Tab 2</h2>${bigBody}</section>
+    <div role="img" aria-labelledby="cap"></div>
+    <span id="cap" aria-hidden="true">Chart says 42</span>
+  </main></body>`);
+  const html = stripNonContent(cloneForCapture(pickRoot(d), d), { fromBody: false }).innerHTML;
+  assert.ok(!html.includes("off-screen inactive tab content"), "big hidden panel stays stripped");
+  assert.match(html, /Chart says 42/, "short label is still kept");
+});
+
 test("the live document is never mutated", () => {
   const d = doc(`<body><main><p>keep</p><script>evil()</script></main></body>`);
   const before = d.body.innerHTML;
