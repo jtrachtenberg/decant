@@ -77,15 +77,37 @@ function textLength(el) {
 //
 // Both jobs need the *original* nodes: cloneNode does not copy shadow roots,
 // and getComputedStyle on a detached clone tells you nothing. So the original
-// and clone trees are walked in parallel — cloneNode(true) preserves document
-// order, and shadow content is invisible to querySelectorAll, so the two
-// snapshots stay index-aligned.
+// and clone trees are walked in parallel by index, pairing originals[i] with
+// clones[i] — which only holds if the two `querySelectorAll("*")` snapshots
+// enumerate the same elements in the same order.
+//
+// That is exactly what `root.cloneNode(true)` does NOT guarantee. Cloning a
+// defined *custom element* re-runs its constructor on the clone (it is a live
+// upgrade in this document), and a constructor that stamps a <template> or
+// otherwise builds its own DOM leaves the clone with elements the original
+// never had. One such element (Fidelity's portfolio widgets are full of them)
+// shifts every later index, so from that point on each clone is tested against
+// the wrong original's computed style and *visible* content gets removed —
+// the whole page collapsing to a fragment was this bug.
+//
+// The fix is to clone into a registry-less inert document: importNode there
+// has no custom-element definitions to upgrade against, so no constructor
+// runs and the structure — and the index alignment — is preserved. We only
+// read computed style from the live originals, never the inert clone, so the
+// detached document costs nothing. (When the environment has no such
+// implementation — a bare document stub — we fall back to cloneNode; the
+// index risk is a browser-only concern and the tests run without it.)
 //
 // Known limit (v1): shadow roots *nested inside* shadow content aren't
 // expanded, and slotted light-DOM children are appended after the shadow
 // children rather than interleaved at their <slot> positions.
 export function cloneForCapture(root, doc = root.ownerDocument) {
-  const clone = root.cloneNode(true);
+  const inert =
+    typeof doc?.implementation?.createHTMLDocument === "function"
+      ? doc.implementation.createHTMLDocument("")
+      : null;
+  const clone = inert ? inert.importNode(root, true) : root.cloneNode(true);
+  const adopt = (node) => (inert ? inert.importNode(node, true) : node.cloneNode(true));
   const originals = [root, ...root.querySelectorAll("*")];
   const clones = [clone, ...clone.querySelectorAll("*")];
   const view = doc?.defaultView;
@@ -96,7 +118,7 @@ export function cloneForCapture(root, doc = root.ownerDocument) {
     // Closed shadow roots read as null here, so only open ones are inlined.
     const shadow = originals[i].shadowRoot;
     if (shadow) {
-      for (const child of [...shadow.children]) clones[i].append(child.cloneNode(true));
+      for (const child of [...shadow.children]) clones[i].append(adopt(child));
     }
     if (computed && isVisuallyHidden(computed, originals[i])) {
       clones[i].remove(); // detaching an already-detached node is a no-op

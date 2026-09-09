@@ -104,6 +104,25 @@ test("the live document is never mutated", () => {
   assert.equal(d.body.innerHTML, before);
 });
 
+// The clone is built by importing into a registry-less inert document, not by
+// root.cloneNode(true). This is the fix for the capture-collapse bug: cloning
+// in the live document re-runs any custom element's constructor on the clone,
+// and one that stamps DOM (a <template>, a built subtree) gives the clone
+// elements the original lacks — shifting the index that pairs originals[i] to
+// clones[i], so visible content downstream is judged by the wrong original's
+// computed style and dropped. An inert document has no definitions to upgrade,
+// so the structure — and the alignment — is preserved. The observable proof in
+// this shim is that the clone no longer belongs to the source document, and
+// that its element sequence matches the source one-for-one.
+test("capture clones into a separate inert document, preserving structure", () => {
+  const d = doc(`<body><main><section><p>one</p><span>two</span></section></main></body>`);
+  const root = pickRoot(d);
+  const clone = cloneForCapture(root, d);
+  assert.notEqual(clone.ownerDocument, d, "clone must not live in the live document");
+  assert.equal(clone.querySelectorAll("*").length, root.querySelectorAll("*").length);
+  assert.equal(clone.textContent, root.textContent);
+});
+
 // --------------------------------------------------------------- images ---
 
 test("lazy-loaded images are promoted to a real absolute src", () => {
