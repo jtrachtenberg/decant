@@ -45,6 +45,49 @@ function all(root, selector) {
   return Array.from(root.querySelectorAll(selector));
 }
 
+// Ids referenced by an aria-labelledby / aria-describedby somewhere in the tree.
+// The element carrying such an id (and everything under it) is the accessible
+// name or description of some control or graphic — real content, kept even when
+// it is hidden. This is how a value locked inside an <svg> chart still reaches
+// the output: charts render the number in the SVG but also mirror it into an
+// off-screen, aria-hidden summary named as the graph's label (MyChart lab
+// results: `role="img" aria-labelledby=…` → "Your value is 5.5 K/uL"). Strip
+// that summary and the number is gone once the SVG itself goes.
+function labelTargetIds(root) {
+  const ids = new Set();
+  for (const el of all(root, "[aria-labelledby],[aria-describedby]")) {
+    for (const attr of ["aria-labelledby", "aria-describedby"]) {
+      const val = el.getAttribute(attr) || "";
+      for (const id of val.split(/\s+/)) if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+// A label or description is short. A hidden element far larger than this is not
+// a label — it's a region a site happens to name (an inactive tab panel, a
+// collapsed accordion body) that is hidden because it isn't the current view.
+// Resurrecting that would dump off-screen content that may contradict what's on
+// screen, so the size gate below leaves it stripped. Generous on purpose: real
+// descriptions run to a sentence or two, never a screenful.
+const LABEL_TARGET_MAX_CHARS = 1000;
+
+// True if `el` is, or lives inside, a *label-sized* element whose id is one of
+// those targets. Walks the parent chain so the target's whole subtree (the
+// label's text nodes and their wrappers) is protected, not just the id-bearing
+// element itself. The nearest id-bearing ancestor governs — any further one only
+// contains it and is larger — so if that one is too big, protection is refused.
+function isLabelTarget(el, ids) {
+  if (!ids.size) return false;
+  for (let node = el; node; node = node.parentElement) {
+    const id = node.getAttribute?.("id");
+    if (id && ids.has(id)) {
+      return (node.textContent || "").trim().length <= LABEL_TARGET_MAX_CHARS;
+    }
+  }
+  return false;
+}
+
 // Choose the element that holds the article. Falls back to <body> unless a
 // landmark holds a real share of the text — a <main> wrapping only a teaser
 // (or an <article> that is one card in a feed) would otherwise throw the page
@@ -77,28 +120,58 @@ function textLength(el) {
 //
 // Both jobs need the *original* nodes: cloneNode does not copy shadow roots,
 // and getComputedStyle on a detached clone tells you nothing. So the original
-// and clone trees are walked in parallel — cloneNode(true) preserves document
-// order, and shadow content is invisible to querySelectorAll, so the two
-// snapshots stay index-aligned.
+// and clone trees are walked in parallel by index, pairing originals[i] with
+// clones[i] — which only holds if the two `querySelectorAll("*")` snapshots
+// enumerate the same elements in the same order.
+//
+// That is exactly what `root.cloneNode(true)` does NOT guarantee. Cloning a
+// defined *custom element* re-runs its constructor on the clone (it is a live
+// upgrade in this document), and a constructor that stamps a <template> or
+// otherwise builds its own DOM leaves the clone with elements the original
+// never had. One such element (Fidelity's portfolio widgets are full of them)
+// shifts every later index, so from that point on each clone is tested against
+// the wrong original's computed style and *visible* content gets removed —
+// the whole page collapsing to a fragment was this bug.
+//
+// The fix is to clone into a registry-less inert document: importNode there
+// has no custom-element definitions to upgrade against, so no constructor
+// runs and the structure — and the index alignment — is preserved. We only
+// read computed style from the live originals, never the inert clone, so the
+// detached document costs nothing. (When the environment has no such
+// implementation — a bare document stub — we fall back to cloneNode; the
+// index risk is a browser-only concern and the tests run without it.)
 //
 // Known limit (v1): shadow roots *nested inside* shadow content aren't
 // expanded, and slotted light-DOM children are appended after the shadow
 // children rather than interleaved at their <slot> positions.
 export function cloneForCapture(root, doc = root.ownerDocument) {
-  const clone = root.cloneNode(true);
+  const inert =
+    typeof doc?.implementation?.createHTMLDocument === "function"
+      ? doc.implementation.createHTMLDocument("")
+      : null;
+  const clone = inert ? inert.importNode(root, true) : root.cloneNode(true);
+  const adopt = (node) => (inert ? inert.importNode(node, true) : node.cloneNode(true));
   const originals = [root, ...root.querySelectorAll("*")];
   const clones = [clone, ...clone.querySelectorAll("*")];
   const view = doc?.defaultView;
   const computed = typeof view?.getComputedStyle === "function" ? view.getComputedStyle.bind(view) : null;
+  const protectedIds = labelTargetIds(root);
 
   const n = Math.min(originals.length, clones.length);
   for (let i = 0; i < n; i++) {
     // Closed shadow roots read as null here, so only open ones are inlined.
     const shadow = originals[i].shadowRoot;
     if (shadow) {
-      for (const child of [...shadow.children]) clones[i].append(child.cloneNode(true));
+      for (const child of [...shadow.children]) clones[i].append(adopt(child));
     }
-    if (computed && isVisuallyHidden(computed, originals[i])) {
+    // An accessible-name/description target stays even when computed-hidden — an
+    // aria-labelledby target legitimately provides a name while display:none,
+    // and off-screen chart summaries are exactly that (see labelTargetIds).
+    if (
+      computed &&
+      isVisuallyHidden(computed, originals[i]) &&
+      !isLabelTarget(originals[i], protectedIds)
+    ) {
       clones[i].remove(); // detaching an already-detached node is a no-op
     }
   }
@@ -116,14 +189,25 @@ function isVisuallyHidden(computed, el) {
 // Remove non-content elements from an already-cloned tree. `fromBody` selects
 // whether site furniture goes too (see CHROME_STRIP).
 export function stripNonContent(clone, { fromBody }) {
-  const selectors = [ALWAYS_STRIP, HIDDEN_STRIP];
+  const protectedIds = labelTargetIds(clone);
+  const selectors = [ALWAYS_STRIP];
   if (fromBody) selectors.push(CHROME_STRIP);
   for (const el of all(clone, selectors.join(","))) el.remove();
+
+  // Hidden elements go — unless they carry a control's or graphic's accessible
+  // name/description (see labelTargetIds), which is content regardless of how
+  // it is hidden.
+  for (const el of all(clone, HIDDEN_STRIP)) {
+    if (!isLabelTarget(el, protectedIds)) el.remove();
+  }
 
   // Inline display:none survives the computed-style pass when that pass can't
   // run (tests, detached documents), and costs one regex here.
   for (const el of all(clone, "[style]")) {
-    if (/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(el.getAttribute("style") || "")) {
+    if (
+      /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(el.getAttribute("style") || "") &&
+      !isLabelTarget(el, protectedIds)
+    ) {
       el.remove();
     }
   }

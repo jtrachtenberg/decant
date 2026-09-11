@@ -97,11 +97,81 @@ test("hidden elements are stripped by attribute and by inline style", () => {
   }
 });
 
+test("a hidden accessible-name target survives so svg-locked chart values reach the output", () => {
+  // Trimmed from a real MyChart lab-result card: the value lives in an <svg>
+  // (stripped) and is mirrored into an aria-hidden, off-screen summary that is
+  // the graph's aria-labelledby target. That summary is the only place the
+  // number survives once the SVG goes.
+  const card = `
+    <div class="graphContent" role="img" aria-labelledby="EID-b4">
+      <div aria-hidden="true">
+        <svg width="475" height="79" viewBox="0 0 475 79">
+          <g><path class="scatterPoint" d="M 168 31 L 184 31 z"></path></g>
+          <g><text><tspan>3.7</tspan></text><text><tspan>11.1</tspan></text></g>
+          <foreignObject><div><span class="yValue">5.5</span></div></foreignObject>
+        </svg>
+      </div>
+    </div>
+    <div id="EID-b4" aria-hidden="true">
+      <div class="AssistiveTextSummary">
+        <span class="clearlabel">Your value is 5.5 K/uL</span>
+        <span class="clearlabel">Normal range: 3.7 - 11.1 K/uL</span>
+      </div>
+    </div>`;
+  const d = doc(`<body><main><h3>WBC COUNT</h3>${card}</main></body>`);
+  const html = stripNonContent(cloneForCapture(pickRoot(d), d), { fromBody: false }).innerHTML;
+  assert.match(html, /Your value is 5\.5 K\/uL/);
+  assert.match(html, /Normal range: 3\.7 - 11\.1 K\/uL/);
+  // The SVG and its geometry are still stripped — the number comes from the
+  // summary, not from scraping chart coordinates.
+  assert.ok(!/<svg/i.test(html), "svg should be stripped");
+  assert.ok(!html.includes("scatterPoint"), "svg geometry should be gone");
+  // The decorative aria-hidden svg wrapper (not a label target) is still removed.
+  assert.ok(!html.includes("foreignObject"));
+});
+
+test("a large hidden region that is merely aria-labelledby'd is NOT resurrected", () => {
+  // The failure mode of the label-target rescue: a site names a whole hidden
+  // view (inactive tab, collapsed accordion) via aria-labelledby. That is not a
+  // label — surfacing it dumps off-screen content that may contradict what is
+  // shown. The size gate leaves it stripped; a short label in the same page is
+  // still kept.
+  const bigBody = "<p>" + "off-screen inactive tab content. ".repeat(80) + "</p>";
+  const d = doc(`<body><main>
+    <div role="tabpanel" aria-labelledby="panel2"></div>
+    <section id="panel2" hidden><h2>Tab 2</h2>${bigBody}</section>
+    <div role="img" aria-labelledby="cap"></div>
+    <span id="cap" aria-hidden="true">Chart says 42</span>
+  </main></body>`);
+  const html = stripNonContent(cloneForCapture(pickRoot(d), d), { fromBody: false }).innerHTML;
+  assert.ok(!html.includes("off-screen inactive tab content"), "big hidden panel stays stripped");
+  assert.match(html, /Chart says 42/, "short label is still kept");
+});
+
 test("the live document is never mutated", () => {
   const d = doc(`<body><main><p>keep</p><script>evil()</script></main></body>`);
   const before = d.body.innerHTML;
   serializePage(d);
   assert.equal(d.body.innerHTML, before);
+});
+
+// The clone is built by importing into a registry-less inert document, not by
+// root.cloneNode(true). This is the fix for the capture-collapse bug: cloning
+// in the live document re-runs any custom element's constructor on the clone,
+// and one that stamps DOM (a <template>, a built subtree) gives the clone
+// elements the original lacks — shifting the index that pairs originals[i] to
+// clones[i], so visible content downstream is judged by the wrong original's
+// computed style and dropped. An inert document has no definitions to upgrade,
+// so the structure — and the alignment — is preserved. The observable proof in
+// this shim is that the clone no longer belongs to the source document, and
+// that its element sequence matches the source one-for-one.
+test("capture clones into a separate inert document, preserving structure", () => {
+  const d = doc(`<body><main><section><p>one</p><span>two</span></section></main></body>`);
+  const root = pickRoot(d);
+  const clone = cloneForCapture(root, d);
+  assert.notEqual(clone.ownerDocument, d, "clone must not live in the live document");
+  assert.equal(clone.querySelectorAll("*").length, root.querySelectorAll("*").length);
+  assert.equal(clone.textContent, root.textContent);
 });
 
 // --------------------------------------------------------------- images ---
