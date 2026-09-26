@@ -50,7 +50,7 @@
 import { restrictedSandbox } from "./rs-shim.js"; // must precede the pdf.js import chain
 import { convertFile, convertViaCompanion } from "../convert/index.js";
 import { companionAvailable, dedupeFileNames } from "../convert/result.js";
-import { routeFile } from "../router/route.js";
+import { anyWouldConvert } from "../router/route.js";
 import {
   extractFigures,
   figuresSupported,
@@ -560,14 +560,19 @@ window.addEventListener(
     if (ev[SENTINEL]) return;
     if (!target.files || target.files.length === 0) return;
 
+    // Capture File references now — the FileList may be cleared after the event.
+    const originals = Array.from(target.files);
+    // Nothing here would convert (an avatar picker, an image upload) → leave
+    // the page's own handling alone, and leave an armed passthrough hotkey
+    // armed for the upload it was meant for (B18).
+    if (!anyWouldConvert(originals, routing)) return;
+
     // Passthrough hotkey armed → let the native upload proceed untouched.
     if (consumePassthrough()) {
       console.log(TAG, "passthrough hotkey → sending original (picker)");
       return;
     }
 
-    // Capture File references now — the FileList may be cleared after the event.
-    const originals = Array.from(target.files);
     console.log(TAG, "change intercepted:", originals.map((f) => f.name));
     ev.stopImmediatePropagation();
 
@@ -628,14 +633,16 @@ window.addEventListener(
 
     // Capture File references now — the DataTransfer is cleared after drop.
     const originals = Array.from(files);
+    // A drop that converts nothing (images, zips, a folder's placeholder
+    // entry) is not Decant's: blocking it would only re-inject the same files
+    // through the composer's input — the wrong target when the drop landed on
+    // another upload area (project knowledge, a modal uploader) (B9). Mirror
+    // the paste path and let the native drop proceed, hotkey untouched (B18).
+    if (!anyWouldConvert(originals, routing)) return;
     // When standing aside sends the original natively, a brief notice keeps it
-    // from looking like Decant didn't run — but only when conversion was
-    // actually forgone; a file routing to passthrough anyway changes nothing.
-    const noticeIfConvertible = () => {
-      if (originals.some((f) => routeFile(f, routing).action !== "passthrough")) {
-        showUnconvertedNotice("drop");
-      }
-    };
+    // from looking like Decant didn't run — every file reaching here would
+    // have converted.
+    const noticeIfConvertible = () => showUnconvertedNotice("drop");
 
     // Site adapter says drops can't be substituted here → let the native
     // drop proceed with the original file (see SITE_ADAPTERS). An armed
@@ -713,9 +720,7 @@ window.addEventListener(
     // wanted. Only intercept when a file would route to conversion, or when
     // there's no text alternative (a pure image/file paste, e.g. a screenshot).
     const hasText = Array.from(cd.types || []).includes("text/plain");
-    const willConvert = originals.some(
-      (f) => routeFile(f, routing).action !== "passthrough"
-    );
+    const willConvert = anyWouldConvert(originals, routing);
     if (hasText && !willConvert) {
       console.log(TAG, "paste has text and no convertible file → leaving native paste");
       return;
@@ -778,6 +783,13 @@ window.addEventListener("message", (ev) => {
   const originals = bridgeFiles(ev.data);
   if (!Number.isFinite(id) || originals.length === 0) return;
   const release = () => window.postMessage(bridgeMsg(MSG.RELEASE, { id }), location.origin);
+
+  // Nothing would convert → re-fire the pick untouched, without spending an
+  // armed passthrough hotkey on it (B18).
+  if (!anyWouldConvert(originals, routing)) {
+    release();
+    return;
+  }
 
   // Passthrough hotkey armed → RELEASE re-fires the pick with the originals,
   // the detached-path equivalent of standing aside for the native upload.

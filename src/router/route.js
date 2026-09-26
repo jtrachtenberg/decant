@@ -34,3 +34,12 @@ function extensionOf(name) {
   const m = /\.([a-z0-9]+)$/i.exec(name || "");
   return m ? m[1].toLowerCase() : "";
 }
+
+// Would any of these files be routed to something other than passthrough?
+// The interception handlers ask this synchronously before hijacking an event:
+// a batch that converts nothing is left to the page's own handler (B9), and
+// only a batch that would really be intercepted consumes the one-shot
+// passthrough hotkey (B18).
+export function anyWouldConvert(files, routing) {
+  return Array.from(files ?? []).some((f) => routeFile(f, routing).action !== "passthrough");
+}

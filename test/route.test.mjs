@@ -81,3 +81,17 @@ test("empty or missing routing passes everything through", () => {
   assert.equal(routeFile(file, { default: "passthrough", rules: [] }).action, "passthrough");
   assert.equal(routeFile(file, undefined).action, "passthrough");
 });
+
+test("anyWouldConvert: only a batch with a converting file is intercepted (B9/B18)", async () => {
+  const { anyWouldConvert } = await import("../src/router/route.js");
+  const routing = normalizeConfig(undefined).routing;
+  assert.equal(anyWouldConvert([{ name: "photo.png", type: "image/png" }], routing), false);
+  assert.equal(anyWouldConvert([{ name: "archive.zip", type: "application/zip" }], routing), false);
+  // A dropped folder arrives as a File placeholder with no type or extension.
+  assert.equal(anyWouldConvert([{ name: "My Folder", type: "" }], routing), false);
+  assert.equal(anyWouldConvert([], routing), false);
+  assert.equal(
+    anyWouldConvert([{ name: "photo.png", type: "image/png" }, { name: "r.pdf", type: "application/pdf" }], routing),
+    true
+  );
+});
