@@ -236,7 +236,10 @@ python server.py   # serves on http://127.0.0.1:8765 by default
 ```
 
 Decant talks to it over `localhost` only. If it isn't running, routes that depend
-on it fall back gracefully (in-browser conversion or passthrough).
+on it fall back gracefully (in-browser conversion or passthrough). Allow the
+`127.0.0.1` permission the options page asks for when you add the companion
+rule — Decant only sends to endpoints you have granted, and the companion
+refuses requests from web pages ([access control](./companion/README.md#access-control)).
 
 ---
 
@@ -637,6 +640,33 @@ on it fall back gracefully (in-browser conversion or passthrough).
     gives the model the figures themselves); companion quality-gate polish
     ("companion dropped N figures" badge + Docling chart-extraction enrich);
     in-place rule editing on the options page; quick-add `responseField`.
+- **Hardening pass (September 2026 code review). ✅ Shipped; manual QA pending.**
+  - **Companion escalation works again.** `onEmpty` OCR escalation and the
+    ambiguous prompt's **Convert with companion** were being refused by the
+    background relay; they now go through, using the stored rule, and only to
+    endpoints whose host permission you granted.
+  - **The companion only answers Decant.** It refuses web-page origins and
+    foreign `Host` headers, sends no CORS headers, caps uploads at 64 MB, and
+    can require a token (`DECANT_TOKEN`, appended to the endpoint as
+    `?token=`). See [`companion/README.md`](./companion/README.md#access-control).
+  - **Oversized files pass through instead of crashing the tab.** Files over
+    100 MB, and Office packages whose XML inflates past 16 MB, attach as the
+    original without being parsed.
+  - **Fidelity fixes.** PDF text that looks like Markdown (`# of employees`,
+    `- 3`, `*15%*`) is escaped instead of becoming headings, bullets or
+    emphasis; charts Decant can't read (chartEx types, SmartArt it can't
+    resolve, OLE objects) are marked and prompt instead of vanishing, scatter
+    charts become (x, y) tables, chart dates and percentages keep their
+    formatting; PPTX follows the presentation's slide order, marks hidden
+    slides and recovers SmartArt text; a Windows CSV is no longer rewritten as
+    a table; captured page images attach in page order.
+  - **Uploads Decant doesn't convert are left alone** — a PNG or ZIP dropped on
+    another upload area lands there, and the passthrough hotkey is only spent
+    on an upload it would have converted.
+  - **CLI.** Piped output is no longer truncated at 64 KB; `companion`/`http`
+    rules in `--config` work; the packaged binary unpacks its assets into a
+    private per-run directory.
+  - The content script ships minified (4.2 MB → 2.1 MB).
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
