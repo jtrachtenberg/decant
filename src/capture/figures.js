@@ -87,6 +87,13 @@ async function fetchBytes(src) {
   try {
     const res = await fetch(src, { signal: ctl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // An image that can never fit the capture's byte budget is skipped before
+    // its body is downloaded (O6); the budget check after the fetch still
+    // governs images that fit alone but not together.
+    const declared = Number(res.headers.get("content-length"));
+    if (declared > MAX_FIGURE_BYTES) {
+      throw new Error(`figure too large (${declared} bytes)`);
+    }
     const type = (res.headers.get("content-type") || "").split(";")[0].trim();
     // Bytes travel as Blob → FileReader → data: URL, and only the base64
     // STRING crosses out of this function. The direct route — arrayBuffer()
