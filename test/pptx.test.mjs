@@ -7,7 +7,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import JSZipNs from "jszip";
 import { analyzePptx, extractSlideText } from "../src/convert/pptx.js";
+
+const JSZip = JSZipNs.default ?? JSZipNs;
 
 const fixture = async (name) => {
   const buf = await readFile(new URL(`./fixtures/${name}`, import.meta.url));
@@ -129,4 +132,83 @@ test("empty.pptx passes through with no-text (real zip)", async () => {
   const res = await analyzePptx(await fixture("empty.pptx"));
   assert.equal(res.decision, "passthrough");
   assert.equal(res.reason, "no-text");
+});
+
+// --- B7 / B8: SmartArt, other graphic frames, presentation order ------------
+
+const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const slideXml = (body, attrs = "") =>
+  `<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"${attrs}><p:cSld><p:spTree>${body}</p:spTree></p:cSld></p:sld>`;
+const titled = (t) => sp(`<a:p><a:r><a:t>${t}</a:t></a:r></a:p>`, `<p:ph type="title"/>`);
+
+async function deck({ slides, order, rels = {}, parts = {} }) {
+  const z = new JSZip();
+  const ids = order ?? Object.keys(slides);
+  z.file(
+    "ppt/presentation.xml",
+    `<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst>${ids
+      .map((n, k) => `<p:sldId id="${256 + k}" r:id="rIdS${n}"/>`)
+      .join("")}</p:sldIdLst></p:presentation>`
+  );
+  z.file(
+    "ppt/_rels/presentation.xml.rels",
+    `<Relationships>${Object.keys(slides)
+      .map((n) => `<Relationship Id="rIdS${n}" Type="${REL}/slide" Target="slides/slide${n}.xml"/>`)
+      .join("")}</Relationships>`
+  );
+  for (const [n, xml] of Object.entries(slides)) z.file(`ppt/slides/slide${n}.xml`, xml);
+  for (const [n, xml] of Object.entries(rels)) z.file(`ppt/slides/_rels/slide${n}.xml.rels`, xml);
+  for (const [p, xml] of Object.entries(parts)) z.file(p, xml);
+  return new File([await z.generateAsync({ type: "uint8array" })], "deck.pptx");
+}
+
+test("SmartArt text is recovered from the diagram data part (B7)", async () => {
+  const frame = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Diagram 3"/></p:nvGraphicFramePr>
+    <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">
+    <dgm:relIds xmlns:dgm="d" r:dm="rId2" r:lo="rId3" r:qs="rId4" r:cs="rId5"/></a:graphicData></a:graphic></p:graphicFrame>`;
+  const file = await deck({
+    slides: { 1: slideXml(titled("Process") + frame) },
+    rels: { 1: `<Relationships><Relationship Id="rId2" Target="../diagrams/data1.xml"/></Relationships>` },
+    parts: {
+      "ppt/diagrams/data1.xml": `<dgm:dataModel xmlns:dgm="d" xmlns:a="a"><dgm:ptLst>
+        <dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Plan</a:t></a:r></a:p></dgm:t></dgm:pt>
+        <dgm:pt modelId="2"><dgm:t><a:p><a:r><a:t>Build</a:t></a:r></a:p></dgm:t></dgm:pt>
+        <dgm:pt modelId="3"><dgm:t><a:p><a:r><a:t>Ship</a:t></a:r></a:p></dgm:t></dgm:pt>
+      </dgm:ptLst></dgm:dataModel>`,
+    },
+  });
+  const res = await analyzePptx(file);
+  assert.equal(res.decision, "convert");
+  assert.match(res.markdown, /- Plan\n- Build\n- Ship/);
+});
+
+test("an unresolvable SmartArt or an OLE object is marked and prompts (B7)", async () => {
+  const dgm = `<p:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">
+    <dgm:relIds xmlns:dgm="d" r:dm="rId9"/></a:graphicData></a:graphic></p:graphicFrame>`;
+  const ole = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="Worksheet Object"/></p:nvGraphicFramePr>
+    <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/presentationml/2006/ole"><p:oleObj/></a:graphicData></a:graphic></p:graphicFrame>`;
+  const res = await analyzePptx(await deck({ slides: { 1: slideXml(titled("Numbers") + dgm + ole) } }));
+  assert.equal(res.decision, "ambiguous");
+  assert.match(res.markdown, /\[diagram omitted\]/);
+  assert.match(res.markdown, /\[object omitted: Worksheet Object\]/);
+});
+
+test("slides follow the presentation's sldIdLst, not part filenames (B8)", async () => {
+  const res = await analyzePptx(
+    await deck({
+      slides: { 1: slideXml(titled("Second")), 2: slideXml(titled("First")) },
+      order: [2, 1],
+    })
+  );
+  assert.match(res.markdown, /## Slide 1: First[\s\S]*## Slide 2: Second/);
+});
+
+test("a hidden slide is labelled, not presented as a normal slide (B8)", async () => {
+  const res = await analyzePptx(
+    await deck({
+      slides: { 1: slideXml(titled("Visible")), 2: slideXml(titled("Backup"), ' show="0"') },
+    })
+  );
+  assert.match(res.markdown, /## Slide 1: Visible/);
+  assert.match(res.markdown, /## Slide 2 \(hidden\): Backup/);
 });
