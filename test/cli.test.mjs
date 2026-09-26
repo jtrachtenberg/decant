@@ -224,3 +224,21 @@ test("an unknown command is a usage error (exit 1)", () => {
   const r = run("frobnicate");
   assert.equal(r.status, 1);
 });
+
+test("piped stdout is not truncated past the 64 KiB pipe buffer (B2)", async () => {
+  // process.exit() straight after write() used to drop everything past the
+  // first pipe buffer, with exit code 0. Needs output well over 64 KiB.
+  const dir = await mkdtemp(join(tmpdir(), "decant-big-"));
+  const html = join(dir, "big.html");
+  const para = (i) => `<p>Paragraph ${i}: the quick brown fox jumps over the lazy dog again and again.</p>`;
+  await writeFile(html, `<html><body><h1>Big</h1>${Array.from({ length: 4000 }, (_, i) => para(i)).join("")}</body></html>`);
+
+  const md = run("convert", html, "--quiet");
+  assert.equal(md.status, 0);
+  assert.ok(md.stdout.length > 256 * 1024, `stdout was ${md.stdout.length} bytes`);
+  assert.match(md.stdout, /Paragraph 3999:/);
+
+  const env = run("convert", html, "--json", "--quiet");
+  assert.equal(env.status, 0);
+  assert.match(JSON.parse(env.stdout).markdown, /Paragraph 3999:/);
+});

@@ -71,17 +71,39 @@ Exit codes:
   2  conversion error
 `;
 
-function fail(code, msg) {
-  if (msg) process.stderr.write(`decant: ${msg}\n`);
+// Write to a stream and resolve once the data has been handed to the OS. A
+// piped stdout is asynchronous, so process.exit() straight after write() drops
+// everything past the first pipe buffer (64 KiB) — a truncated payload with
+// exit code 0 (B2). Every exit path therefore drains first.
+function drain(stream, text) {
+  return new Promise((resolve) => {
+    stream.write(text, () => resolve());
+  });
+}
+
+async function exitAfter(code, stream, text) {
+  if (text) await drain(stream, text);
   process.exit(code);
+}
+
+// A deliberate exit with a message: thrown from anywhere in the (async) run so
+// it unwinds to main(), which drains stderr and exits with `code`.
+class CliExit extends Error {
+  constructor(code, msg) {
+    super(msg);
+    this.code = code;
+  }
+}
+
+function fail(code, msg) {
+  throw new CliExit(code, msg);
 }
 
 // Tiny flag parser: a single `convert` subcommand, one positional input, and
 // the long options above. Keeps a dependency-free binary (CLI.md §7).
 function parseArgs(argv) {
   if (argv.includes("-h") || argv.includes("--help") || argv.length === 0) {
-    process.stdout.write(HELP);
-    process.exit(0);
+    return { help: true };
   }
   const [command, ...rest] = argv;
   if (command !== "convert") {
@@ -255,7 +277,7 @@ async function output(opts, result) {
       await writeFile(p, Buffer.from(await f.arrayBuffer()));
       paths.push(p);
     }
-    if (opts.json) process.stdout.write(envelope(opts, result, paths) + "\n");
+    if (opts.json) await drain(process.stdout, envelope(opts, result, paths) + "\n");
     return;
   }
 
@@ -269,7 +291,7 @@ async function output(opts, result) {
 
 async function emit(opts, text) {
   if (opts.out) await writeFile(opts.out, text);
-  else process.stdout.write(text);
+  else await drain(process.stdout, text);
 }
 
 function envelope(opts, result, paths) {
@@ -329,6 +351,7 @@ async function installAssets() {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) return exitAfter(0, process.stdout, HELP);
 
   // Resolve pdf.js assets before importing the core: inbrowser.js reads its
   // asset URLs at module load (CLI.md §3.1). A packaged binary (SEA) unpacks its
@@ -358,7 +381,11 @@ async function main() {
 
   await output(opts, result);
   status(opts, result);
-  process.exit(exitFor(result.action));
+  await exitAfter(exitFor(result.action), process.stderr, "");
 }
 
-main().catch((err) => fail(EXIT.error, err?.stack || String(err)));
+main().catch((err) =>
+  err instanceof CliExit
+    ? exitAfter(err.code, process.stderr, err.message ? `decant: ${err.message}\n` : "")
+    : exitAfter(EXIT.error, process.stderr, `decant: ${err?.stack || String(err)}\n`)
+);
