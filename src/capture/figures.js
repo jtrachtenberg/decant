@@ -121,20 +121,33 @@ function blobToBase64(blob) {
 
 // Collect up to MAX_CAPTURE_FIGURES page images as wire files
 // ({ name, type, data(base64) }), largest-rendered-first, capped by total
-// bytes. Returns { figures, skipped } — skipped counts candidates that
-// couldn't be read (CORS, timeouts, HTTP errors) or didn't fit the budget.
-// Each candidate is fully isolated: fetch, decode, and naming all happen
-// inside its own rejection scope, so one failure skips one figure. The
-// first failure is logged once — it names the real cause (CORS, Xray,
-// timeout) without spamming a page full of blocked images.
+// bytes, and returned in page order. Returns { figures, skipped } — skipped
+// counts candidates that couldn't be read (CORS, timeouts, HTTP errors) or
+// didn't fit the budget. Each candidate is fully isolated: fetch, decode, and
+// naming all happen inside its own rejection scope, so one failure skips one
+// figure. The first failure is logged once — it names the real cause (CORS,
+// Xray, timeout) without spamming a page full of blocked images.
 export async function collectFigures(doc) {
   const candidates = collectFigureCandidates(doc)
+    .map((c, order) => ({ ...c, order }))
     .sort((a, b) => b.w * b.h - a.w * a.h)
     .slice(0, MAX_CAPTURE_FIGURES * 2); // fetch headroom: some will fail
   const settled = await Promise.allSettled(candidates.map((c) => fetchBytes(c.src)));
+  const { figures, skipped, firstFailure } = selectFigures(candidates, settled);
+  if (firstFailure) {
+    console.warn("[decant] some figures skipped — first failure:", firstFailure);
+  }
+  return { figures, skipped };
+}
 
-  const figures = [];
-  const used = new Set();
+// Pure selection over fetched candidates (largest first, as collectFigures
+// sorts them): keep what fits the count and byte budgets, then put the kept
+// figures back in page order before naming them — the footer promises "in
+// page order", and a model maps "the first image" to the first on the page
+// (B11). `order` is each candidate's position in document order. Exported for
+// tests.
+export function selectFigures(candidates, settled) {
+  const kept = [];
   let total = 0;
   let skipped = 0;
   let firstFailure = null;
@@ -145,13 +158,21 @@ export async function collectFigures(doc) {
       skipped++;
       continue;
     }
-    const { bytes, data, type } = s.value;
-    if (figures.length >= MAX_CAPTURE_FIGURES || total + bytes > MAX_FIGURE_BYTES) {
+    const { bytes } = s.value;
+    if (kept.length >= MAX_CAPTURE_FIGURES || total + bytes > MAX_FIGURE_BYTES) {
       skipped++;
       continue;
     }
     total += bytes;
-    let name = withExt(nameFor(candidates[i].src, figures.length), type);
+    kept.push({ candidate: candidates[i], value: s.value });
+  }
+  kept.sort((a, b) => a.candidate.order - b.candidate.order);
+
+  const figures = [];
+  const used = new Set();
+  for (const { candidate, value } of kept) {
+    const { data, type } = value;
+    let name = withExt(nameFor(candidate.src, figures.length), type);
     // Two same-named images (common CDN basenames) must not collide.
     for (let k = 2; used.has(name.toLowerCase()); k++) {
       name = name.replace(/(\.[a-z0-9]+)?$/i, (ext) => `-${k}${ext}`);
@@ -159,10 +180,7 @@ export async function collectFigures(doc) {
     used.add(name.toLowerCase());
     figures.push({ name, type, data });
   }
-  if (firstFailure) {
-    console.warn("[decant] some figures skipped — first failure:", firstFailure);
-  }
-  return { figures, skipped };
+  return { figures, skipped, firstFailure };
 }
 
 // The association footer for the captured Markdown — same voice as

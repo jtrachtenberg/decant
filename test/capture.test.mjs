@@ -30,7 +30,7 @@ import {
   MENU_PREFIX,
   FIGURES_MENU_ID,
 } from "../src/capture/menus.js";
-import { captureFiguresNote } from "../src/capture/figures.js";
+import { captureFiguresNote, selectFigures, MAX_CAPTURE_FIGURES } from "../src/capture/figures.js";
 
 // domino gives no location/baseURI, so tests that need a base pass one in via
 // a stub document wrapper.
@@ -326,4 +326,28 @@ test("captureFiguresNote states the all-skipped outcome (CORS-only pages)", () =
   assert.match(note, /cross-origin/);
   assert.match(note, /URL references/);
   assert.ok(!note.includes("attached"));
+});
+
+test("selected figures come back in page order, not size order (B11)", () => {
+  // collectFigures hands selectFigures the candidates largest-first; the
+  // footer says "in page order", so the kept ones must be re-sorted.
+  const cand = (src, order) => ({ src: `https://x.test/${src}`, order, w: 200, h: 200 });
+  const ok = (bytes = 10) => ({ status: "fulfilled", value: { bytes, data: "QQ==", type: "image/png" } });
+  const candidates = [cand("big.png", 3), cand("mid.png", 0), cand("small.png", 1), cand("gone.png", 2)];
+  const settled = [ok(), ok(), ok(), { status: "rejected", reason: new Error("CORS") }];
+  const { figures, skipped } = selectFigures(candidates, settled);
+  assert.deepEqual(figures.map((f) => f.name), ["mid.png", "small.png", "big.png"]);
+  assert.equal(skipped, 1);
+});
+
+test("selection still keeps the largest when over the count cap (B11)", () => {
+  const n = MAX_CAPTURE_FIGURES + 2;
+  // Largest-first input: order is reverse of size rank.
+  const candidates = Array.from({ length: n }, (_, i) => ({ src: `https://x.test/f${i}.png`, order: n - i, w: 200, h: 200 }));
+  const settled = candidates.map(() => ({ status: "fulfilled", value: { bytes: 1, data: "", type: "image/png" } }));
+  const { figures, skipped } = selectFigures(candidates, settled);
+  assert.equal(figures.length, MAX_CAPTURE_FIGURES);
+  assert.equal(skipped, 2);
+  // The two smallest (last in the input) are the ones dropped; the rest are in page order.
+  assert.deepEqual(figures.map((f) => f.name), ["f4.png", "f3.png", "f2.png", "f1.png", "f0.png"]);
 });
