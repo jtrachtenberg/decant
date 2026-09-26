@@ -15,8 +15,9 @@
 // The module now loads under Node (it resolves pdf.js and its assets through the
 // same #pdfjs / getAssetUrl seams as inbrowser.js — CLI.md §3.1), but figure
 // *rendering* still needs OffscreenCanvas, so extraction stays browser-only for
-// now; the CLI's --mode figures (C1) will supply a Node canvas. No Node tests
-// yet — the smoke checklist covers it. Callers catch and degrade to text-only.
+// now; the CLI's --mode figures (C1) will supply a Node canvas. The page walks
+// are Node-tested with an inert canvas (test/pdf-figures.test.mjs); real
+// rendering is on the smoke checklist. Callers catch and degrade to text-only.
 
 import * as pdfjsLib from "#pdfjs";
 import { getAssetUrl } from "./assets.js";
@@ -68,6 +69,38 @@ const censusFromMeta = (meta) => ({
     : null,
 });
 
+// Every figure path opens the same document the same way: open, walk its chart
+// pages, always tear the worker down. withPdf is that shared shape (O8). It
+// also owns the deadline (B17): the caller's step timeout (intercept.js,
+// 20 s) only abandons a hung promise — a pdf.js call that never settles (the
+// Firefox sandbox, or an image object the worker never delivers) would
+// otherwise keep the worker and a full copy of the file alive for the life of
+// the page. Here the deadline tears the task down, a little before the
+// caller gives up.
+export const PDF_FIGURE_DEADLINE_MS = 18000;
+
+async function withPdf(file, work, deadlineMs = PDF_FIGURE_DEADLINE_MS) {
+  const data = new Uint8Array(await fileBytes(file));
+  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`PDF figure step timed out after ${deadlineMs}ms`)),
+      deadlineMs
+    );
+  });
+  // Opened inside the race so a failed open (corrupt/locked PDF) still tears
+  // the worker down via the finally below.
+  const run = loadingTask.promise.then(work);
+  run.catch(() => {}); // abandoned on timeout; its rejection is expected
+  try {
+    return await Promise.race([run, deadline]);
+  } finally {
+    clearTimeout(timer);
+    await loadingTask.destroy();
+  }
+}
+
 // Render one page to an OffscreenCanvas at a capped scale.
 async function renderPage(page) {
   const base1 = page.getViewport({ scale: 1 });
@@ -95,14 +128,9 @@ export async function extractPdfFigures(file, meta) {
   const pages = selectChartPages(meta, MAX_PDF_FIGURE_PAGES);
   if (!pages.length) return [];
 
-  const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
   const base = file.name.replace(/\.[a-z0-9]+$/i, "");
-  const figures = [];
-  try {
-    // Open inside the try so a failed open (corrupt/locked PDF) still tears
-    // the worker down via the finally below.
-    const pdf = await loadingTask.promise;
+  return withPdf(file, async (pdf) => {
+    const figures = [];
     for (const n of pages) {
       // Extrapolated chart pages on a sampled large doc are estimates; a
       // number past the real page count just doesn't render.
@@ -112,10 +140,8 @@ export async function extractPdfFigures(file, meta) {
       const blob = await canvas.convertToBlob({ type: "image/png" });
       figures.push(new File([blob], `${base}-p${n}.png`, { type: "image/png" }));
     }
-  } finally {
-    await loadingTask.destroy();
-  }
-  return figures;
+    return figures;
+  });
 }
 
 // --- Figure crops: tighten chart pages to the figures themselves ------------
@@ -230,12 +256,7 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
   const crops = new Map();
   if (!pages.length) return crops;
 
-  const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  try {
-    // Open inside the try so a failed open (corrupt/locked PDF) still tears
-    // the worker down via the finally below.
-    const pdf = await loadingTask.promise;
+  return withPdf(file, async (pdf) => {
     const census = censusFromMeta(meta);
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
@@ -263,10 +284,8 @@ export async function extractPdfFigureCrops(file, meta, skipPages = null) {
         heightPt: padded.y1 - padded.y0,
       });
     }
-  } finally {
-    await loadingTask.destroy();
-  }
-  return crops;
+    return crops;
+  });
 }
 
 // Render-free figure boxes for Firefox, where pdf.js canvas rendering hangs in
@@ -282,22 +301,15 @@ export async function extractPdfFigureBoxes(file, meta, skipPages = null) {
   const boxes = new Map();
   if (!pages.length) return boxes;
 
-  const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  try {
-    // Open inside the try so a failed open (corrupt/locked PDF) still tears
-    // the worker down via the finally below.
-    const pdf = await loadingTask.promise;
+  return withPdf(file, async (pdf) => {
     const census = censusFromMeta(meta);
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const padded = await paddedFigureBox(await pdf.getPage(n), census);
       if (padded) boxes.set(n, padded);
     }
-  } finally {
-    await loadingTask.destroy();
-  }
-  return boxes;
+    return boxes;
+  });
 }
 
 // --- Standalone raster XObjects: decode the figure's own pixels -------------
@@ -326,10 +338,18 @@ const KIND_RGB_24BPP = 2;
 const KIND_RGBA_32BPP = 3;
 
 // Resolve a page-level image object. The callback form never throws on a
-// not-yet-resolved id — it fires when the worker delivers it. A dependency
-// the worker never resolves would hang; the caller's timeout guard covers it.
-const resolveObj = (page, objId) =>
-  new Promise((res) => page.objs.get(objId, res));
+// not-yet-resolved id — it fires when the worker delivers it. One the worker
+// never delivers resolves to null after RESOLVE_OBJ_TIMEOUT_MS (B17), so that
+// page just falls back to the crop path instead of hanging the whole decode.
+const RESOLVE_OBJ_TIMEOUT_MS = 5000;
+const resolveObj = (page, objId, ms = RESOLVE_OBJ_TIMEOUT_MS) =>
+  new Promise((res) => {
+    const timer = setTimeout(() => res(null), ms);
+    page.objs.get(objId, (data) => {
+      clearTimeout(timer);
+      res(data);
+    });
+  });
 
 // Decoded imgData → white-backed JPEG bytes at capped scale, or null when the
 // shape isn't one we recognize (exotic kind, missing bitmap/data) — the page
@@ -399,52 +419,64 @@ export async function extractPdfRasterFigures(file, meta) {
   const out = new Map();
   if (!pages.length) return out;
 
-  const data = new Uint8Array(await fileBytes(file));
-  const loadingTask = pdfjsLib.getDocument({ data, ...PDFJS_DOC_OPTIONS });
-  try {
-    // Open inside the try so a failed open (corrupt/locked PDF) still tears
-    // the worker down via the finally below.
-    const pdf = await loadingTask.promise;
+  return withPdf(file, async (pdf) => {
     const census = censusFromMeta(meta);
-    // First pass: gate each page, resolve + intrinsic-check its candidate.
+    // First pass: gate each page, resolve + intrinsic-check its candidate,
+    // and encode it straight away. Only the compact JPEG is kept: holding
+    // every candidate's decoded bitmap until the second pass kept up to
+    // MAX_SUBSET_PAGES full-resolution images alive at once (B17), and
+    // page.cleanup() lets pdf.js drop its own decoded copy too. A candidate
+    // the second pass rejects costs one wasted encode — the cheap side.
     const found = [];
     const dimsPages = new Map(); // "WxH" → Set of page numbers (fingerprint)
     for (const n of pages) {
       if (n < 1 || n > pdf.numPages) continue;
       const page = await pdf.getPage(n);
-      const ops = await page.getOperatorList();
-      const [vx0, vy0, vx1, vy1] = page.view;
-      // Same geometry the significance call sees (view clamp + background
-      // demotion), so decode never upgrades a page classification demoted.
-      const content = await page.getTextContent();
-      const cand = decodeCandidate(
-        scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
-        (vx1 - vx0) * (vy1 - vy0),
-        {
-          view: page.view,
-          textPoints: textPointsFromItems(content.items),
-          repeatedDims: census?.repeatedDims ?? null,
-          contentDims: census?.contentDims ?? null,
+      try {
+        const ops = await page.getOperatorList();
+        const [vx0, vy0, vx1, vy1] = page.view;
+        // Same geometry the significance call sees (view clamp + background
+        // demotion), so decode never upgrades a page classification demoted.
+        const content = await page.getTextContent();
+        const cand = decodeCandidate(
+          scanPageOps(ops.fnArray, ops.argsArray, pdfjsLib.OPS),
+          (vx1 - vx0) * (vy1 - vy0),
+          {
+            view: page.view,
+            textPoints: textPointsFromItems(content.items),
+            repeatedDims: census?.repeatedDims ?? null,
+            contentDims: census?.contentDims ?? null,
+          }
+        );
+        if (!cand) continue;
+        // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —
+        // letterhead/logo territory, never a figure.
+        if (cand.objId.startsWith("g_")) continue;
+
+        const imgData = await resolveObj(page, cand.objId);
+        const w = imgData?.width;
+        const h = imgData?.height;
+        // Authoritative intrinsic check (op args carry dims in v6 but the
+        // resolved object is the source of truth across builds).
+        if (!w || !h) continue;
+        if (Math.min(w, h) < MIN_INTRINSIC_PX) continue;
+        if (Math.max(w, h) / Math.min(w, h) > MAX_INTRINSIC_ASPECT) continue;
+
+        const fp = `${w}x${h}`;
+        if (!dimsPages.has(fp)) dimsPages.set(fp, new Set());
+        dimsPages.get(fp).add(n);
+        // Per-figure guard: one malformed image drops only its own page to
+        // the crop path, not every decode in the document.
+        let jpg = null;
+        try {
+          jpg = await encodeJpegFigure(imgData);
+        } catch {
+          jpg = null;
         }
-      );
-      if (!cand) continue;
-      // G3a: a globally-cached id means pdf.js saw this image on ≥2 pages —
-      // letterhead/logo territory, never a figure.
-      if (cand.objId.startsWith("g_")) continue;
-
-      const imgData = await resolveObj(page, cand.objId);
-      const w = imgData?.width;
-      const h = imgData?.height;
-      // Authoritative intrinsic check (op args carry dims in v6 but the
-      // resolved object is the source of truth across builds).
-      if (!w || !h) continue;
-      if (Math.min(w, h) < MIN_INTRINSIC_PX) continue;
-      if (Math.max(w, h) / Math.min(w, h) > MAX_INTRINSIC_ASPECT) continue;
-
-      const fp = `${w}x${h}`;
-      if (!dimsPages.has(fp)) dimsPages.set(fp, new Set());
-      dimsPages.get(fp).add(n);
-      found.push({ n, fp, box: cand.box, imgData });
+        if (jpg) found.push({ n, fp, box: cand.box, jpg });
+      } finally {
+        page.cleanup();
+      }
     }
 
     // Second pass: G3b — identical dimensions recurring across pages is
@@ -452,23 +484,12 @@ export async function extractPdfRasterFigures(file, meta) {
     // the crop path costs only sharpness — the safe direction).
     for (const f of found) {
       if (dimsPages.get(f.fp).size !== 1) continue;
-      // Per-figure guard: one malformed image drops only its own page to the
-      // crop path, not every decode in the document.
-      let jpg = null;
-      try {
-        jpg = await encodeJpegFigure(f.imgData);
-      } catch {
-        continue;
-      }
-      if (!jpg) continue;
       out.set(f.n, {
-        jpg,
+        jpg: f.jpg,
         widthPt: f.box.x1 - f.box.x0,
         heightPt: f.box.y1 - f.box.y0,
       });
     }
-  } finally {
-    await loadingTask.destroy();
-  }
-  return out;
+    return out;
+  });
 }
