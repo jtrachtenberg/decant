@@ -13,10 +13,13 @@
 //     that an XLSX chart usually plots cells already present in a sheet, so
 //     this is the most redundancy-prone of the chart-recovery engines — the
 //     win is real only when the chart summarizes or references data the
-//     converted sheets don't already carry.
+//     converted sheets don't already carry. A chart part with no recoverable
+//     data (an Office 2016 chartEx type, an empty cache) is marked
+//     "[chart omitted]" and makes the workbook "ambiguous" — the one case
+//     that prompts.
 //   - Embedded raster images: the community SheetJS build doesn't parse
 //     drawings, so they can't be detected — a known fidelity limitation
-//     (unlike PDFs/DOCX there's no "ambiguous" prompt). Noted in README.
+//     (unlike PDFs/DOCX they don't prompt). Noted in README.
 //
 // analyzeXlsx() returns the same { decision, reason, summary, markdown }
 // shape as analyzePdf/analyzeDocx, so resultFromAnalysis() wraps all three.
@@ -24,7 +27,7 @@
 import * as XLSXNs from "xlsx";
 import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
-import { chartTablesFromZip } from "./chart.js";
+import { chartPartsFromZip } from "./chart.js";
 
 const XLSX = XLSXNs.default ?? XLSXNs;
 const JSZip = JSZipNs.default ?? JSZipNs;
@@ -127,20 +130,25 @@ export async function analyzeXlsx(file) {
 
   // Recover native charts (Tier 1). We're already known to be under the cell
   // cap here (over-cap workbooks returned above).
-  let charts = [];
+  let charts = { tables: [], omitted: 0 };
   try {
-    charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "xl/charts");
+    charts = await chartPartsFromZip(await JSZip.loadAsync(buf), "xl/charts");
   } catch {
-    charts = []; // chart recovery is a bonus; never fail the whole workbook
+    // chart recovery is a bonus; never fail the whole workbook
+    charts = { tables: [], omitted: 0 };
   }
-  const chartBlocks = charts.map(
+  const chartBlocks = charts.tables.map(
     (c) => `## Chart: ${escapeMdInline(c.title) || "(untitled)"}\n\n${rowsToMarkdownTable(c.rows)}`
   );
+  // A chart whose data couldn't be recovered (chartEx types, empty caches) is
+  // marked and makes the workbook ambiguous, never silently dropped (B6).
+  const chartsOmitted = charts.omitted;
 
   const summary = {
     sheets: wb.SheetNames.length,
     tables: sections.length,
     chartsRecovered: chartBlocks.length,
+    images: chartsOmitted,
     cellCount,
   };
   if (!sections.length && !chartBlocks.length) {
@@ -153,7 +161,13 @@ export async function analyzeXlsx(file) {
   const sheetBlocks = sections.map((s) =>
     single ? s.table : `## Sheet: ${escapeMdInline(s.name)}\n\n${s.table}`
   );
-  const markdown = [...sheetBlocks, ...chartBlocks].join("\n\n") + "\n";
+  const omittedBlock = chartsOmitted
+    ? Array(chartsOmitted).fill("[chart omitted]").join("\n")
+    : null;
+  const markdown = [...sheetBlocks, ...chartBlocks, omittedBlock].filter(Boolean).join("\n\n") + "\n";
 
+  if (chartsOmitted) {
+    return { decision: "ambiguous", reason: "text-with-images", summary, markdown };
+  }
   return { decision: "convert", reason: "table", summary, markdown };
 }
