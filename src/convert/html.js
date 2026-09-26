@@ -50,7 +50,23 @@ export function decodeHtml(bytes) {
   let head = "";
   for (let i = 0; i < Math.min(u8.length, 1024); i++) head += String.fromCharCode(u8[i]);
   const label = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/i.exec(head)?.[1] || "utf-8";
-  return decodeWith(label, u8);
+  return decodeWith(prescanEncoding(label), u8);
+}
+
+// The HTML spec's fix-ups for a charset found by the meta prescan (B15): a
+// document whose head just parsed as ASCII bytes can't be UTF-16, so any UTF-16
+// label means UTF-8; x-user-defined means windows-1252. Only a BOM (handled
+// above) selects UTF-16.
+function prescanEncoding(label) {
+  let encoding;
+  try {
+    encoding = new TextDecoder(label).encoding;
+  } catch {
+    return label; // unknown label → decodeWith's best effort
+  }
+  if (encoding === "utf-16le" || encoding === "utf-16be") return "utf-8";
+  if (encoding === "x-user-defined") return "windows-1252";
+  return label;
 }
 
 function decodeWith(label, u8) {
