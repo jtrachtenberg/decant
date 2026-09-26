@@ -20,9 +20,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { installNodeAssets } from "./node-assets.js";
 
-// Bumped so a packaged binary re-unpacks its embedded assets after an upgrade.
-const ASSET_VERSION = "0.3.0";
-
 const EXIT = {
   converted: 0,
   usage: 1,
@@ -343,7 +340,7 @@ async function installAssets() {
   }
   if (sea?.isSea?.()) {
     const { installSeaAssets } = await import("./sea-assets.js");
-    await installSeaAssets(sea, ASSET_VERSION);
+    await installSeaAssets(sea);
   } else {
     installNodeAssets();
   }

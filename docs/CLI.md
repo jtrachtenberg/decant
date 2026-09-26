@@ -314,8 +314,9 @@ node scripts/build-cli.mjs --node ./node-win.exe --platform win --out decant.exe
    `node:` builtins (incl. `node:sea`) external.
 2. **Embed the assets** the pdf.js path needs — `pdf.worker.mjs`,
    `standard_fonts/`, `wasm/` (JPX/JBIG2/qcms), `iccs/` — as one `assets.zip` SEA
-   asset. At startup `sea-assets.js` unpacks it to a per-version temp dir and
-   points the §3.1 resolver there with **plain filesystem paths** (Node's `fetch`
+   asset. At startup `sea-assets.js` unpacks it to a fresh private `mkdtemp`
+   directory (mode 0700, removed on exit — never a fixed, shared path another
+   local user could pre-plant a worker in) and points the §3.1 resolver there with **plain filesystem paths** (Node's `fetch`
    has no `file://` scheme, so pdf.js reads fonts/WASM via `fs`).
 3. **Canvas globals.** pdf.js polyfills `DOMMatrix`/`Path2D` from
    `@napi-rs/canvas` via a `createRequire` that a SEA bundle breaks. The CLI

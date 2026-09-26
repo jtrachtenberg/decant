@@ -2,16 +2,22 @@
 // build has no node_modules, so the pdf.js runtime assets (worker, standard
 // fonts, JPX/JBIG2/ICC WASM) can't be resolved off disk the way node-assets.js
 // does. Instead the build embeds them all as ONE zip SEA asset ("assets.zip",
-// browser-flat layout); at startup this unpacks it to a per-version temp dir and
+// browser-flat layout); at startup this unpacks it to a private temp dir and
 // points the resolver there. pdf.js reads fonts/wasm from those paths via fs —
 // Node's fetch has no file:// scheme (CLI.md §3.1), so plain paths are required.
 //
-// The unpack is cached by version: a second run reuses the extracted dir. JSZip
-// is already bundled (the figures/xlsx engines depend on it), so no new dep.
+// The unpack is per run, into a fresh mkdtemp directory (unpredictable name,
+// mode 0700, owned by the invoking user) that is removed on exit. It used to be
+// cached in a fixed, shared `$TMPDIR/decant-assets-<version>` that was reused
+// whenever a `.ok` stamp existed — so any local user who pre-created it got
+// their `pdf.worker.mjs` import()ed as whoever ran decant (S1), and a stale
+// worker from an older binary outlived upgrades (B14). The zip is ~4 MB of
+// STOREd entries, so unpacking every run costs a few milliseconds. JSZip is
+// already bundled (the figures/xlsx engines depend on it), so no new dep.
 
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSZipNs from "jszip";
 import { setAssetResolver } from "../convert/assets.js";
@@ -81,23 +87,30 @@ class DOMMatrix2D {
   scale(sx, sy) { return new DOMMatrix2D([this.a, this.b, this.c, this.d, this.e, this.f]).scaleSelf(sx, sy); }
 }
 
-export async function installSeaAssets(sea, version) {
+export async function installSeaAssets(sea) {
   installCanvasGlobals();
 
-  const dir = join(tmpdir(), `decant-assets-${version}`);
-  const stamp = join(dir, ".ok");
-
-  if (!existsSync(stamp)) {
-    // sea.getAsset returns an ArrayBuffer of the embedded zip.
-    const zip = await JSZip.loadAsync(sea.getAsset("assets.zip"));
-    mkdirSync(dir, { recursive: true });
-    for (const entry of Object.values(zip.files)) {
-      if (entry.dir) continue;
-      const out = join(dir, entry.name);
-      mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, await entry.async("nodebuffer"));
+  const dir = mkdtempSync(join(tmpdir(), "decant-assets-"));
+  process.on("exit", () => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort: the OS reaps its temp dir */
     }
-    writeFileSync(stamp, "");
+  });
+
+  // sea.getAsset returns an ArrayBuffer of the embedded zip. The zip is built
+  // by scripts/build-cli.mjs, but keep every entry inside `dir` regardless.
+  const zip = await JSZip.loadAsync(sea.getAsset("assets.zip"));
+  const root = resolve(dir) + sep;
+  for (const entry of Object.values(zip.files)) {
+    if (entry.dir) continue;
+    const out = resolve(dir, entry.name);
+    if (!out.startsWith(root)) {
+      throw new Error(`[decant] embedded asset escapes the asset dir: ${entry.name}`);
+    }
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, await entry.async("nodebuffer"));
   }
 
   // rel is browser-flat ("pdf.worker.mjs", "standard_fonts/", …). The worker is

@@ -80,6 +80,13 @@ async function main() {
   // 1. Bundle the CLI + engines to one CJS file. platform:node resolves #pdfjs
   //    to the legacy build (the "node" condition) and keeps node: builtins —
   //    including node:sea — external.
+  //    CJS has no import.meta, so esbuild would leave `import.meta.url` empty and
+  //    the intermediate bundle crashes when run with plain `node` (B19:
+  //    createRequire(undefined) in node-assets.js). Define it from __filename —
+  //    but only outside a SEA: inside the binary the dev-path resolver is never
+  //    used, and keeping it undefined keeps pdf.js from probing the disk around
+  //    the executable for a native @napi-rs/canvas (sea-assets.js installs the
+  //    canvas globals instead).
   const bundle = join(OUT_DIR, "decant.cjs");
   await esbuild.build({
     entryPoints: ["src/cli/decant.mjs"],
@@ -90,6 +97,12 @@ async function main() {
     target: "node22",
     legalComments: "none",
     logLevel: "info",
+    define: { "import.meta.url": "__decantImportMetaUrl" },
+    banner: {
+      js:
+        'var __decantImportMetaUrl = require("node:sea").isSea() ? undefined : ' +
+        'require("node:url").pathToFileURL(__filename).href;',
+    },
   });
 
   // 2. Embed the pdf.js runtime assets as one zip (browser-flat layout, matching
