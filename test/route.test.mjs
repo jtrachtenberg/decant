@@ -95,3 +95,17 @@ test("anyWouldConvert: only a batch with a converting file is intercepted (B9/B1
     true
   );
 });
+
+test("a Windows CSV reported as application/vnd.ms-excel is not routed as XLS (B16)", () => {
+  const routing = normalizeConfig(undefined).routing;
+  const XLS = "application/vnd.ms-excel";
+  assert.equal(routeFile({ name: "data.csv", type: XLS }, routing).action, "passthrough");
+  // Real Excel files with that MIME still route.
+  assert.equal(routeFile({ name: "book.xls", type: XLS }, routing).action, "inbrowser");
+  assert.equal(routeFile({ name: "book.xlsx", type: XLS }, routing).action, "inbrowser");
+  // No extension to disagree with → the MIME decides.
+  assert.equal(routeFile({ name: "download", type: XLS }, routing).action, "inbrowser");
+  // A rule that explicitly routes csv still gets it.
+  const csvRouting = normalizeConfig({ version: 5, routing: { rules: [{ match: { ext: ["csv"] }, action: "inbrowser" }] } }).routing;
+  assert.equal(routeFile({ name: "data.csv", type: XLS }, csvRouting).action, "inbrowser");
+});

@@ -11,6 +11,13 @@
 //   default applied. Rules are ordered; the first enabled rule whose match
 //   names the file's MIME type or extension wins.
 
+// MIME types browsers report for more than one format. Windows labels every
+// .csv "application/vnd.ms-excel" (the registered handler is Excel), so a MIME
+// match alone would send CSVs down the XLS rule and rewrite them as Markdown
+// tables (B16, July L8). For these types the extension must agree whenever
+// the rule names extensions and the file has one.
+const AMBIGUOUS_MIME = new Set(["application/vnd.ms-excel"]);
+
 export function routeFile(file, routing) {
   const mime = (file?.type || "").toLowerCase();
   const ext = extensionOf(file?.name);
@@ -18,10 +25,11 @@ export function routeFile(file, routing) {
   for (const rule of routing?.rules ?? []) {
     if (!rule.enabled) continue;
     const m = rule.match;
-    if (
-      (mime && m.mime.includes(mime)) ||
-      (ext && m.ext.includes(ext))
-    ) {
+    const mimeHit =
+      mime &&
+      m.mime.includes(mime) &&
+      !(AMBIGUOUS_MIME.has(mime) && ext && m.ext.length && !m.ext.includes(ext));
+    if (mimeHit || (ext && m.ext.includes(ext))) {
       return { action: rule.action, rule };
     }
   }
