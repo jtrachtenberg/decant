@@ -189,3 +189,32 @@ describe("integration with scripts/mock-endpoint.mjs", () => {
     );
   });
 });
+
+test("codec uses the native Uint8Array base64 methods when present (O5)", async () => {
+  // Node 22 lacks them; install stand-ins, then load a fresh module instance
+  // (the query string) so its feature detection sees them.
+  const hadTo = Uint8Array.prototype.toBase64;
+  const hadFrom = Uint8Array.fromBase64;
+  let used = 0;
+  Uint8Array.prototype.toBase64 = function () {
+    used++;
+    return Buffer.from(this.buffer, this.byteOffset, this.byteLength).toString("base64");
+  };
+  Uint8Array.fromBase64 = (s) => {
+    used++;
+    return new Uint8Array(Buffer.from(s, "base64"));
+  };
+  try {
+    const codec = await import("../src/convert/codec.js?native");
+    const bytes = new Uint8Array(100_000).map((_, i) => (i * 31) & 255);
+    const b64 = codec.bufferToBase64(bytes.buffer);
+    assert.equal(b64, bufferToBase64(bytes.buffer)); // same as the fallback
+    assert.deepEqual(new Uint8Array(codec.base64ToBuffer(b64)), bytes);
+    assert.equal(used, 2);
+  } finally {
+    if (hadTo) Uint8Array.prototype.toBase64 = hadTo;
+    else delete Uint8Array.prototype.toBase64;
+    if (hadFrom) Uint8Array.fromBase64 = hadFrom;
+    else delete Uint8Array.fromBase64;
+  }
+});
