@@ -14,8 +14,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # npm install (not ci): the committed lockfile can't be regenerated in the
-      # dev environment that added postject, so it may lag package.json.
-      - run: npm install --no-audit --no-fund
+      # npm ci: install exactly the committed lockfile (S10). It is in sync with
+      # package.json; if a dependency change ever leaves it behind, npm ci
+      # fails loudly instead of resolving something new.
+      - run: npm ci --no-fund
+      # Advisories against what ships (runtime deps). SheetJS installs from its
+      # CDN tarball, which the registry advisory feed doesn't cover — track its
+      # releases by hand.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - run: npm run build
