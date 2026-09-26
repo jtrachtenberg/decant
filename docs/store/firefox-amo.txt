@@ -31,8 +31,8 @@ SOURCE CODE SUBMISSION  —  required, not optional
 ================================================================
 
 AMO requires reviewable source whenever a build step makes the shipped code
-hard to read, and bundling counts on its own (esbuild, build.mjs) even though
-nothing here is minified or obfuscated. Uploading the zip alone gets the
+hard to read: the bundles are built with esbuild (build.mjs) and minified
+(not obfuscated). Uploading the zip alone gets the
 review paused with a request for source.
 
 Build the source archive from the tagged commit that produced the upload:
