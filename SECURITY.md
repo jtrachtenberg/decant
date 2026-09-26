@@ -36,9 +36,40 @@ By default:
 
 - Document conversion happens locally on your machine.
 - Documents are **not** uploaded to any third-party conversion service.
-- Hosts must be explicitly enabled before the extension runs on them (default-deny activation).
+- Activation is default-deny: the extension runs only on hosts that are enabled
+  in its options **and** granted host permission. Four chat hosts — claude.ai,
+  chatgpt.com, gemini.google.com and www.perplexity.ai — ship enabled, and their
+  permissions are granted at install; every other host must be enabled by the
+  user, which asks the browser for that host's permission.
+- In-browser conversion refuses oversized input before parsing it (a raw-size
+  cap, and caps on the inflated size of Office packages) and passes such files
+  through untouched.
 
-Some future or optional features may allow routing documents to user-configured endpoints. Those features are always intended to require explicit user configuration, and Decant will warn before documents are sent to non-local endpoints.
+Routing a file type to a user-configured endpoint (`http`/`companion` rules) is
+always an explicit choice. The options page warns when such a rule points at a
+non-local endpoint and asks for that endpoint's host permission; the background
+relay only sends to endpoints named by a stored rule whose host permission is
+granted. The warning is shown when the rule is added or imported, not again at
+send time, and routing rules sync through the browser's storage to your other
+devices.
+
+### Trust boundaries
+
+| Component | Trusts | Does not trust |
+|---|---|---|
+| **Web page** (chat host, captured page) | — | untrusted by every component below |
+| **Content script** (isolated world, enabled hosts only) | its own config and the extension's background worker | page events that aren't `isTrusted`; the page's `postMessage` traffic beyond shape-checked picker-bridge messages, which only ever carry files the page already holds |
+| **Main-world picker shim** (enabled hosts only) | nothing: it runs beside page script and only relays detached file picks to the content script | — |
+| **Background service worker** | the stored, normalized config | a message's copy of a routing rule: it resolves the stored rule by endpoint and uses that |
+| **Local companion** (`companion/`, optional) | requests that name it by loopback `Host`, carry no `Origin` or an extension's, and (when `DECANT_TOKEN` is set) the token | web-page origins (403), foreign `Host` headers (DNS rebinding), bodies over 64 MB; it sends no CORS headers |
+| **CLI** (`decant`) | the input file and `--config` it is given | shared temp directories: the packaged binary unpacks its pdf.js assets into a fresh, private (0700) directory each run and removes it on exit |
+
+**Page capture** (toolbar button, shortcut or context menu) injects the
+serializer into the page you capture using `activeTab` — the click is the
+grant — and fetches that page's images with the page's own credentials. The
+captured Markdown reflects the page's content, including text the page may
+hide from view; treat a capture of an untrusted page as untrusted input to the
+chat.
 
 ## What to Report
 
