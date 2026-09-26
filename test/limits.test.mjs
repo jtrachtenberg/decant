@@ -118,3 +118,10 @@ test("raw and markup ceilings use File.size only", async () => {
   const html = { size: MAX_MARKUP_BYTES + 1, name: "big.html", slice() { throw new Error("read"); } };
   assert.equal((await sizeVerdict(html, "markup")).summary.limit, "markup");
 });
+
+test("a legacy CFB .xls is never read as a zip, even with an EOCD-like tail", async () => {
+  const bytes = new Uint8Array(64);
+  bytes.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  new DataView(bytes.buffer).setUint32(64 - 22, 0x06054b50, true);
+  assert.equal(await zipEntrySizes(new File([bytes], "old.xls")), null);
+});

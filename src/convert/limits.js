@@ -26,6 +26,7 @@ const EOCD_SIG = 0x06054b50;
 const CDH_SIG = 0x02014b50;
 const EOCD_LEN = 22;
 const MAX_COMMENT = 0xffff;
+const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0];
 
 // Read a zip's central directory from the File's tail — no inflation, and only
 // the directory bytes are read. Returns:
@@ -40,6 +41,10 @@ const MAX_COMMENT = 0xffff;
 export async function zipEntrySizes(file) {
   const size = file.size;
   if (size < EOCD_LEN) return null;
+  // A legacy .xls is an OLE compound file: never a zip, whatever bytes its
+  // tail happens to hold.
+  const head = new Uint8Array(await fileBytes(file.slice(0, 4)));
+  if (CFB_MAGIC.every((b, i) => head[i] === b)) return null;
   const tailLen = Math.min(size, EOCD_LEN + MAX_COMMENT);
   const tailStart = size - tailLen;
   const tail = new DataView(await fileBytes(file.slice(tailStart, size)));
