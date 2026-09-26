@@ -47,7 +47,10 @@ export function promptConvertChoice(results, options = {}) {
 
     const host = document.createElement("div");
     host.id = HOST_ID;
-    const root = host.attachShadow({ mode: "open" });
+    // Closed, and clicks must be trusted (S5): the page's own script must not
+    // be able to read the prompt, tick "remember" (which persists a synced
+    // default) or press "Convert with companion" on the user's behalf.
+    const root = host.attachShadow({ mode: "closed" });
 
     const names = results.map((r) => r.file.name);
     // PDFs report chart pages, DOCX reports embedded images — one count.
@@ -176,12 +179,15 @@ export function promptConvertChoice(results, options = {}) {
 
     const rememberBox = root.querySelector("#remember");
     root.querySelectorAll(".row [data-choice]").forEach((btn) =>
-      btn.addEventListener("click", () =>
-        finish(btn.dataset.choice, rememberBox.checked)
-      )
+      btn.addEventListener("click", (e) => {
+        if (!e.isTrusted) return;
+        finish(btn.dataset.choice, rememberBox.checked);
+      })
     );
     // The ✕ is a dismissal, not a choice — it never persists a default.
-    root.querySelector(".x").addEventListener("click", () => finish("original", false));
+    root.querySelector(".x").addEventListener("click", (e) => {
+      if (e.isTrusted) finish("original", false);
+    });
     document.addEventListener("keydown", onKey, true);
 
     document.body.appendChild(host);
@@ -212,7 +218,7 @@ function mountBadge(id, css, html) {
   document.getElementById(id)?.remove();
   const host = document.createElement("div");
   host.id = id;
-  const root = host.attachShadow({ mode: "open" });
+  const root = host.attachShadow({ mode: "closed" }); // page script stays out (S5)
   root.innerHTML = `<style>${BADGE_BASE_CSS}${css}</style>${html}`;
   return { host, root };
 }
@@ -221,7 +227,8 @@ function mountBadge(id, css, html) {
 // immediately via the badge's ✕ (which also cancels the timer).
 function autoDismiss(host, root, ms) {
   const timer = setTimeout(() => host.remove(), ms);
-  root.querySelector(".x").addEventListener("click", () => {
+  root.querySelector(".x").addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
     clearTimeout(timer);
     host.remove();
   });
@@ -256,7 +263,9 @@ export function showPassthroughBadge(onCancel) {
   root.querySelector(".msg").textContent = t("badgePassthrough");
   const cancel = root.querySelector(".cancel");
   cancel.textContent = t("badgePassthroughCancel");
-  cancel.addEventListener("click", () => onCancel?.());
+  cancel.addEventListener("click", (e) => {
+    if (e.isTrusted) onCancel?.();
+  });
   document.body.appendChild(host);
   return { remove: () => host.remove() };
 }
