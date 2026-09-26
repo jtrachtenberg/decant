@@ -119,6 +119,10 @@ the CLI injects a Node transport in place of the `sendMessage` one. No relay
 wire-format (`fileToWire`/`wireToFile`) is needed when there's no worker boundary
 to cross — the CLI calls the endpoint straight.
 
+**Status: ✅ shipped.** `setHttpTransport()` in `src/convert/index.js`; the CLI
+installs `httpConvert` as the transport, so `companion`/`http` rules (and
+`onEmpty` escalation) in a `--config` file POST to their endpoint directly.
+
 ### 3.3 What already works under Node, untouched
 
 - `new File([...])` / `Blob` — global in Node ≥ 20 (the repo already targets
@@ -361,8 +365,9 @@ entirely. decantCC's own environment decides which it needs.
 - **C1 — Forced modes. ✅ `markdown` + `figures`.** `--mode markdown` forces
   text-only; `--mode figures` writes the Markdown plus render-free figure files
   to `--out-dir` (zip media / cropped mini-PDF). `passthrough` is intentionally
-  not a CLI mode (redundant). `companion` is deferred — it needs the direct-fetch
-  transport (§3.2) and the non-localhost `--allow-remote` guardrail.
+  not a CLI mode (redundant). `companion` is deferred — the direct-fetch
+  transport (§3.2) has shipped (routing rules in `--config` use it); the mode
+  itself still needs the non-localhost `--allow-remote` guardrail.
 - **C2 — SEA packaging. ✅ Done (`npm run build:cli`).** One-file bundle +
   embedded `assets.zip` (unpacked at startup) + canvas globals + postject
   injection with auto-detected fuse. Verified end-to-end on the Linux binary;

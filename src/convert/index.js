@@ -100,6 +100,16 @@ export function convertViaCompanion(file, rule) {
   return convertViaBackground(file, rule);
 }
 
+// How an http/companion conversion reaches its endpoint. In the extension that
+// is the background relay (below). A surface with no service worker — the CLI,
+// where `browser` is undefined — injects a direct transport instead (B13):
+//   setHttpTransport((file, rule) => httpConvert(file, rule))
+// The transport resolves to the converted File or throws.
+let httpTransport = null;
+export function setHttpTransport(fn) {
+  httpTransport = fn;
+}
+
 // Relay an http/companion conversion through the background service worker
 // (see relay.js for why). Throws on any failure; the caller maps that to the
 // rule's onError.
@@ -107,6 +117,7 @@ async function convertViaBackground(file, rule) {
   if (file.size > MAX_RELAY_BYTES) {
     throw new Error(`file exceeds relay cap (${file.size} bytes)`);
   }
+  if (httpTransport) return httpTransport(file, rule);
   const resp = await browser.runtime.sendMessage({
     type: HTTP_CONVERT_MSG,
     rule,

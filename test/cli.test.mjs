@@ -10,7 +10,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { readFile, writeFile, mkdtemp, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -241,4 +242,54 @@ test("piped stdout is not truncated past the 64 KiB pipe buffer (B2)", async () 
   const env = run("convert", html, "--json", "--quiet");
   assert.equal(env.status, 0);
   assert.match(JSON.parse(env.stdout).markdown, /Paragraph 3999:/);
+});
+
+test("a hand-written --config rule is normalized before routing (B12)", async () => {
+  // Missing match.mime used to crash the router: TypeError reading 'includes'.
+  const dir = await mkdtemp(join(tmpdir(), "decant-cfg-"));
+  const cfg = join(dir, "cfg.json");
+  await writeFile(cfg, JSON.stringify({
+    routing: { rules: [{ match: { ext: ["pdf"] }, action: "inbrowser", enabled: true }] },
+  }));
+  const r = run("convert", fixture("tables/two_col_table.pdf"), "--config", cfg, "--quiet");
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Reason for exclusion/);
+});
+
+test("a companion rule in --config POSTs to its endpoint from the CLI (B13)", async () => {
+  // Under Node there is no service worker to relay through; the CLI injects a
+  // direct transport. The endpoint answers in the SPEC §3.4 JSON shape.
+  let hits = 0;
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      hits++;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ markdown: "# From the companion" }));
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const dir = await mkdtemp(join(tmpdir(), "decant-comp-"));
+    const cfg = join(dir, "cfg.json");
+    await writeFile(cfg, JSON.stringify({
+      routing: {
+        rules: [{
+          match: { ext: ["pdf"] },
+          action: "companion",
+          endpoint: `http://127.0.0.1:${server.address().port}/convert`,
+          responseField: "markdown",
+        }],
+      },
+    }));
+    const child = spawn(process.execPath, [CLI, "convert", fixture("tables/two_col_table.pdf"), "--config", cfg, "--quiet"]);
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    const code = await new Promise((r) => child.on("close", r));
+    assert.equal(code, 0);
+    assert.equal(hits, 1);
+    assert.equal(out, "# From the companion");
+  } finally {
+    server.close();
+  }
 });

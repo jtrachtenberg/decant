@@ -141,7 +141,7 @@ function parseArgs(argv) {
 }
 
 async function loadRouting(configPath) {
-  const { DEFAULT_CONFIG } = await import("../config/defaults.js");
+  const { DEFAULT_CONFIG, normalizeConfig } = await import("../config/defaults.js");
   if (!configPath) return DEFAULT_CONFIG.routing;
   let parsed;
   try {
@@ -150,8 +150,10 @@ async function loadRouting(configPath) {
     fail(EXIT.usage, `cannot read --config ${configPath}: ${err.message}`);
   }
   // Fail toward global routing (ARCHITECTURE.md §2.1): a config without a usable
-  // routing section falls back rather than bricking conversion.
-  return parsed?.routing ?? DEFAULT_CONFIG.routing;
+  // routing section falls back rather than bricking conversion. A hand-written
+  // file gets the same normalization as an options-page import (B12) — the
+  // router trusts normalized rules (e.g. both match lists present).
+  return normalizeConfig(parsed).routing;
 }
 
 function readInput(path) {
@@ -354,10 +356,14 @@ async function main() {
   // asset URLs at module load (CLI.md §3.1). A packaged binary (SEA) unpacks its
   // embedded assets; a dev/npm run resolves them from node_modules.
   await installAssets();
-  const [index, savings] = await Promise.all([
+  const [index, savings, http] = await Promise.all([
     import("../convert/index.js"),
     import("../convert/savings.js"),
+    import("../convert/http.js"),
   ]);
+  // No service worker to relay through: companion/http rules in --config POST
+  // straight to their endpoint (B13).
+  index.setHttpTransport((f, rule) => http.httpConvert(f, rule));
   const core = {
     convertFile: index.convertFile,
     engineFor: index.engineFor,
