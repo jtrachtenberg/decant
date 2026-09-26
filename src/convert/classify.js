@@ -4175,6 +4175,8 @@ export function linesToMarkdown(lines, pageLabel = null) {
     }
     const line = lines[i];
     const md = emitLine(line, bodyH);
+    // Only a heading emitLine promoted starts with "#": body text that begins
+    // with one arrives escaped ("\\# of sites"), so it can't join this merge.
     if (md.startsWith("#")) {
       flush();
       // Merge a heading that wrapped across lines into the previous heading of
@@ -4563,10 +4565,38 @@ function emitLine(line, bodyH) {
     // its own text is body-sized ("The UNEP FI Principles… (PSI) R S").
     const ratio = (line.cells[0].domH ?? line.h) / bodyH;
     for (const [threshold, prefix] of HEADING_LEVELS) {
-      if (ratio >= threshold) return prefix + text;
+      if (ratio >= threshold) return prefix + escapeMarkdownText(text, false);
     }
   }
-  return text;
+  return escapeMarkdownText(text, true);
+}
+
+// PDF text is literal text, not Markdown (B3). Left raw, a statistics row
+// "# of employees 1,200" became an H1 — and, since the heading merge below
+// keys on a leading "#", the next "# of sites 14" row was spliced into it —
+// "- 3 was the net change" became a bullet that lost its minus sign, a line of
+// dashes turned the line above it into a heading, a stray ``` swallowed the
+// rest of the document into a code block, and *15%* / <b> became emphasis and
+// raw HTML. Escape exactly what would be misread, keeping the text readable:
+//   - line-start block syntax (atLineStart): ATX "#", ">", "-"/"+" before a
+//     number, a "*" marker, setext/thematic rules, and code fences. Hyphen
+//     bullets before words ("- item") are left alone — those are real lists;
+//     so are numbered items ("1. Scope"), which read the same either way;
+//   - inline: "*", "`", "_" at a word boundary (intraword "_" never forms
+//     emphasis), and "<" that would open an HTML tag.
+// Headings pass atLineStart=false: their "# " prefix is already in front.
+function escapeMarkdownText(text, atLineStart) {
+  let out = text
+    .replace(/[*`]/g, "\\$&")
+    .replace(/(^|[^\p{L}\p{N}\\])_|_(?=$|[^\p{L}\p{N}])/gu, (m, pre) =>
+      pre === undefined ? "\\_" : `${pre}\\_`
+    )
+    .replace(/<(?=[A-Za-z/!?])/g, "\\<");
+  if (!atLineStart) return out;
+  if (/^(?:#{1,6}(?:\s|$)|>|[-+](?=\s+[\d.,$€£¥%(])|(?:-+|=+)\s*$|~~~)/.test(out)) {
+    out = "\\" + out;
+  }
+  return out;
 }
 
 // Visible omission marker appended to a page's Markdown when its

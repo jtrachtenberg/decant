@@ -427,3 +427,41 @@ test("an ordinary page with a big heading is not treated as props", () => {
   assert.match(md, /^# A Very Large Display Heading/m, md);
   assert.match(md, /^ordinary body line 0 of running prose here$/m, md);
 });
+
+test("body text that looks like Markdown syntax is escaped, not reinterpreted (B3)", () => {
+  const lines = reconstructLines([
+    item("Staffing summary for the fiscal year was as follows.", 0, 200),
+    item("# of employees at year end 1,200", 0, 186),
+    item("# of sites 14", 0, 172),
+    item("- 3 was the net change in managers", 0, 158),
+    item("Revenue grew by *15%* and costs by _3%_ over <b>last</b> year.", 0, 144),
+    item("----------", 0, 130),
+    item("```", 0, 116),
+    item("> not a quote", 0, 102),
+    item("- a real hyphen bullet", 0, 88),
+    item("snake_case_name stays", 0, 74),
+  ]);
+  const md = linesToMarkdown(lines);
+  // Two data rows stay two rows, neither a heading.
+  assert.match(md, /^\\# of employees at year end 1,200$/m);
+  assert.match(md, /^\\# of sites 14$/m);
+  assert.doesNotMatch(md, /^#/m);
+  assert.match(md, /^\\- 3 was the net change/m);
+  assert.match(md, /\\\*15%\\\* and costs by \\_3%\\_ over \\<b>last\\<\/b>/);
+  assert.match(md, /^\\----------$/m);
+  assert.match(md, /^\\`\\`\\`$/m);
+  assert.match(md, /^\\> not a quote$/m);
+  assert.match(md, /^- a real hyphen bullet$/m);
+  assert.match(md, /^snake_case_name stays$/m);
+});
+
+test("a real heading still merges its wrapped second line (B3)", () => {
+  const lines = reconstructLines([
+    item("A Long Display Heading That", 0, 220, { h: 20 }),
+    item("Wraps Onto Two Lines", 0, 198, { h: 20 }),
+    item("body text one, long enough to set the page's body height", 0, 170),
+    item("body text two, long enough to set the page's body height", 0, 158),
+    item("body text three, long enough to set the page's body height", 0, 146),
+  ]);
+  assert.match(linesToMarkdown(lines), /^# A Long Display Heading That Wraps Onto Two Lines$/m);
+});
