@@ -83,7 +83,17 @@ export function rowsToMarkdownTable(rows) {
 
 export async function analyzeXlsx(file) {
   const buf = await fileBytes(file);
-  const wb = XLSX.read(buf, { type: "array" });
+  // Parse only what the Markdown uses (O4): dense storage, and no formula
+  // strings, rich-text HTML or styles — formatted cell text (.w) is all
+  // sheet_to_json({ raw: false }) reads. Workbooks with huge parsed markup never
+  // get here (limits.js caps a package's XML before any engine runs).
+  const wb = XLSX.read(buf, {
+    type: "array",
+    dense: true,
+    cellFormula: false,
+    cellHTML: false,
+    cellStyles: false,
+  });
 
   // First pass: parse each sheet and count populated cells only. Building the
   // Markdown tables (rowsToMarkdownTable escapes every cell and materializes a
