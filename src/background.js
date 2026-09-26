@@ -14,7 +14,7 @@
 import { browser } from "./browser.js";
 import { t } from "./i18n.js";
 import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
-import { enabledHosts, hostOf, hostPattern } from "./config/defaults.js";
+import { enabledHosts, hostOf, hostPattern, endpointOriginPattern } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
 import { relayRuleFor } from "./convert/relay-trust.js";
 import { capturePage, captureFileName, CAPTURE_ERROR_KEYS } from "./capture/capture.js";
@@ -345,6 +345,17 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!rule) {
       console.warn(TAG, "relay rejected: endpoint not in routing config:", msg.rule?.endpoint);
       sendResponse({ ok: false, error: "endpoint not permitted by routing config" });
+      return;
+    }
+    // Only with the host permission the options page asked for (S7). Without
+    // it an endpoint that answers with permissive CORS would still be reached
+    // — the service worker's fetch doesn't need the grant for that — so a
+    // declined or revoked grant, or a rule synced from another device where
+    // it was granted, must not quietly keep sending documents.
+    const origin = endpointOriginPattern(rule.endpoint);
+    if (!origin || !(await browser.permissions.contains({ origins: [origin] }))) {
+      console.warn(TAG, "relay rejected: no host permission for", origin);
+      sendResponse({ ok: false, error: "no host permission for endpoint" });
       return;
     }
     const file = wireToFile(msg.file);

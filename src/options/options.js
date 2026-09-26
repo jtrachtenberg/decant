@@ -13,6 +13,7 @@ import {
   normalizeConfig,
   hostPattern,
   isHttpEndpoint,
+  endpointOriginPattern,
   RULE_ONEMPTY,
 } from "../config/defaults.js";
 
@@ -215,20 +216,13 @@ function isGrantableEndpoint(url) {
 }
 
 // The background worker's fetch needs host permission for the endpoint's
-// origin. Match patterns ignore ports, so one grant covers the whole host.
-function originPattern(endpoint) {
-  try {
-    const u = new URL(endpoint);
-    return `${u.protocol}//${u.hostname}/*`;
-  } catch {
-    return null;
-  }
-}
+// origin (see endpointOriginPattern).
+const originPattern = endpointOriginPattern;
 
 // Request permission for endpoint origins (deduped). Must be called from a
 // click handler — that's the gesture Chrome requires. Returns false when
-// declined; the rules still save, their fetches just fail into onError until
-// permission is granted.
+// declined; the rules still save, and the background relay refuses them (so
+// they fall back per onError) until permission is granted.
 async function requestEndpointPermission(endpoints) {
   const origins = [...new Set(endpoints.map(originPattern).filter(Boolean))];
   if (!origins.length) return true;
