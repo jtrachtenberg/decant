@@ -640,7 +640,7 @@ refuses requests from web pages ([access control](./companion/README.md#access-c
     gives the model the figures themselves); companion quality-gate polish
     ("companion dropped N figures" badge + Docling chart-extraction enrich);
     in-place rule editing on the options page; quick-add `responseField`.
-- **Hardening pass (September 2026 code review). ✅ Shipped; manual QA pending.**
+- **Hardening pass (September 2026 code review). ✅ Merged for 0.3.4; manual QA pending before the store upload.**
   - **Companion escalation works again.** `onEmpty` OCR escalation and the
     ambiguous prompt's **Convert with companion** were being refused by the
     background relay; they now go through, using the stored rule, and only to
@@ -667,6 +667,12 @@ refuses requests from web pages ([access control](./companion/README.md#access-c
     rules in `--config` work; the packaged binary unpacks its assets into a
     private per-run directory.
   - The content script ships minified (4.2 MB → 2.1 MB).
+  - **0.3.4 release pass (October 2026).** pdf.js 6.4, mammoth 1.13 (which
+    drops bluebird and with it the bundle's last `eval`), JSZip 3.10.2 and
+    esbuild 0.28.2. An HTML file declaring windows-1252 or latin-1 now keeps
+    its curly quotes, dashes and € on Node builds that decode that label as
+    plain latin-1 (the CLI). A PPTX OLE object (an embedded worksheet, say) is
+    marked once instead of twice.
 - **M4 — Profiles.** Per-host overrides on the global config: convert PDFs to
   Markdown everywhere, but always pass through on one site, or forward a file
   type to a specific endpoint on another. Same rule shape as global routing,
