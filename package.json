@@ -1,6 +1,6 @@
 {
   "name": "decant",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "Convert files to Markdown before they upload to LLM chat UIs.",
   "type": "module",
@@ -30,14 +30,14 @@
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
     "@mixmark-io/domino": "^2.2.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "postject": "^1.0.0-alpha.6"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
-    "mammoth": "^1.12.0",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.2.108",
+    "pdfjs-dist": "^6.4.299",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "web-streams-polyfill": "^4.3.0",

@@ -142,8 +142,9 @@ REMOTE CODE  —  answer: No, I am not using remote code
 
 Not a 1000-character field; recorded here as the verified basis for the
 dashboard answer (first checked 2026-07-21 against the 0.3.0 package;
-re-verified 2026-07-26 against release/decant-0.3.2-chrome.zip — same counts,
-still no quickjs).
+re-verified 2026-07-26 against release/decant-0.3.2-chrome.zip, and again
+2026-10-16 against release/decant-0.3.4-chrome.zip — mammoth 1.13 no longer
+pulls in bluebird, so the one eval( is gone; still no quickjs).
 
 - Every executable asset resolves through browser.runtime.getURL() to the
   packaged extension root (src/convert/assets.js). The pdf.js worker, the WASM
@@ -165,14 +166,11 @@ still no quickjs).
   user configures an endpoint.
 
 What a reviewer grepping content/intercept.js WILL find, and why none of it is
-remote code (audited against the packaged zip, 2026-07-21):
+remote code (audited against the packaged zip, 2026-10-16; the bundle is
+minified since 0.3.4, which renames locals but never eval/Function/import):
 
-- One eval( and eight new Function( occurrences, all inside bundled
-  third-party libraries, all shipped in the package rather than fetched:
-    * bluebird 3.4.7 (via mammoth, the DOCX reader) — its toFastProperties()
-      helper places eval() after an unconditional return, the well-known V8
-      fast-properties idiom, so it is statically unreachable; its method-caller
-      and promise-inspection caches compile accessors the same way.
+- No eval( and two new Function( occurrences, both inside bundled
+  third-party libraries, both shipped in the package rather than fetched:
     * underscore 1.13.8 (via mammoth / lop / duck) — the _.template compiler.
     * setimmediate 1.0.5 (via jszip) — coerces a string handler.
   None of these can execute: the MV3 default CSP (script-src 'self') blocks
@@ -182,8 +180,9 @@ remote code (audited against the packaged zip, 2026-07-21):
   which is why DOCX, XLSX and PPTX conversion all work in the shipped
   extension. Critically, no string these touch comes from outside the package:
   nothing is fetched, downloaded or received over the network and then run.
-- Three dynamic import( calls, all inside bundled pdf.js, every one of them
-  resolving to a file inside the package:
+- Three dynamic import( calls, all inside pdf.js (two in the content-script
+  bundle, one in the packaged pdf.worker.mjs), every one of them resolving to
+  a file inside the package:
     * the worker loader imports GlobalWorkerOptions.workerSrc, which Decant
       sets to runtime.getURL("pdf.worker.mjs") (src/convert/inbrowser.js);
     * the worker's no-WASM fallback imports wasm/*_nowasm_fallback.js from the
