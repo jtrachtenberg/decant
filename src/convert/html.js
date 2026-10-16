@@ -70,11 +70,28 @@ function prescanEncoding(label) {
 }
 
 function decodeWith(label, u8) {
+  let decoder;
   try {
-    return new TextDecoder(label).decode(u8);
+    decoder = new TextDecoder(label);
   } catch {
     return new TextDecoder("utf-8").decode(u8); // unknown label → best effort
   }
+  const text = decoder.decode(u8);
+  return decoder.encoding === "windows-1252" ? fixC1(text) : text;
+}
+
+// windows-1252 bytes 0x80–0x9F are curly quotes, dashes, € and the like, but
+// some Node builds decode the label as ISO-8859-1 and hand back C1 control
+// characters instead — the CLI then emits "it\x92s" for "it’s". A correct
+// decoder never yields these code points except the five bytes 1252 leaves
+// undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D), which map to themselves here, so the
+// remap is a no-op in browsers.
+const CP1252_C1 =
+  "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f" +
+  "\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
+
+function fixC1(text) {
+  return text.replace(/[\u0080-\u009f]/g, (c) => CP1252_C1[c.charCodeAt(0) - 0x80]);
 }
 
 // Pure — exported for direct unit testing.

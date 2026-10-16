@@ -193,6 +193,19 @@ test("an unresolvable SmartArt or an OLE object is marked and prompts (B7)", asy
   assert.match(res.markdown, /\[object omitted: Worksheet Object\]/);
 });
 
+test("an OLE object with a preview picture is marked once, not twice", () => {
+  // PowerPoint writes the object in mc:Choice and again in mc:Fallback, where
+  // the fallback frame wraps the preview <p:pic> the picture loop already marks.
+  const frame = (inner) => `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Object 3"/></p:nvGraphicFramePr>
+    <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/presentationml/2006/ole"><p:oleObj r:id="rId3">${inner}</p:oleObj></a:graphicData></a:graphic></p:graphicFrame>`;
+  const pic = `<p:pic><p:nvPicPr><p:cNvPr id="0" name=""/></p:nvPicPr><p:blipFill><a:blip r:embed="rId4"/></p:blipFill></p:pic>`;
+  const xml = `<mc:AlternateContent><mc:Choice Requires="v">${frame("<p:embed/>")}</mc:Choice>
+    <mc:Fallback>${frame("<p:embed/>" + pic)}</mc:Fallback></mc:AlternateContent>`;
+  const slide = extractSlideText(slideXml(titled("Budget") + xml));
+  assert.equal(slide.images, 1);
+  assert.deepEqual(slide.omitted, ["[image omitted]"]);
+});
+
 test("slides follow the presentation's sldIdLst, not part filenames (B8)", async () => {
   const res = await analyzePptx(
     await deck({

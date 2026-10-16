@@ -96,6 +96,9 @@ export function extractSlideText(xml) {
     // graphic type at all isn't evidence of a lost visual.
     if (!uri || /\/(?:table|chart|diagram)$/.test(uri)) continue;
     if (/<a:tbl[\s>]|<c:chart\b|<dgm:relIds\b/.test(frame[0])) continue;
+    // An OLE object's fallback carries its preview as a <p:pic>, already
+    // marked by the picture loop above — one object, one marker.
+    if (/<p:pic[\s>]/.test(frame[0])) continue;
     if (/chartex$/i.test(uri)) {
       omitted.push("[chart omitted]");
       continue;

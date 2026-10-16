@@ -483,9 +483,9 @@ function logResult(f, r) {
         ? ` [${r.meta.images} images]`
         : "";
   if (r.action === "converted") {
-    // meta is the PDF classifier's summary; http/companion results don't
-    // carry one.
-    const stats = r.meta ? ` (${r.meta.pageCount}p, ${r.meta.totalChars} chars)` : "";
+    // Page/char stats come from the PDF classifier's summary; the Office/HTML
+    // engines and http/companion results don't carry them.
+    const stats = r.meta?.pageCount != null ? ` (${r.meta.pageCount}p, ${r.meta.totalChars} chars)` : "";
     console.log(TAG, `converted ${f.name} → ${r.file.name}${stats} [${r.reason}]`);
   } else if (r.action === "ambiguous") {
     console.log(TAG, `ambiguous ${f.name}${pages} — prompting`);
