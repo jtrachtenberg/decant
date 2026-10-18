@@ -100,7 +100,32 @@ test("decodeHtml honors a declared windows-1252 charset (M4)", () => {
   assert.doesNotMatch(html, /�/);
 });
 
+test("decodeHtml maps 0x80-0x9F through windows-1252 for latin1 labels too", () => {
+  // WHATWG resolves iso-8859-1 to windows-1252, so 0x80 is € and 0x93/0x94 are
+  // curly quotes — never C1 control characters, whatever the runtime's decoder.
+  const bytes = new Uint8Array([
+    ...[...'<meta charset="iso-8859-1"><p>'].map((c) => c.charCodeAt(0)),
+    0x93, 0x80, 0x35, 0x94,
+  ]);
+  const html = decodeHtml(bytes);
+  assert.match(html, /“€5”/);
+  assert.doesNotMatch(html, /[\u0080-\u009f]/);
+});
+
 test("decodeHtml keeps UTF-8 as the default for undeclared documents (M4)", () => {
   const bytes = new TextEncoder().encode("<p>café — déjà</p>");
   assert.match(decodeHtml(bytes), /café — déjà/);
+});
+
+test("a meta-declared UTF-16 label without a BOM decodes as UTF-8 (B15)", () => {
+  // Word's "Save as Web Page" can declare utf-16 on a file written in UTF-8;
+  // the spec's prescan maps any UTF-16 label to UTF-8 (the head just parsed as
+  // ASCII bytes, so the document can't be UTF-16).
+  for (const label of ["utf-16", "UTF-16LE", "unicode"]) {
+    const bytes = new TextEncoder().encode(`<meta charset="${label}"><p>café</p>`);
+    assert.match(decodeHtml(bytes), /café/, label);
+  }
+  // A real UTF-16 file carries a BOM, which still wins.
+  const le = new Uint8Array([0xff, 0xfe, ...[..."<p>hi</p>"].flatMap((c) => [c.charCodeAt(0), 0])]);
+  assert.match(decodeHtml(le), /<p>hi<\/p>/);
 });

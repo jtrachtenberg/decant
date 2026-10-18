@@ -36,6 +36,19 @@ export function isHttpEndpoint(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url);
 }
 
+// The host-permission match pattern covering an endpoint — what the options
+// page requests when a rule is added and what the relay checks before it
+// POSTs. Match patterns ignore ports, so one grant covers the whole host.
+// null when the URL doesn't parse.
+export function endpointOriginPattern(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    return `${u.protocol}//${u.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
 // What to do with an ambiguous document (text plus charts/images). "ask" shows
 // the prompt (the shipped default — automation is opt-in, never a silent
 // verdict); the rest apply that prompt choice automatically, set either from

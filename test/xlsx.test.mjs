@@ -130,3 +130,19 @@ test("chart.xlsx recovers the chart data after the sheet (real SheetJS + zip)", 
   assert.match(res.markdown, /\| Category \| Sales \|/);
   assert.match(res.markdown, /\| Feb \| 12 \|/);
 });
+
+test("a workbook chart with no recoverable data is marked and prompts (B6)", async () => {
+  // Add an Office 2016 chartEx part (waterfall/treemap/…), which carries no
+  // c:ser cache this engine can read; it must not vanish silently.
+  const { default: JSZipNs } = await import("jszip");
+  const JSZip = JSZipNs.default ?? JSZipNs;
+  const src = await fixture("chart.xlsx");
+  const zip = await JSZip.loadAsync(await src.arrayBuffer());
+  zip.file("xl/charts/chartEx1.xml", "<cx:chartSpace/>");
+  const file = new File([await zip.generateAsync({ type: "uint8array" })], "chart.xlsx", { type: src.type });
+  const res = await analyzeXlsx(file);
+  assert.equal(res.decision, "ambiguous");
+  assert.equal(res.summary.chartsRecovered, 1); // the real chart still recovers
+  assert.equal(res.summary.images, 1);
+  assert.match(res.markdown, /\[chart omitted\]/);
+});

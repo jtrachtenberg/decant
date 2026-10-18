@@ -30,7 +30,9 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install --no-audit --no-fund
+      # The exact committed lockfile — a release binary must not pick up
+      # whatever a fresh resolve finds (S10).
+      - run: npm ci --no-fund
       - run: npm test
       - run: npm run build:cli
 

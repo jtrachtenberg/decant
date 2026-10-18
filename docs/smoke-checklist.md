@@ -98,6 +98,14 @@ expected attachment and the service-worker/page console agrees.
       text-only deck converts with **no** prompt.
 - [ ] **HTML** — saved web page → clean Markdown; no `<script>`/`<style>` leakage;
       remote images stay as Markdown links.
+- [ ] **Size ceilings** — a DOCX/PPTX/XLSX whose XML inflates past 16 MB, or any
+      file over 100 MB, attaches the **original** within a second or two, with
+      no tab freeze (page console: `passthrough … (too-large)`). A large but
+      ordinary document (e.g. a 40 MB image-heavy DOCX, a 300-page PDF) still
+      converts.
+- [ ] **Drop elsewhere** — drag a PNG or ZIP onto a *different* upload area
+      (project knowledge, a modal uploader): it lands there, not in the
+      composer, and no `[decant] drop intercepted` log appears.
 
 ## 5. Per-site adapters
 
@@ -124,6 +132,28 @@ Run `npm run mock-endpoint`, add a rule routing `.txt` → `http://127.0.0.1:876
 - [ ] Drop a `.txt` → converted `.md` from the endpoint attaches.
 - [ ] Point the rule at `/error` → drop → the rule's fallback fires (original
       attaches), nothing lost.
+
+### Companion access control and escalation (real companion)
+
+Run the companion (`cd companion && python server.py`, `DECANT_ENGINE=docling`
+for OCR, `echo` for wiring only). Add a PDF rule **Convert in browser** → *If
+the browser finds no text* → **escalate to local companion**, endpoint
+`http://127.0.0.1:8765/convert`, response field `text`, and **allow** the
+permission prompt.
+
+- [ ] Attach a scanned (image-only) PDF → the companion log shows one
+      `POST /convert` 200 and a `.md` attaches (onEmpty escalation).
+- [ ] An ambiguous doc with the same rule offers **Convert with companion**;
+      picking it posts to the companion and attaches its `.md`.
+- [ ] From an ordinary web page's console,
+      `fetch("http://127.0.0.1:8765/health")` fails (no CORS) and a
+      `fetch(…/convert, {method:"POST", body: new FormData()})` gets **403**.
+- [ ] With `DECANT_TOKEN=abc` set on the server, the rule fails over to its
+      fallback until the endpoint is changed to `…/convert?token=abc`; then it
+      converts again, and the server log shows `token=***`.
+- [ ] Remove the `http://127.0.0.1` grant (chrome://extensions → Details →
+      Site access) → escalation now falls back (service worker logs
+      `relay rejected: no host permission`).
 
 ## 8. Fingerprinting
 

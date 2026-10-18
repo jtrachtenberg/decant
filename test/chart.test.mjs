@@ -142,3 +142,89 @@ test("chartTablesFromZip enumerates chart parts in order, skips unparseable", as
     ["First", "Second", "Tenth"] // numeric order, chart3 skipped
   );
 });
+
+test("a point with no <c:v> is a gap, not the next point's value (B10)", () => {
+  const parsed = parseChartXml(
+    chartPart(
+      "",
+      `<c:ser><c:val><c:numCache>
+        <c:pt idx="0"></c:pt><c:pt idx="1"/><c:pt idx="2"><c:v>7</c:v></c:pt>
+      </c:numCache></c:val></c:ser>`
+    )
+  );
+  assert.deepEqual(parsed.rows.map((r) => r[1]), ["Series 1", "", "", "7"]);
+});
+
+test("percent and date format codes are applied to cached values (B10)", () => {
+  const parsed = parseChartXml(
+    chartPart(
+      "",
+      `<c:ser>
+        <c:cat><c:numRef><c:numCache><c:formatCode>mmm\\-yy</c:formatCode>
+          <c:pt idx="0"><c:v>44927</c:v></c:pt><c:pt idx="1"><c:v>44958</c:v></c:pt></c:numCache></c:numRef></c:cat>
+        <c:val><c:numRef><c:numCache><c:formatCode>0.0%</c:formatCode>
+          <c:pt idx="0"><c:v>0.25</c:v></c:pt><c:pt idx="1"><c:v>0.1234</c:v></c:pt></c:numCache></c:numRef></c:val>
+      </c:ser>`
+    )
+  );
+  assert.deepEqual(parsed.rows.slice(1), [
+    ["2023-01-01", "25.0%"],
+    ["2023-02-01", "12.3%"],
+  ]);
+});
+
+test("a 1904-dated chart uses the 1904 epoch (B10)", () => {
+  const parsed = parseChartXml(
+    `<c:chartSpace><c:date1904 val="1"/>` +
+      chartPart(
+        "",
+        `<c:ser><c:cat><c:numCache><c:formatCode>yyyy-mm-dd</c:formatCode><c:pt idx="0"><c:v>0</c:v></c:pt></c:numCache></c:cat>
+          <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:val></c:ser>`
+      ) +
+      `</c:chartSpace>`
+  );
+  assert.equal(parsed.rows[1][0], "1904-01-01");
+});
+
+test("multi-level categories join their levels instead of overwriting (B10)", () => {
+  const parsed = parseChartXml(
+    chartPart(
+      "",
+      `<c:ser>
+        <c:cat><c:multiLvlStrRef><c:multiLvlStrCache><c:ptCount val="4"/>
+          <c:lvl><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt><c:pt idx="2"><c:v>Q1</c:v></c:pt><c:pt idx="3"><c:v>Q2</c:v></c:pt></c:lvl>
+          <c:lvl><c:pt idx="0"><c:v>2023</c:v></c:pt><c:pt idx="2"><c:v>2024</c:v></c:pt></c:lvl>
+        </c:multiLvlStrCache></c:multiLvlStrRef></c:cat>
+        <c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>2</c:v></c:pt><c:pt idx="2"><c:v>3</c:v></c:pt><c:pt idx="3"><c:v>4</c:v></c:pt></c:numCache></c:val>
+      </c:ser>`
+    )
+  );
+  assert.deepEqual(parsed.rows.map((r) => r[0]), ["Category", "2023 / Q1", "2023 / Q2", "2024 / Q1", "2024 / Q2"]);
+});
+
+test("scatter series are recovered as (x, y) pairs (B6)", () => {
+  const parsed = parseChartXml(
+    `<c:chartSpace><c:chart><c:plotArea><c:scatterChart>
+      <c:ser><c:tx><c:v>Trials</c:v></c:tx>
+        <c:xVal><c:numRef><c:numCache><c:pt idx="0"><c:v>1.5</c:v></c:pt><c:pt idx="1"><c:v>2.5</c:v></c:pt></c:numCache></c:numRef></c:xVal>
+        <c:yVal><c:numRef><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:yVal>
+      </c:ser></c:scatterChart></c:plotArea></c:chart></c:chartSpace>`
+  );
+  assert.deepEqual(parsed.rows, [
+    ["Series", "X", "Y"],
+    ["Trials", "1.5", "10"],
+    ["Trials", "2.5", "20"],
+  ]);
+});
+
+test("chartPartsFromZip counts chartEx and data-less parts as omitted (B6)", async () => {
+  const { chartPartsFromZip } = await import("../src/convert/chart.js");
+  const zip = new JSZip();
+  const ser = `<c:ser><c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:val></c:ser>`;
+  zip.file("word/charts/chart1.xml", chartPart("Kept", ser));
+  zip.file("word/charts/chart2.xml", "<c:chartSpace/>");
+  zip.file("word/charts/chartEx1.xml", "<cx:chartSpace/>");
+  const { tables, omitted } = await chartPartsFromZip(zip, "word/charts");
+  assert.deepEqual(tables.map((t) => t.title), ["Kept"]);
+  assert.equal(omitted, 2);
+});

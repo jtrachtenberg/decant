@@ -24,6 +24,7 @@ import { analyzeXlsx } from "./xlsx.js";
 import { analyzePptx } from "./pptx.js";
 import { analyzeHtml } from "./html.js";
 import { resultFromAnalysis, shouldEscalate } from "./result.js";
+import { sizeVerdict } from "./limits.js";
 import { DOCX_MIME, XLSX_MIME, XLS_MIME, PPTX_MIME } from "../config/defaults.js";
 import { routeFile } from "../router/route.js";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
@@ -100,6 +101,16 @@ export function convertViaCompanion(file, rule) {
   return convertViaBackground(file, rule);
 }
 
+// How an http/companion conversion reaches its endpoint. In the extension that
+// is the background relay (below). A surface with no service worker — the CLI,
+// where `browser` is undefined — injects a direct transport instead (B13):
+//   setHttpTransport((file, rule) => httpConvert(file, rule))
+// The transport resolves to the converted File or throws.
+let httpTransport = null;
+export function setHttpTransport(fn) {
+  httpTransport = fn;
+}
+
 // Relay an http/companion conversion through the background service worker
 // (see relay.js for why). Throws on any failure; the caller maps that to the
 // rule's onError.
@@ -107,6 +118,7 @@ async function convertViaBackground(file, rule) {
   if (file.size > MAX_RELAY_BYTES) {
     throw new Error(`file exceeds relay cap (${file.size} bytes)`);
   }
+  if (httpTransport) return httpTransport(file, rule);
   const resp = await browser.runtime.sendMessage({
     type: HTTP_CONVERT_MSG,
     rule,
@@ -127,24 +139,38 @@ async function convertViaBackground(file, rule) {
 // so the two can't drift on which types have an engine. Returns the analysis
 // function ({decision, reason, summary, markdown}) or null for an unhandled type.
 export function engineFor(file) {
+  const engine = rawEngineFor(file);
+  return engine && withSizeLimits(engine);
+}
+
+// Every engine opens the file behind the input-size ceilings (limits.js, B4):
+// an over-limit file comes back as a "too-large" passthrough analysis without
+// the engine ever parsing it.
+function withSizeLimits({ analyze, kind }) {
+  return async (file, opts) => (await sizeVerdict(file, kind)) ?? analyze(file, opts);
+}
+
+function rawEngineFor(file) {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-    return analyzePdf;
+    return { analyze: analyzePdf, kind: "raw" };
   }
   if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
-    return analyzeDocx;
+    return { analyze: analyzeDocx, kind: "zip" };
   }
   if (
     file.type === XLSX_MIME ||
     file.type === XLS_MIME ||
     /\.xlsx?$/i.test(file.name)
   ) {
-    return analyzeXlsx;
+    // .xls is CFB, not a zip; sizeVerdict finds no zip directory and applies
+    // the raw ceiling only.
+    return { analyze: analyzeXlsx, kind: "zip" };
   }
   if (file.type === PPTX_MIME || /\.pptx$/i.test(file.name)) {
-    return analyzePptx;
+    return { analyze: analyzePptx, kind: "zip" };
   }
   if (file.type === "text/html" || /\.html?$/i.test(file.name)) {
-    return analyzeHtml;
+    return { analyze: analyzeHtml, kind: "markup" };
   }
   return null;
 }

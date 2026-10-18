@@ -337,3 +337,10 @@ test("normalizeConfig defaults capture figures ON, honors an explicit off", () =
   assert.equal(normalizeConfig({ capture: { figures: "yes" } }).capture.figures, true);
   assert.equal(normalizeConfig({ capture: "nonsense" }).capture.figures, true);
 });
+
+test("endpointOriginPattern is the host-permission pattern the relay checks (S7)", async () => {
+  const { endpointOriginPattern } = await import("../src/config/defaults.js");
+  assert.equal(endpointOriginPattern("http://127.0.0.1:8765/convert?token=x"), "http://127.0.0.1/*");
+  assert.equal(endpointOriginPattern("https://api.example.com/v1/convert"), "https://api.example.com/*");
+  assert.equal(endpointOriginPattern("not a url"), null);
+});

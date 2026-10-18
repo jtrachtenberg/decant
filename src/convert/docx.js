@@ -28,7 +28,7 @@ import JSZipNs from "jszip";
 import { fileBytes } from "./read-file.js";
 import { rowsToMarkdownTable, escapeMdInline } from "./xlsx.js";
 import { escapeMarkerLabel } from "./markdown.js";
-import { chartTablesFromZip } from "./chart.js";
+import { chartPartsFromZip } from "./chart.js";
 
 const mammoth = mammothNs.default ?? mammothNs;
 const JSZip = JSZipNs.default ?? JSZipNs;
@@ -106,10 +106,14 @@ function unescapePunctuation(markdown) {
 // Decision over mammoth's raw Markdown plus any recovered native charts
 // (Tier 1) — pure, exported for tests. `charts` is [{ title, rows }] from the
 // document's chart parts; each becomes a labeled table appended after the body.
-export function docxAnalysis(rawMarkdown, charts = []) {
-  const { markdown: stripped, images } = stripDataUriImages(
+// `omittedCharts` counts chart parts with no recoverable data (chartEx types,
+// empty caches): each gets a "[chart omitted]" marker and counts as a visual,
+// so the document prompts rather than silently losing the figure (B6).
+export function docxAnalysis(rawMarkdown, charts = [], omittedCharts = 0) {
+  const { markdown: stripped, images: rasterImages } = stripDataUriImages(
     stripBookmarkAnchors(rawMarkdown)
   );
+  const images = rasterImages + omittedCharts;
   const body = unescapePunctuation(normalizeEmphasisWhitespace(stripped));
   const chartBlocks = charts
     .map((c) => (c.title ? `**${escapeMdInline(c.title)}**\n\n` : "") + rowsToMarkdownTable(c.rows))
@@ -127,9 +131,11 @@ export function docxAnalysis(rawMarkdown, charts = []) {
   if (!realText && !chartBlocks.length) {
     return { decision: "passthrough", reason: "no-text", summary, markdown: null };
   }
-  const markdown = [body, ...chartBlocks].filter(Boolean).join("\n\n") + "\n";
+  const chartMarkers = Array(omittedCharts).fill("[chart omitted]").join("\n");
+  const markdown = [body, ...chartBlocks, chartMarkers].filter(Boolean).join("\n\n") + "\n";
   return {
-    // Recovered charts don't prompt; only stripped raster images do.
+    // Recovered charts don't prompt; stripped raster images and charts whose
+    // data couldn't be recovered do.
     decision: images > 0 ? "ambiguous" : "convert",
     reason: images > 0 ? "text-with-images" : "text",
     summary,
@@ -187,11 +193,11 @@ export async function analyzeDocx(file) {
   // recover it ourselves from the zip (Tier 1, SPEC §3.9). Chart recovery is a
   // bonus — if the zip re-open or chart scan fails, keep the good body rather
   // than dropping the whole conversion to passthrough.
-  let charts = [];
+  let charts = { tables: [], omitted: 0 };
   try {
-    charts = await chartTablesFromZip(await JSZip.loadAsync(buf), "word/charts");
+    charts = await chartPartsFromZip(await JSZip.loadAsync(buf), "word/charts");
   } catch {
-    charts = [];
+    charts = { tables: [], omitted: 0 };
   }
-  return docxAnalysis(value, charts);
+  return docxAnalysis(value, charts.tables, charts.omitted);
 }

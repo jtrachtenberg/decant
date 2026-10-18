@@ -14,7 +14,8 @@ Run:
     PORT=9000 python server.py
 
 Then point a routing rule at it (see README.md): action "companion", endpoint
-http://127.0.0.1:8765/convert, responseField "text", onError "inbrowser".
+http://127.0.0.1:8765/convert, responseField "text", onError "inbrowser"
+(append ?token=<DECANT_TOKEN> when you run it with a token).
 
 Wire contract (must match scripts/mock-endpoint.mjs and src/convert/http.js):
   POST|PUT /convert      -> 200 {"text": "<markdown>"}     (responseField "text")
@@ -26,10 +27,27 @@ yields nothing returns a non-2xx so the extension falls back per the rule's
 onError (never loses the upload). Binds 127.0.0.1 only — documents never leave
 the machine (SPEC §3.5 privacy guardrail); pointing a rule at a non-localhost
 host is the conscious "shape C" tradeoff and lives elsewhere.
+
+Access control (S2). Binding to loopback is not enough on its own: any web page
+the user visits can POST to 127.0.0.1, and DNS rebinding reaches it under a
+foreign Host name. So every request must
+  - name this server in its Host header (127.0.0.1 / localhost / [::1] + port);
+  - carry no Origin, or an extension origin (chrome-extension://,
+    moz-extension://, safari-web-extension://) — a web page's Origin is
+    refused; and, for the conversion paths,
+  - when DECANT_TOKEN is set, present it: `?token=` on the endpoint URL (what
+    the extension's routing rule carries), `Authorization: Bearer <token>`, or
+    `X-Decant-Token: <token>`.
+No CORS headers are sent: the extension's background fetch runs under its host
+permission and doesn't need them, and a page must not be able to read results.
+Uploads are capped at MAX_UPLOAD_BYTES.
 """
 
 import base64
+import hmac
+import logging
 import os
+import re
 import tempfile
 
 from flask import Flask, Response, abort, jsonify, request
@@ -39,6 +57,51 @@ from flask import Flask, Response, abort, jsonify, request
 # you actually installed. Choose with DECANT_ENGINE=markitdown|docling.
 ENGINE_NAME = os.environ.get("DECANT_ENGINE", "markitdown").strip().lower()
 PORT = int(os.environ.get("PORT", "8765"))
+
+# Largest request body accepted (Flask answers 413 above it). The extension's
+# relay caps files at 32 MB (src/convert/relay.js MAX_RELAY_BYTES); base64-JSON
+# inflates that by 4/3, so 64 MB admits every upload the extension can send.
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024
+
+# Browser origins allowed to call the service: extension pages and workers only.
+EXTENSION_ORIGIN_PREFIXES = (
+    "chrome-extension://",
+    "moz-extension://",
+    "safari-web-extension://",
+)
+
+# Host header values that name this server. Anything else (a rebinding
+# attacker's hostname) is refused.
+ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}", f"[::1]:{PORT}"}
+if PORT == 80:
+    ALLOWED_HOSTS |= {"127.0.0.1", "localhost", "[::1]"}
+
+
+# Optional shared secret (DECANT_TOKEN). When set, the conversion paths also
+# require it — `?token=` on the endpoint URL (what a Decant routing rule can
+# carry today), `Authorization: Bearer …`, or `X-Decant-Token: …` — which keeps
+# other local processes and other users of a shared machine out as well. The
+# server never prints or stores it; you choose it and paste the same value into
+# the rule's endpoint. Unset, the Host and Origin checks still refuse every web
+# page, so existing endpoints keep working unchanged.
+REQUIRED_TOKEN = os.environ.get("DECANT_TOKEN", "").strip()
+
+
+class _RedactToken(logging.Filter):
+    """Keep the token out of the request log (werkzeug logs the query string)."""
+
+    _pattern = re.compile(r"(token=)[^&\s\"]+")
+
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                self._pattern.sub(r"\1***", a) if isinstance(a, str) else a
+                for a in record.args
+            )
+        return True
+
+
+logging.getLogger("werkzeug").addFilter(_RedactToken())
 
 
 def make_engine(name):
@@ -115,11 +178,13 @@ def read_upload():
 # The temp-file suffix is the one piece of the upload name that touches the
 # filesystem. The upload's extension only *selects* from this table of formats
 # the engines can sniff; the string handed to NamedTemporaryFile is always one
-# of these literals, never user data (CodeQL py/path-injection).
+# of these literals, never user data (CodeQL py/path-injection). Bare `.zip` is
+# deliberately absent: MarkItDown recurses into archives, which is a
+# decompression-bomb surface for no document-conversion benefit (S2).
 _KNOWN_SUFFIXES = {s: s for s in (
     ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
     ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".md", ".txt", ".rtf",
-    ".epub", ".zip", ".ipynb", ".msg", ".eml", ".adoc", ".asciidoc",
+    ".epub", ".ipynb", ".msg", ".eml", ".adoc", ".asciidoc",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
     ".mp3", ".wav", ".m4a",
 )}
@@ -148,15 +213,44 @@ def convert_upload(name, data):
 
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+
+def _presented_token():
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.headers.get("X-Decant-Token") or request.args.get("token") or ""
+
+
+def _origin_allowed(origin):
+    return origin is None or origin.startswith(EXTENSION_ORIGIN_PREFIXES)
+
+
+@app.before_request
+def guard():
+    # Host first: a DNS-rebinding page reaches us under its own hostname.
+    if request.host not in ALLOWED_HOSTS:
+        return _plain_error("forbidden host\n", 403)
+    # A web page's fetch always carries its Origin on POST; extension workers
+    # carry an extension origin; curl and the CLI carry none.
+    if not _origin_allowed(request.headers.get("Origin")):
+        return _plain_error("forbidden origin\n", 403)
+    if REQUIRED_TOKEN and request.endpoint in ("convert", "convert_raw"):
+        if not hmac.compare_digest(_presented_token().encode(), REQUIRED_TOKEN.encode()):
+            app.logger.warning(
+                "rejected %s: missing or wrong DECANT_TOKEN — add ?token=<value> "
+                "to the endpoint in Decant's routing rule", request.path
+            )
+            return _plain_error("missing or invalid token\n", 401)
+    return None
 
 
 @app.after_request
-def cors(resp):
-    # Permissive CORS so the endpoint is also probeable from a page or curl; the
-    # extension's background fetch doesn't need it (mirrors the mock endpoint).
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "POST, PUT, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+def headers(resp):
+    # No Access-Control-Allow-* headers: the extension's background fetch runs
+    # under its host permission and doesn't need CORS, and a web page must not
+    # be able to read a conversion result.
     # Responses echo request-derived text (errors, converted uploads); nosniff
     # stops a legacy browser from second-guessing text/plain or text/markdown
     # into something renderable.
@@ -208,17 +302,13 @@ def _convert_or_abort():
     return text
 
 
-@app.route("/convert", methods=["POST", "PUT", "OPTIONS"])
+@app.route("/convert", methods=["POST", "PUT"])
 def convert():
-    if request.method == "OPTIONS":
-        return ("", 204)
     return jsonify({"text": _convert_or_abort()})
 
 
-@app.route("/convert-raw", methods=["POST", "PUT", "OPTIONS"])
+@app.route("/convert-raw", methods=["POST", "PUT"])
 def convert_raw():
-    if request.method == "OPTIONS":
-        return ("", 204)
     return Response(_convert_or_abort(), mimetype="text/markdown")
 
 
@@ -230,6 +320,7 @@ def health():
 if __name__ == "__main__":
     print(f"Decant companion ({ENGINE_NAME}) on http://127.0.0.1:{PORT}")
     print("paths: POST /convert  POST /convert-raw  GET /health")
+    print("token:", "required (DECANT_TOKEN)" if REQUIRED_TOKEN else "off (set DECANT_TOKEN to require one)")
     # 127.0.0.1 only: the companion is a local service; documents never leave
     # the machine. threaded so a slow conversion doesn't block /health probes.
     app.run(host="127.0.0.1", port=PORT, threaded=True)

@@ -20,9 +20,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { installNodeAssets } from "./node-assets.js";
 
-// Bumped so a packaged binary re-unpacks its embedded assets after an upgrade.
-const ASSET_VERSION = "0.3.0";
-
 const EXIT = {
   converted: 0,
   usage: 1,
@@ -71,17 +68,39 @@ Exit codes:
   2  conversion error
 `;
 
-function fail(code, msg) {
-  if (msg) process.stderr.write(`decant: ${msg}\n`);
+// Write to a stream and resolve once the data has been handed to the OS. A
+// piped stdout is asynchronous, so process.exit() straight after write() drops
+// everything past the first pipe buffer (64 KiB) — a truncated payload with
+// exit code 0 (B2). Every exit path therefore drains first.
+function drain(stream, text) {
+  return new Promise((resolve) => {
+    stream.write(text, () => resolve());
+  });
+}
+
+async function exitAfter(code, stream, text) {
+  if (text) await drain(stream, text);
   process.exit(code);
+}
+
+// A deliberate exit with a message: thrown from anywhere in the (async) run so
+// it unwinds to main(), which drains stderr and exits with `code`.
+class CliExit extends Error {
+  constructor(code, msg) {
+    super(msg);
+    this.code = code;
+  }
+}
+
+function fail(code, msg) {
+  throw new CliExit(code, msg);
 }
 
 // Tiny flag parser: a single `convert` subcommand, one positional input, and
 // the long options above. Keeps a dependency-free binary (CLI.md §7).
 function parseArgs(argv) {
   if (argv.includes("-h") || argv.includes("--help") || argv.length === 0) {
-    process.stdout.write(HELP);
-    process.exit(0);
+    return { help: true };
   }
   const [command, ...rest] = argv;
   if (command !== "convert") {
@@ -122,7 +141,7 @@ function parseArgs(argv) {
 }
 
 async function loadRouting(configPath) {
-  const { DEFAULT_CONFIG } = await import("../config/defaults.js");
+  const { DEFAULT_CONFIG, normalizeConfig } = await import("../config/defaults.js");
   if (!configPath) return DEFAULT_CONFIG.routing;
   let parsed;
   try {
@@ -131,8 +150,10 @@ async function loadRouting(configPath) {
     fail(EXIT.usage, `cannot read --config ${configPath}: ${err.message}`);
   }
   // Fail toward global routing (ARCHITECTURE.md §2.1): a config without a usable
-  // routing section falls back rather than bricking conversion.
-  return parsed?.routing ?? DEFAULT_CONFIG.routing;
+  // routing section falls back rather than bricking conversion. A hand-written
+  // file gets the same normalization as an options-page import (B12) — the
+  // router trusts normalized rules (e.g. both match lists present).
+  return normalizeConfig(parsed).routing;
 }
 
 function readInput(path) {
@@ -255,7 +276,7 @@ async function output(opts, result) {
       await writeFile(p, Buffer.from(await f.arrayBuffer()));
       paths.push(p);
     }
-    if (opts.json) process.stdout.write(envelope(opts, result, paths) + "\n");
+    if (opts.json) await drain(process.stdout, envelope(opts, result, paths) + "\n");
     return;
   }
 
@@ -269,7 +290,7 @@ async function output(opts, result) {
 
 async function emit(opts, text) {
   if (opts.out) await writeFile(opts.out, text);
-  else process.stdout.write(text);
+  else await drain(process.stdout, text);
 }
 
 function envelope(opts, result, paths) {
@@ -321,7 +342,7 @@ async function installAssets() {
   }
   if (sea?.isSea?.()) {
     const { installSeaAssets } = await import("./sea-assets.js");
-    await installSeaAssets(sea, ASSET_VERSION);
+    await installSeaAssets(sea);
   } else {
     installNodeAssets();
   }
@@ -329,15 +350,20 @@ async function installAssets() {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) return exitAfter(0, process.stdout, HELP);
 
   // Resolve pdf.js assets before importing the core: inbrowser.js reads its
   // asset URLs at module load (CLI.md §3.1). A packaged binary (SEA) unpacks its
   // embedded assets; a dev/npm run resolves them from node_modules.
   await installAssets();
-  const [index, savings] = await Promise.all([
+  const [index, savings, http] = await Promise.all([
     import("../convert/index.js"),
     import("../convert/savings.js"),
+    import("../convert/http.js"),
   ]);
+  // No service worker to relay through: companion/http rules in --config POST
+  // straight to their endpoint (B13).
+  index.setHttpTransport((f, rule) => http.httpConvert(f, rule));
   const core = {
     convertFile: index.convertFile,
     engineFor: index.engineFor,
@@ -358,7 +384,11 @@ async function main() {
 
   await output(opts, result);
   status(opts, result);
-  process.exit(exitFor(result.action));
+  await exitAfter(exitFor(result.action), process.stderr, "");
 }
 
-main().catch((err) => fail(EXIT.error, err?.stack || String(err)));
+main().catch((err) =>
+  err instanceof CliExit
+    ? exitAfter(err.code, process.stderr, err.message ? `decant: ${err.message}\n` : "")
+    : exitAfter(EXIT.error, process.stderr, `decant: ${err?.stack || String(err)}\n`)
+);

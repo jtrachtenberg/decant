@@ -152,6 +152,12 @@ const config = {
   bundle: true,
   format: "iife",
   target,
+  // Minified (O2): the content script is parsed on every page of every enabled
+  // host, and unminified it was 4.2 MB. Both stores accept minified code (the
+  // build is reproducible from source — see docs/store/firefox-amo.txt), and
+  // the [decant] console narration is string literals, so it survives intact.
+  // The watch build stays readable for development.
+  minify: !watch,
   legalComments: "none",
   logLevel: "info",
 };

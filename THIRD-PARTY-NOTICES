@@ -10,7 +10,7 @@ listed.
 
 --------------------------------------------------------------------------------
 PDF.js (pdfjs-dist)
-  Version:   6.1.200
+  Version:   6.4.299
   Copyright: Copyright 2024 Mozilla Foundation
   License:   Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
   Homepage:  https://github.com/mozilla/pdf.js
@@ -22,7 +22,7 @@ PDF.js (pdfjs-dist)
   profile, `iccs/LICENSE`).
 --------------------------------------------------------------------------------
 mammoth.js (mammoth)
-  Version:   1.12.0
+  Version:   1.13.0
   Copyright: Copyright (c) 2013, Michael Williamson
   License:   BSD 2-Clause — https://opensource.org/licenses/BSD-2-Clause
   Homepage:  https://github.com/mwilliamson/mammoth.js
@@ -30,7 +30,7 @@ mammoth.js (mammoth)
   Used in Decant: bundled into `content/intercept.js` (DOCX → Markdown engine).
 --------------------------------------------------------------------------------
 JSZip (jszip)
-  Version:   3.10.1
+  Version:   3.10.2
   Copyright: Copyright (c) 2009-2016 Stuart Knightley, David Duponchel,
              Franz Buchinger, António Afonso
   License:   MIT — https://opensource.org/licenses/MIT (dual-licensed
@@ -58,4 +58,23 @@ SheetJS Community Edition (xlsx)
 
   Used in Decant: bundled into `content/intercept.js` (XLSX/XLS → Markdown
   tables engine).
+--------------------------------------------------------------------------------
+pdf-lib (pdf-lib)
+  Version:   1.17.1
+  Copyright: Copyright (c) 2019 Andrew Dillon
+  License:   MIT — https://opensource.org/licenses/MIT
+  Homepage:  https://pdf-lib.js.org
+
+  Used in Decant: bundled into `content/intercept.js` (builds the
+  page-stamped figures PDF attached alongside a converted PDF).
+--------------------------------------------------------------------------------
+web-streams-polyfill (web-streams-polyfill)
+  Version:   4.3.0
+  Copyright: Copyright (c) 2026 Mattias Buelens
+  License:   MIT — https://opensource.org/licenses/MIT
+  Homepage:  https://github.com/MattiasBuelens/web-streams-polyfill
+
+  Used in Decant: bundled into `content/intercept.js` (a pure-JS
+  ReadableStream swapped in where Firefox's content-script sandbox refuses
+  the native one; unused on Chromium).
 --------------------------------------------------------------------------------

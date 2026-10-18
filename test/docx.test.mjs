@@ -193,3 +193,10 @@ test("chart.docx recovers the embedded chart data (real mammoth + zip)", async (
   assert.match(res.markdown, /\*\*Growth\*\*/);
   assert.match(res.markdown, /\| Feb \| 140 \|/);
 });
+
+test("a chart with no recoverable data is marked and prompts (B6)", () => {
+  const res = docxAnalysis("Body text.", [], 1);
+  assert.equal(res.decision, "ambiguous");
+  assert.equal(res.summary.images, 1);
+  assert.match(res.markdown, /\[chart omitted\]/);
+});

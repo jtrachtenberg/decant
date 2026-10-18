@@ -14,8 +14,9 @@
 import { browser } from "./browser.js";
 import { t } from "./i18n.js";
 import { loadConfig, saveConfig, onConfigChanged } from "./config/config.js";
-import { enabledHosts, hostOf, hostPattern, isHttpEndpoint } from "./config/defaults.js";
+import { enabledHosts, hostOf, hostPattern, endpointOriginPattern } from "./config/defaults.js";
 import { httpConvert } from "./convert/http.js";
+import { relayRuleFor } from "./convert/relay-trust.js";
 import { capturePage, captureFileName, CAPTURE_ERROR_KEYS } from "./capture/capture.js";
 import { menuItems, hostFromMenuId, displayName, FIGURES_MENU_ID } from "./capture/menus.js";
 import { resolveTarget } from "./capture/target.js";
@@ -325,20 +326,6 @@ browser.commands.onCommand.addListener(async (command, tab) => {
   runCapture(target, null);
 });
 
-// The set of endpoints the stored, already-validated routing rules point at.
-// The relay only fetches one of these — never an arbitrary URL that arrived in
-// a message (see the relay listener below).
-async function trustedEndpoints() {
-  const cfg = await loadConfig();
-  const set = new Set();
-  for (const r of cfg.routing?.rules ?? []) {
-    if ((r.action === "http" || r.action === "companion") && isHttpEndpoint(r.endpoint)) {
-      set.add(r.endpoint);
-    }
-  }
-  return set;
-}
-
 // ------------------------------------------------- http-convert relay ---
 // The content script can't fetch a rule's endpoint itself (page CORS), so it
 // relays the file here; this worker runs the engine with the extension's
@@ -350,12 +337,25 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     // Defense in depth: this worker holds the extension's host permissions, so
     // it must not POST a document to any URL merely because a message named it.
-    // Only endpoints present in the stored routing config are honoured, and the
-    // relay size cap is re-checked here (the sender's cap is not load-bearing).
-    const endpoint = msg.rule?.endpoint;
-    if (!isHttpEndpoint(endpoint) || !(await trustedEndpoints()).has(endpoint)) {
-      console.warn(TAG, "relay rejected: endpoint not in routing config:", endpoint);
+    // The message's rule is resolved against the STORED routing config and the
+    // stored rule is used wholesale (endpoint, output, responseField, request
+    // encoding); the relay size cap is re-checked here (the sender's cap is not
+    // load-bearing). See relay-trust.js for the three call paths.
+    const rule = relayRuleFor((await loadConfig()).routing, msg.rule);
+    if (!rule) {
+      console.warn(TAG, "relay rejected: endpoint not in routing config:", msg.rule?.endpoint);
       sendResponse({ ok: false, error: "endpoint not permitted by routing config" });
+      return;
+    }
+    // Only with the host permission the options page asked for (S7). Without
+    // it an endpoint that answers with permissive CORS would still be reached
+    // — the service worker's fetch doesn't need the grant for that — so a
+    // declined or revoked grant, or a rule synced from another device where
+    // it was granted, must not quietly keep sending documents.
+    const origin = endpointOriginPattern(rule.endpoint);
+    if (!origin || !(await browser.permissions.contains({ origins: [origin] }))) {
+      console.warn(TAG, "relay rejected: no host permission for", origin);
+      sendResponse({ ok: false, error: "no host permission for endpoint" });
       return;
     }
     const file = wireToFile(msg.file);
@@ -363,7 +363,7 @@ browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: false, error: "file exceeds relay size cap" });
       return;
     }
-    const out = await httpConvert(file, msg.rule);
+    const out = await httpConvert(file, rule);
     sendResponse({ ok: true, file: await fileToWire(out) });
   })().catch((err) => {
     console.warn(TAG, "http convert failed:", err.message);

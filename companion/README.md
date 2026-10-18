@@ -64,6 +64,7 @@ Options (environment variables):
 | --- | --- | --- |
 | `DECANT_ENGINE` | `markitdown` | `markitdown`, `docling`, or `echo` (see below) |
 | `PORT` | `8765` | port to bind on `127.0.0.1` |
+| `DECANT_TOKEN` | *(unset)* | a secret the conversion paths then require (see [Access control](#access-control)) |
 
 - **`markitdown`** — default; fast, broad format coverage, light install. But its
   PDF path is flat text extraction: it does **not** reconstruct tables or
@@ -155,6 +156,38 @@ companion**. It POSTs the original to the endpoint, so a fidelity engine
 fails, it falls back to sending the original — nothing lost. Browser-only users
 (no endpoint) just see the original two choices.
 
+## Access control
+
+Binding to `127.0.0.1` keeps the service off the network, but a web page open in
+your browser can still send requests to loopback. The server therefore refuses:
+
+- **any `Host` header** other than `127.0.0.1:<PORT>`, `localhost:<PORT>` or
+  `[::1]:<PORT>` (blocks DNS rebinding);
+- **any browser `Origin`** other than an extension's (`chrome-extension://`,
+  `moz-extension://`, `safari-web-extension://`). A web page's request carries
+  its own origin and gets `403`; curl and the Decant CLI send no `Origin`;
+- **bodies over 64 MB** (`413`); the extension never sends more than 32 MB.
+
+It sends **no CORS headers**, so a page can't read a result even if it got one.
+Decant's background worker doesn't need CORS: it fetches under the
+`http://127.0.0.1` host permission the options page asks for when you add the
+rule. **Grant that permission** — if you declined it, conversions now fail and
+fall back per `onError` (before, the permissive CORS header let them through).
+
+**Optional token.** Set `DECANT_TOKEN` to a long random value (for example
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`) to also keep out
+other local programs and other users of a shared machine. The conversion paths
+then need it, and the easiest way to send it from Decant is on the endpoint URL:
+
+```text
+http://127.0.0.1:8765/convert?token=<your DECANT_TOKEN>
+```
+
+`Authorization: Bearer <token>` and `X-Decant-Token: <token>` headers work too
+(for curl and scripts). The server never prints or stores the token, and it
+redacts `token=` from its request log. `/health` stays open (it carries no
+document).
+
 ## Contract (must match the mock endpoint & `src/convert/http.js`)
 
 | Method / path | Response |
@@ -166,7 +199,8 @@ fails, it falls back to sending the original — nothing lost. Browser-only user
 Request body is either `multipart/form-data` with a **`file`** field, or
 `application/json {"name","type","data"(base64)}`. A conversion that fails or
 produces no text returns a **non-2xx**, so the extension falls back per
-`onError` and never loses the upload.
+`onError` and never loses the upload. Requests the [access
+control](#access-control) refuses get `401`/`403`/`413`.
 
 ## Smoke test
 
@@ -190,5 +224,6 @@ background worker uses.
 ## Privacy
 
 The server binds **`127.0.0.1` only** — documents never leave the machine
-(SPEC §3.5). Pointing a routing rule at a non-localhost endpoint is the
+(SPEC §3.5) — and refuses requests from web pages (see [Access
+control](#access-control)). Pointing a routing rule at a non-localhost endpoint is the
 conscious "shape C" tradeoff and is warned about in the options page, not here.
