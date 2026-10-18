@@ -4587,6 +4587,13 @@ function emitLine(line, bodyH) {
 // Headings pass atLineStart=false: their "# " prefix is already in front.
 function escapeMarkdownText(text, atLineStart) {
   let out = text
+    // Backslash first (CodeQL js/incomplete-sanitization): it is the escape
+    // character, so a literal "\" in the PDF text must be doubled before we add
+    // any escapes of our own — otherwise an author's "\*" would read as an
+    // escaped backslash followed by a live "*", and a trailing "\" would eat the
+    // escape we append. This mirrors escapeMdInline / rowsToMarkdownTable, which
+    // double backslashes before their own metacharacters for the same reason.
+    .replace(/\\/g, "\\\\")
     .replace(/[*`]/g, "\\$&")
     .replace(/(^|[^\p{L}\p{N}\\])_|_(?=$|[^\p{L}\p{N}])/gu, (m, pre) =>
       pre === undefined ? "\\_" : `${pre}\\_`

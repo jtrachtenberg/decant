@@ -455,6 +455,17 @@ test("body text that looks like Markdown syntax is escaped, not reinterpreted (B
   assert.match(md, /^snake_case_name stays$/m);
 });
 
+test("a literal backslash in body text is doubled first so added escapes survive (B3 / CodeQL js/incomplete-sanitization)", () => {
+  const lines = reconstructLines([
+    item("backslash \\ and star * and path C:\\tmp survive", 0, 200),
+    item("second body line long enough to anchor the page body height", 0, 186),
+  ]);
+  const md = linesToMarkdown(lines);
+  // The lone backslash is doubled; the star is still escaped afterward; and the
+  // path's backslash is doubled, not consumed by a following escape.
+  assert.match(md, /backslash \\\\ and star \\\* and path C:\\\\tmp survive/);
+});
+
 test("a real heading still merges its wrapped second line (B3)", () => {
   const lines = reconstructLines([
     item("A Long Display Heading That", 0, 220, { h: 20 }),
